@@ -305,7 +305,7 @@ struct HumanInterventionDetailsTests {
 
     private func payload(sequence: UInt64, label: String, picture: Bool,
                          protected: Bool) -> HumanRecordedInteraction {
-        let metadata = InteractionElementMetadata.read(isReservedLabel: ValueMinimization.namesSecret) {
+        let metadata = InteractionElementMetadata.read(isReservedLabel: SensitivityClassifier().valueGuard.refusesLabel) {
             ["AXRole": protected ? "AXSecureTextField" : "AXButton",
              "AXTitle": protected ? "Password" : label][$0]
         }

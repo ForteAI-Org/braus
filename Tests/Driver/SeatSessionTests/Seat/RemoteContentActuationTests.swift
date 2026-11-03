@@ -259,7 +259,7 @@ struct RemoteContentActuationTests {
     @Test("effect evidence distinguishes a wrong target from an unverified selection write")
     func humanRefusalEffectEvidence() {
         #expect(!RemoteContentActuationRefusal.opensMenu("AXPopUpButton").mayHaveTakenEffect)
-        #expect(!RemoteContentActuationRefusal.wrongElement(requested: "Create", found: "Cancel").mayHaveTakenEffect)
+        #expect(!RemoteContentActuationRefusal.wrongElement(requested: "Create", foundRole: kAXButtonRole).mayHaveTakenEffect)
         #expect(RemoteContentActuationRefusal.selectionNotVerified("AXRow").mayHaveTakenEffect)
     }
 
@@ -1214,7 +1214,7 @@ struct RemoteContentActuationTests {
             _ = try result.get()
             #expect(button.performed == [kAXPressAction])
         } else {
-            #expect(throws: RemoteContentActuationRefusal.wrongElement(requested: "Keys", found: name)) {
+            #expect(throws: RemoteContentActuationRefusal.wrongElement(requested: "Keys", foundRole: kAXButtonRole)) {
                 try result.get()
             }
             #expect(button.performed.isEmpty)
@@ -1242,7 +1242,7 @@ struct RemoteContentActuationTests {
             .click(Self.point(in: finder.window), count: 3), endpoint: endpoint, expecting: "File Name"
         )
         let refusal: RemoteContentActuationRefusal = editable
-            ? .wrongElement(requested: "File Name", found: "Other field") : .fieldRequiresClick
+            ? .wrongElement(requested: "File Name", foundRole: kAXTextFieldRole) : .fieldRequiresClick
         #expect(throws: refusal) {
             try result.get()
         }
@@ -1276,7 +1276,7 @@ struct RemoteContentActuationTests {
         if labelled {
             #expect(try result.get().action == kAXPressAction)
         } else {
-            #expect(throws: RemoteContentActuationRefusal.wrongElement(requested: "Name the track:", found: "Kick")) {
+            #expect(throws: RemoteContentActuationRefusal.wrongElement(requested: "Name the track:", foundRole: kAXTextFieldRole)) {
                 try result.get()
             }
             #expect(field.performed.isEmpty)

@@ -14,6 +14,9 @@ import HIDActuation
 import Memory
 import OSLog
 import Perception
+#if BRAUS_PHASES
+import PhaseSignposts
+#endif
 import SeatDriving
 import WindowServerListing
 import WorkspaceActivation
@@ -41,7 +44,10 @@ public struct EngineRuntime {
 
     public init(knowledgeDirectory: URL, seat: SeatTarget? = nil) {
         if let seat {
-            let pipeline = ProductionPerception.pipeline(timingHook: { stage, duration in
+            let pipeline = ProductionPerception.workerPipeline(timingHook: { stage, duration in
+                #if BRAUS_PHASES
+                PhaseEvent.sceneStage(stage, duration)
+                #endif
                 Logger(subsystem: "dev.forte.Braus", category: "Perception")
                     .info("scene phase \(stage.rawValue, privacy: .public): \(duration.description, privacy: .public)")
             })
@@ -52,7 +58,7 @@ public struct EngineRuntime {
             activation = nil
             settling   = SeatSettler(target: seat)
         } else {
-            scenes = ProductionPerception.foregroundScenes()
+            scenes = ProductionPerception.foregroundScenes(valueGuard: ProductionPerception.workerValueGuard)
             actuator   = HIDActuator()
             controls   = AccessibilityController()
             activation = WorkspaceActivator()

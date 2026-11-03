@@ -65,6 +65,18 @@ struct CompactSceneTextTests {
         )
     }
 
+    @Test
+    func textWithoutKnowledgeUnchanged() {
+        let live = Self.scene([Self.control("Save", 0.1, 0.2)])
+        #expect(live.text() == "Example (com.example.app) \"Doc\" 1000x800, 1 elements\n## content @0,0 100x100\n[control] Save @10,20\n")
+        for status in [SceneKnowledge.Status.nothing, .unrecognized, .unavailable, .applied] {
+            var annotated = live
+            annotated.knowledge = SceneKnowledge(status: status)
+            #expect(annotated.text() == live.text())
+            #expect(annotated.mapText() == live.mapText())
+        }
+    }
+
     @Test("a position prints as the whole percent its two-decimal print showed")
     func percentsMatchTheTwoDecimalPrint() {
         let edges: [(Double, Int)] = [(0, 0), (0.125, 12), (0.135, 14), (0.005, 1), (0.995, 99), (1, 100), (-0.001, 0)]

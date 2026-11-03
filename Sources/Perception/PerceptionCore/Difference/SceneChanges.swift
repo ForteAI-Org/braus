@@ -65,9 +65,10 @@ public enum SceneChanges {
         if before.viewportPixelSize != after.viewportPixelSize {
             header.append("viewport: \(after.viewportPixelSize.width)x\(after.viewportPixelSize.height)\n")
         }
-        if before.knowledge != after.knowledge {
-            let knowledge = after.knowledgeText()
-            header.append(knowledge.isEmpty ? "memory: not read for this scene\n" : knowledge)
+        let knowledge = after.knowledgeText()
+        if let status = after.knowledge?.status, status != .unavailable,
+           knowledge != before.knowledgeText() {
+            header.append(knowledge.isEmpty ? "memory: no window operations in this state\n" : knowledge)
         }
         let sectionsChanged = !sameLayout(before, after)
         let sectionNames = Set(after.sections.map(\.name))
@@ -80,10 +81,12 @@ public enum SceneChanges {
             matchedAfter.insert(new)
             let was = earlier(before.elements[old], after.elements[new], sections: sectionNames)
             guard !was.isEmpty else { continue }
+            var shown = after.elements[new]
+            shown.does = nil
             reported.append(Line(
                 section: placed(after.elements[new].section, in: after),
                 bounds : after.elements[new].bounds,
-                text   : "~ " + line(after.elements[new]) + "  (was " + was.joined(separator: ", ") + ")"
+                text   : "~ " + line(shown) + "  (was " + was.joined(separator: ", ") + ")"
             ))
         }
         for (index, element) in after.elements.enumerated() where !matchedAfter.contains(index) {
@@ -251,14 +254,13 @@ public enum SceneChanges {
         if (old.isEnabled == false) != (new.isEnabled == false) {
             was.append(old.isEnabled == false ? "[disabled]" : "enabled")
         }
-        if old.container != new.container { was.append(old.container.map { "{\($0)}" } ?? "no container") }
-        if old.does != new.does { was.append(old.does.map { ": \($0)" } ?? "no learned effect") }
+        if old.container != new.container { was.append(old.container.map { "{\(SceneSnapshot.inline($0))}" } ?? "no container") }
         if new.hasChangedPixels == true { was.append("other pixels") }
         if abs(old.bounds.midX - new.bounds.midX) > nearby || abs(old.bounds.midY - new.bounds.midY) > nearby {
             was.append(SceneSnapshot.place(old.bounds))
         }
         if let section = old.section, section != new.section, sections.contains(section) {
-            was.append("in \(section)")
+            was.append("in \(SceneSnapshot.inline(section))")
         }
         return was
     }
@@ -271,7 +273,7 @@ public enum SceneChanges {
     /// A removed element as the reader can still tell it apart: its tag, label, shown id and place.
     private static func short(_ element: SceneElement) -> String {
         let identity = shownID(element).map { " id:'\($0)'" } ?? ""
-        let label = element.isUnlabeled && element.label == SceneSnapshot.unlabeledLabel ? "" : " " + element.label
+        let label = element.isUnlabeled && element.label == SceneSnapshot.unlabeledLabel ? "" : " " + SceneSnapshot.inline(element.label)
         return "[\(tag(element))]\(label)\(identity) \(SceneSnapshot.place(element.bounds))"
     }
 

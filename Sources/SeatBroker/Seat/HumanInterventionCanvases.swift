@@ -89,10 +89,10 @@ struct HumanInterventionCanvases {
     /// Drops every window's pixels.
     mutating func removeAll() { histories.removeAll() }
 
-    /// The report's withholding rule for a crop: a text minimization withheld, a label naming a secret, or
-    /// credential-shaped text.
+    /// The report's withholding rule for a crop: a text minimization withheld, or text the value guard classes
+    /// as secret, as the human scene reader reserves it.
     static func isWithheld(_ text: String) -> Bool {
-        text.contains(ValueMinimization.marker) || ValueMinimization.namesSecret(text)
-            || ValueMinimization.scrubCredentials(text).1
+        text.contains(ValueMinimization.marker)
+            || SensitivityClassifier().classify(text, in: .init(labels: [text])).sensitivity == .secret
     }
 }

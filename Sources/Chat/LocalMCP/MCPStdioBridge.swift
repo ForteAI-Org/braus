@@ -32,7 +32,7 @@ public enum MCPStdioBridge {
             do {
                 while let response = try await channel.read() {
                     if response != .null {
-                        var data = try JSONEncoder().encode(response)
+                        var data = try JSONValue.canonicalEncoder().encode(response)
                         data.append(10)
                         try FileHandle.standardOutput.write(contentsOf: data)
                     }

@@ -6,13 +6,13 @@ enum BatchSequence {
 
     static func run(
         _ steps: [BatchStep],
-        perform: (Int, BatchStep) async throws -> ActOutcomeKind
+        perform: (Int, BatchStep) async throws -> ActOutcome
     ) async throws {
         for (index, step) in steps.enumerated() {
             do {
                 try Task.checkCancellation()
-                let kind = try await perform(index + 1, step)
-                guard step.accepts(kind) else { throw ActFailure(kind) }
+                let result = try await perform(index + 1, step)
+                guard step.accepts(step.outcome(of: result)) else { throw ActFailure(result.kind) }
             } catch {
                 throw BatchFailure(step: index + 1, total: steps.count, cause: error)
             }

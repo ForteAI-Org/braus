@@ -13,7 +13,7 @@ struct MCPRouterToolChangesTests {
 
     @Test @MainActor
     func fixedListKeepsItsCapabilityAndSendsNothing() async throws {
-        let router = MCPRouter(tools: [.object(["name": .string("observe")])]) { _, _ in .object([:]) }
+        let router = MCPRouter(tools: [.object(["name": .string("observe")])], instructions: nil) { _, _ in .object([:]) }
         var notifications: [JSONValue] = []
         _ = router.addNotificationSink { notifications.append($0) }
         let initialized = try #require(await router.handle(request("initialize")))
@@ -27,7 +27,7 @@ struct MCPRouterToolChangesTests {
     @Test @MainActor
     func announcedChangesReachEveryConnectionAndCallsFollowTheNewList() async throws {
         let router = MCPRouter(
-            tools                   : [.object(["name": .string("observe")])],
+            tools                   : [.object(["name": .string("observe")])], instructions: nil,
             announcesToolListChanges: true
         ) { name, _ in .object(["called": .string(name)]) }
         let initialized = try #require(await router.handle(request("initialize")))
@@ -52,7 +52,7 @@ struct MCPRouterToolChangesTests {
         var release: CheckedContinuation<Void, Never>?
         var calls = 0
         var cancelled = false
-        let router = MCPRouter(tools: [.object(["name": .string("observe")])]) { _, _ in
+        let router = MCPRouter(tools: [.object(["name": .string("observe")])], instructions: nil) { _, _ in
             calls += 1
             await withCheckedContinuation { release = $0 }
             cancelled = Task.isCancelled
@@ -82,7 +82,7 @@ struct MCPRouterToolChangesTests {
     func ordinaryStopOverridesHumanSuspension() async throws {
         var release: CheckedContinuation<Void, Never>?
         var cancelled = false
-        let router = MCPRouter(tools: [.object(["name": .string("observe")])]) { _, _ in
+        let router = MCPRouter(tools: [.object(["name": .string("observe")])], instructions: nil) { _, _ in
             await withCheckedContinuation { release = $0 }
             cancelled = Task.isCancelled
             return .null
@@ -100,7 +100,7 @@ struct MCPRouterToolChangesTests {
 
     @Test @MainActor
     func aConnectedClientReceivesTheNotification() async throws {
-        let router = MCPRouter(tools: [], announcesToolListChanges: true) { _, _ in .object([:]) }
+        let router = MCPRouter(tools: [], instructions: nil, announcesToolListChanges: true) { _, _ in .object([:]) }
         let host = LocalMCPHost(router: router)
         let endpoint = try await host.start()
         defer { host.stop() }

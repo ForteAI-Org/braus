@@ -41,12 +41,13 @@ struct OllamaClient: ModelTransport {
 
     func converse(_ messages: [TurnMessage], tools: [ToolDefinition], timeout: TimeInterval)
         throws -> AsyncThrowingStream<TurnEvent, any Error> {
+        let names = try ToolNameAliases(tools: tools, messages: messages)
         let url = try Self.endpoint(settings.ollamaHost, "/api/chat")
         // The body depends on what `/api/show` answers, so it is built as the stream starts.
         return HTTPTransport.stream({
             let body = try requestBody(messages: messages, tools: tools, stream: true, show: try await show())
             return try HTTPTransport.request(url, headers: [:], body: body, timeout: timeout)
-        }, assembler: TurnAssembler(format: .newlineDelimitedJSON, decode: Self.decode))
+        }, assembler: TurnAssembler(format: .newlineDelimitedJSON, decode: Self.decode, toolNames: names))
     }
 
     func capabilities() async throws -> ModelCapabilities {
@@ -57,8 +58,9 @@ struct OllamaClient: ModelTransport {
     /// and `think` as `show`, the model's `/api/show` answer, allows it.
     func requestBody(messages: [TurnMessage], tools: [ToolDefinition], stream: Bool,
                      show: [String: Any]) throws -> [String: Any] {
+        let names = try ToolNameAliases(tools: tools, messages: messages)
         let capabilities = Self.capabilities(show: show)
-        let prepared = messages.map { $0.forModel(with: capabilities) }
+        let prepared = messages.map { names.sending($0.forModel(with: capabilities)) }
         var body: [String: Any] = [
             "model": model,
             "stream": stream,
@@ -77,7 +79,7 @@ struct OllamaClient: ModelTransport {
         if !tools.isEmpty {
             body["tools"] = try tools.map { tool in
                 ["type": "function",
-                 "function": ["name": tool.name, "description": tool.description,
+                 "function": ["name": ToolNameAliases.wireName(tool.name), "description": tool.description,
                               "parameters": try JSONSerialization.jsonObject(with: tool.parameters)]]
             }
         }

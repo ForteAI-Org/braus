@@ -23,6 +23,7 @@ struct TurnAssembler: Sendable {
     private var reader: EventStreamReader
     private let decode: PayloadDecoding
     private let recordProvider: ModelProvider?
+    private let toolNames: ToolNameAliases?
     private(set) var progress = TurnProgress()
     private(set) var deltaCount = 0
 
@@ -32,10 +33,11 @@ struct TurnAssembler: Sendable {
     /// `recording` names the provider whose turn is kept as a `TurnRecord`,
     /// nil for a provider that is never sent its turn back.
     init(format: EventStreamReader.Format, decode: @escaping PayloadDecoding,
-         recording recordProvider: ModelProvider? = nil) {
+         recording recordProvider: ModelProvider? = nil, toolNames: ToolNameAliases? = nil) {
         self.reader = EventStreamReader(format: format)
         self.decode = decode
         self.recordProvider = recordProvider
+        self.toolNames = toolNames
     }
 
     /// The text this byte completed, if it completed any.
@@ -60,7 +62,7 @@ struct TurnAssembler: Sendable {
     /// The tool calls completed since the last take, in the order they arrived.
     mutating func takeToolCalls() -> [ToolCall] {
         defer { takenToolCalls = progress.toolCalls.count }
-        return Array(progress.toolCalls[takenToolCalls...])
+        return progress.toolCalls[takenToolCalls...].map { toolNames?.restoring($0) ?? $0 }
     }
 
     /// The terminal element, or the refusal owed when the provider never

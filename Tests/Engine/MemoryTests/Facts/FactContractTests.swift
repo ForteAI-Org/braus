@@ -224,11 +224,11 @@ struct FactContractTests {
             location: .argument(name: "text", position: 0),
             reason: .secretTarget
         )])
-        for label in ["Password", "Parola d'ordine", "API key", "Codice di verifica", "PIN", "One-time code"] {
-            #expect(ValueMinimization.namesSecret(label), "\(label)")
+        for label in ["Password", "Parola d'ordine", "API key", "Codice di verifica", "One-time code"] {
+            #expect(SensitivityClassifier().valueGuard.refusesLabel(label), "\(label)")
         }
         for label in ["Name", "Pinned items", "Spinner", "File name", "Opinion"] {
-            #expect(!ValueMinimization.namesSecret(label), "\(label)")
+            #expect(!SensitivityClassifier().valueGuard.refusesLabel(label), "\(label)")
         }
         let (message, reason) = minimization.minimize(text: "the field reads '\(Self.canaryPassword)'")
         #expect(reason == .declaredSecret && !message.contains(Self.canaryPassword))

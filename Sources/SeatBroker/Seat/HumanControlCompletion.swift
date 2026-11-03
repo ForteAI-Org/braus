@@ -44,7 +44,7 @@ struct HumanControlCompletion {
         let reviewed = await review(note)
         let summary = ending.map { $0 + "\n" + reviewed } ?? reviewed
         step("input ended; final review and summary ready")
-        Self.log.notice("human handoff summary: \(summary.utf8.count, privacy: .public) bytes; \(summary.split(separator: "\n").prefix(3).joined(separator: "\n"), privacy: .public)")
+        Self.log.notice("human handoff summary: \(summary.utf8.count, privacy: .public) bytes; \(summary.split(separator: "\n").count, privacy: .public) lines")
         await drain()
         step("old worker run drained")
         try await resume(summary)

@@ -4,6 +4,7 @@
 //
 
 import AutomationRuntime
+import AutomationMCP
 import Foundation
 import SwiftUI
 import os
@@ -17,6 +18,7 @@ enum BrausEntry {
 
     static func main() {
         ScriptedWorkerRun.noteLaunch()
+        AutomationTools.reportInvalidSwitches()
         if let refusal = LaunchIsolation.current.refusal(bundleID: Bundle.main.bundleIdentifier) {
             // A launch from Finder or by the system has no terminal: the log keeps the reason too.
             Logger(subsystem: "dev.forte.Braus", category: "Launch").error("Did not start: \(refusal, privacy: .public)")

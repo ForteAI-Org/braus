@@ -52,7 +52,7 @@ struct HumanStepToolTests {
         let tools = AutomationTools(session: session)
         var records: [String] = []
         tools.record = { records.append($0) }
-        let router = MCPRouter(tools: tools.toolDefinitions, call: tools.call)
+        let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil, call: tools.call)
         let listed = try #require(await router.handle(.object([
             "jsonrpc": .string("2.0"), "id": .number(1), "method": .string("tools/list")
         ])))
@@ -76,7 +76,7 @@ struct HumanStepToolTests {
         let picture = Data([0, 1, 2, 3])
         session.answer = HumanStepResult(text: "3: Colour palette", images: [.init(data: picture, mimeType: "image/heic")])
         let tools = AutomationTools(session: session)
-        let router = MCPRouter(tools: tools.toolDefinitions, call: tools.call)
+        let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil, call: tools.call)
         let response = try #require(await router.handle(request(["picture": .number(3)])))
         let blocks = try #require(response["result"]["content"].array)
         #expect(blocks.count == 2)
@@ -115,7 +115,7 @@ struct HumanStepToolTests {
     @Test func invalidRequestsDoNotReachTheRetainedHistory() async throws {
         let session = HumanStepSession()
         let tools = AutomationTools(session: session)
-        let router = MCPRouter(tools: tools.toolDefinitions, call: tools.call)
+        let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil, call: tools.call)
         let response = try #require(await router.handle(request(["steps": .string("1-1000")])))
         #expect(response["result"]["isError"] == .bool(true))
         #expect(session.requests.isEmpty)

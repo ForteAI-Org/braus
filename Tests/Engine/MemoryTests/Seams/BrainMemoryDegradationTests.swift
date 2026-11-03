@@ -69,10 +69,10 @@ actor FaultyMemory: BrainReading, BrainApplicationStoring, BrainRelationReading 
 
 /// What a scene says when a read its enrichment needs fails (review F05b): the live scene, its elements
 /// as perceived and its token, with nothing of the memory on it, no recalled label, no group, no
-/// relation on an element, no operation of the window, and `memory: unavailable`, whichever read failed:
+/// relation on an element, no operation of the window, and no memory line, whichever read failed:
 /// the part of the projection, the state or the relations. What it shows and what it says agree, in the
 /// scene, its rendering and its changes, and the next healthy read says all it finds, nothing left over.
-@Suite("A memory that cannot be read leaves the live scene, and says so")
+@Suite("A memory that cannot be read leaves the live scene")
 struct BrainMemoryDegradationTests {
 
     private static let bundle = "com.example.Editor"
@@ -110,7 +110,7 @@ struct BrainMemoryDegradationTests {
         ])
     }
 
-    @Test("whichever read fails, the scene is the live one with nothing of the memory and says it is unavailable, in its text and its changes; the next healthy read says all it finds",
+    @Test("whichever read fails, the live scene carries unavailable knowledge without a memory line; the next healthy read says all it finds",
           arguments: FaultyMemory.Read.allCases)
     func failedReadLeavesTheLiveScene(_ read: FaultyMemory.Read) async throws {
         let store = try Self.memory()
@@ -126,12 +126,12 @@ struct BrainMemoryDegradationTests {
         #expect(degraded.knowledge == SceneKnowledge(status: .unavailable), "\(read): no operation of the window either")
         #expect(degraded.elements == live.elements && degraded.token == live.token, "\(read): the live perception, nothing of the memory")
         let rendered = degraded.text()
-        #expect(rendered.contains("memory: unavailable right now; the scene is live, what was learned is not shown"))
+        #expect(!rendered.contains("memory:"))
         for absent in ["Mixer", "click:", "window:", "secret-canary", "SQLITE", "SELECT"] {
             #expect(!rendered.contains(absent), "\(read): \(absent) in \(rendered)")
         }
         let changes = SceneChanges.text(from: healthy, to: degraded, since: 1)
-        #expect(changes.contains("memory: unavailable right now") && !changes.contains("window:") && !changes.contains("secret-canary"),
+        #expect(!changes.contains("memory:") && !changes.contains("window:") && !changes.contains("secret-canary"),
                 "\(read): \(changes)")
         // Enriching again what an earlier read annotated leaves no annotation of it behind.
         let again = await memory.enrich(healthy, window: Self.window(healthy))

@@ -1,0 +1,67 @@
+# transitional ceiling: 13
+# One rule | path | literal | kind | reason per reviewed exception.
+# R-X-42 classifies the noncommercial terminal as category; the initial count is 13.
+# Compare future deliveries against the PU1 commit, then the previous delivery.
+bundle-id | Sources/Driver/SeatSession/Seat/AgentSeat+Observation.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/Driver/TargetReader/Observation/ChromiumAXTreeReadiness.swift | com.google.Chrome | category | Browser category: accessibility readiness
+bundle-id | Sources/Driver/TargetReader/Observation/ChromiumAXTreeReadiness.swift | com.google.Chrome.beta | category | Browser category: accessibility readiness
+bundle-id | Sources/Driver/TargetReader/Observation/ChromiumAXTreeReadiness.swift | com.google.Chrome.canary | category | Browser category: accessibility readiness
+bundle-id | Sources/Driver/TargetReader/Observation/ChromiumAXTreeReadiness.swift | com.google.Chrome.dev | category | Browser category: accessibility readiness
+bundle-id | Sources/Driver/TargetReader/Observation/ChromiumAXTreeReadiness.swift | org.chromium.Chromium | category | Browser category: accessibility readiness
+bundle-id | Sources/Engine/Engine/ActionDelivery.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/Engine/Engine/ActionEngine.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/Engine/EngineCore/Policy/ActionPolicy.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/Engine/Memory/Privacy/ConfidentialSurfaces.swift | com.microsoft.Outlook | category | Confidential surface category: correspondence and personal records
+bundle-id | Sources/Engine/Memory/Privacy/ConfidentialSurfaces.swift | com.microsoft.teams2 | category | Confidential surface category: correspondence and personal records
+bundle-id | Sources/Engine/Memory/Privacy/ConfidentialSurfaces.swift | com.readdle.smartemail-Mac | category | Confidential surface category: correspondence and personal records
+bundle-id | Sources/Engine/Memory/Privacy/ConfidentialSurfaces.swift | com.tinyspeck.slackmacgap | category | Confidential surface category: correspondence and personal records
+bundle-id | Sources/Engine/Memory/Privacy/ConfidentialSurfaces.swift | net.shinyfrog.bear | category | Confidential surface category: correspondence and personal records
+bundle-id | Sources/Engine/Memory/Privacy/ConfidentialSurfaces.swift | net.whatsapp.WhatsApp | category | Confidential surface category: correspondence and personal records
+bundle-id | Sources/Engine/Memory/Privacy/ConfidentialSurfaces.swift | org.mozilla.thunderbird | category | Confidential surface category: correspondence and personal records
+bundle-id | Sources/Engine/Memory/Privacy/ConfidentialSurfaces.swift | org.whispersystems.signal-desktop | category | Confidential surface category: correspondence and personal records
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.brave.Browser | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.brave.Browser.beta | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.brave.Browser.nightly | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.duckduckgo.macos.browser | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.google.Chrome | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.google.Chrome.beta | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.google.Chrome.canary | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.google.Chrome.dev | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.kagi.kagimacOS | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.microsoft.edgemac | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.microsoft.edgemac.Beta | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.microsoft.edgemac.Canary | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.microsoft.edgemac.Dev | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.operasoftware.Opera | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.operasoftware.OperaGX | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | com.vivaldi.Vivaldi | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | io.island.Island | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | org.chromium.Chromium | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | org.mozilla.firefox | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | org.mozilla.firefoxdeveloperedition | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/AutomationRuntime/WebBrowsers.swift | org.mozilla.nightly | category | Browser category: supported browser identification
+bundle-id | Sources/Integration/SeatDriving/SeatControls.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/Integration/TaskRouting/RouteCatalogue.swift | net.whatsapp.WhatsApp | transitional | Named route service: remove through TU10
+bundle-id | Sources/Mac/Driver/MacRefusedApps.swift | com.1password.1password | category | Password manager category: protected applications
+bundle-id | Sources/Mac/Driver/MacRefusedApps.swift | com.agilebits.onepassword7 | category | Password manager category: protected applications
+bundle-id | Sources/Mac/Driver/MacRefusedApps.swift | com.bitwarden.desktop | category | Password manager category: protected applications
+bundle-id | Sources/Mac/Driver/MacRefusedApps.swift | com.lastpass.LastPass | category | Password manager category: protected applications
+bundle-id | Sources/Perception/AccessibilityFacts/LiveAccessibilityReader.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/Perception/AccessibilityFacts/NativeButtonState.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/SeatBroker/Public/SeatBroker.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/SeatBroker/Runtime/ApplicationOpening.swift | com.1password.1password | category | Password manager category: protected applications
+bundle-id | Sources/SeatBroker/Runtime/ApplicationOpening.swift | com.agilebits.onepassword7 | category | Password manager category: protected applications
+bundle-id | Sources/SeatBroker/Runtime/ApplicationOpening.swift | com.bitwarden.desktop | category | Password manager category: protected applications
+bundle-id | Sources/SeatBroker/Runtime/ApplicationOpening.swift | com.keepersecurity.passwordmanager | category | Password manager category: protected applications
+bundle-id | Sources/SeatBroker/Runtime/ApplicationOpening.swift | com.lastpass.lastpass | category | Password manager category: protected applications
+bundle-id | Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | com.blackmagic-design.DaVinciResolve | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/SeatBroker/Runtime/ProToolsWindowRecovery.swift | com.avid.ProTools | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/SeatBroker/Seat/TargetPlatform.swift | com.adobe.Photoshop | transitional | Application behavior: move behind registered traits through TR1 and PT1
+bundle-id | Sources/SeatBroker/Seat/TargetPlatform.swift | com.google.Chrome | category | Browser category: renderer platform identification
+bundle-id | Sources/SeatBroker/Seat/TargetPlatform.swift | net.kovidgoyal.kitty | category | Noncommercial terminal category: shared input platform, R-X-42
+bundle-id | Sources/Web/ChromeProfiles/ChromeBrowser.swift | com.google.Chrome | category | Browser category: profile discovery
+bundle-id | Sources/Web/ChromeProfiles/ChromeBrowser.swift | com.google.Chrome.beta | category | Browser category: profile discovery
+bundle-id | Sources/Web/ChromeProfiles/ChromeBrowser.swift | com.google.Chrome.canary | category | Browser category: profile discovery
+bundle-id | Sources/Web/ChromeProfiles/ChromeBrowser.swift | com.google.Chrome.dev | category | Browser category: profile discovery
+bundle-id | Sources/Web/ChromeProfiles/ChromeBrowser.swift | com.google.chrome.for.testing | category | Browser category: profile discovery
+bundle-id | Sources/Web/ChromeProfiles/ChromeBrowser.swift | org.chromium.Chromium | category | Browser category: profile discovery

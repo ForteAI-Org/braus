@@ -36,8 +36,8 @@ extension SceneSnapshot {
             for element in shown {
                 let state = element.state.map { " [\($0.rawValue)]" } ?? ""
                 let details = Self.liveDetails(element)
-                let does  = element.does.map { ": \($0)" } ?? ""
-                let label = element.isUnlabeled ? "(unlabeled icon: target id '\(element.id)')" : element.label
+                let does  = element.does.map { ": \(Self.inline($0))" } ?? ""
+                let label = element.isUnlabeled ? "(unlabeled icon: target id '\(element.id)')" : Self.inline(element.label)
                 let field = AccessibilityAugmentation.textEntryRoles.contains(element.role ?? "")
                 let reference = field ? "[field] \(label) id:'\(element.id)'" : label
                 out += "    \(reference)\(state)\(Self.pixelsNote(element))\(details)\(does)\n"
@@ -92,10 +92,11 @@ extension SceneSnapshot {
     }
 
     static func outOfViewLine(_ field: OutOfViewField) -> String {
-        let value = String(reflecting: field.value.trimmingCharacters(in: .whitespacesAndNewlines))
+        let value = escapedValue(field.value.trimmingCharacters(in: .whitespacesAndNewlines))
         let availability = field.isEnabled == false ? " [disabled]" : ""
-        let owner = field.container.map { " {\($0)}" } ?? ""
-        return "[field] \(field.label) = \(value)\(availability)\(owner)"
+        let owner = field.container.map { " {\(inline($0))}" } ?? ""
+        let details = field.role == "AXSecureTextField" ? " secret" : " = \(value)"
+        return "[field] \(inline(field.label))\(details)\(availability)\(owner)"
     }
 
     /// The heading of the elements that belong to no section.
@@ -146,7 +147,7 @@ extension SceneSnapshot {
             // The owner holds until another one is printed; `{}` says the line has none.
             let repeated = element.container == owner
                 && !(element.container != nil && sharedLabels.contains(element.label.lowercased()))
-            let note = repeated ? "" : element.container.map { " {\($0)}" } ?? " {}"
+            let note = repeated ? "" : element.container.map { " {\(Self.inline($0))}" } ?? " {}"
             owner = element.container
             out += Self.elementLine(element, ownerNote: note)
         }
@@ -183,25 +184,29 @@ extension SceneSnapshot {
         }
     }
 
+    private var inlineTitle: String {
+        Self.inline(windowTitle).replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
     func header() -> String {
-        "app: \(appName) (\(bundleID))\(windowTitle.isEmpty ? "" : ": \"\(windowTitle)\"")\n"
+        "app: \(Self.inline(appName)) (\(Self.inline(bundleID)))\(windowTitle.isEmpty ? "" : ": \"\(inlineTitle)\"")\n"
     }
 
     /// `App (bundle) "title"`, then the viewport and the element count when `counting`.
     func compactHeader(counting: Bool) -> String {
-        let title = windowTitle.isEmpty ? "" : " \"\(windowTitle)\""
-        guard counting else { return "\(appName) (\(bundleID))\(title)\n" }
-        return "\(appName) (\(bundleID))\(title) \(viewportPixelSize.width)x\(viewportPixelSize.height), "
+        let title = windowTitle.isEmpty ? "" : " \"\(inlineTitle)\""
+        guard counting else { return "\(Self.inline(appName)) (\(Self.inline(bundleID)))\(title)\n" }
+        return "\(Self.inline(appName)) (\(Self.inline(bundleID)))\(title) \(viewportPixelSize.width)x\(viewportPixelSize.height), "
             + "\(elements.count) elements\n"
     }
 
     /// What the memory said about the scene, one line each, or nothing for a scene it did not read.
     func knowledgeText() -> String {
-        knowledge.map { $0.lines.map { $0 + "\n" }.joined() } ?? ""
+        knowledge.map { $0.lines.map { Self.inline($0) + "\n" }.joined() } ?? ""
     }
 
     func commandsLine() -> String {
-        "commands (\(commands.count)): " + commands.prefix(40).joined(separator: " · ") + "\n"
+        "commands (\(commands.count)): " + commands.prefix(40).map(Self.inline).joined(separator: " · ") + "\n"
     }
 
     func sectionLine(_ section: SceneSection, count: Int) -> String {
@@ -209,7 +214,7 @@ extension SceneSnapshot {
         let position = String(format: "%.2f,%.2f %.2f×%.2f", b.x, b.y, b.width, b.height)
         let vertical   = section.verticalScrollNote.map { " · \($0)" } ?? ""
         let horizontal = section.horizontalScrollNote.map { " · \($0)" } ?? ""
-        return "Section: \(section.name), position: \(position), \(count) elements\(vertical)\(horizontal)\n"
+        return "Section: \(Self.inline(section.name)), position: \(position), \(count) elements\(vertical)\(horizontal)\n"
     }
 
     /// `## name @x,y wxh`, with the position and size in whole percent of the window.
@@ -217,7 +222,7 @@ extension SceneSnapshot {
         let b = section.bounds
         let vertical   = section.verticalScrollNote.map { " · \($0)" } ?? ""
         let horizontal = section.horizontalScrollNote.map { " · \($0)" } ?? ""
-        return "## \(section.name) @\(Self.percent(b.x)),\(Self.percent(b.y)) "
+        return "## \(Self.inline(section.name)) @\(Self.percent(b.x)),\(Self.percent(b.y)) "
             + "\(Self.percent(b.width))x\(Self.percent(b.height))\(vertical)\(horizontal)\n"
     }
 
@@ -242,16 +247,16 @@ extension SceneSnapshot {
         let field = AccessibilityAugmentation.textEntryRoles.contains(element.role ?? "")
         // A text line that could read as a tag or as another line keeps its tag.
         let plainText = element.kind == .text && !element.isUnlabeled && !field && !element.label.isEmpty
-            && !["[", "#", "icons:", "commands"].contains { element.label.hasPrefix($0) }
+            && !readsAsStructure(element.label)
         let tag = plainText ? "" : field ? "[field]"
             : element.isUnlabeled ? "[\(element.kind.rawValue)?]" : "[\(element.kind.rawValue)]"
-        let label = element.isUnlabeled && element.label == unlabeledLabel ? "" : element.label
+        let label = element.isUnlabeled && element.label == unlabeledLabel ? "" : Self.inline(element.label)
         let head = [tag, label].filter { !$0.isEmpty }.joined(separator: " ")
         let identity = element.isUnlabeled || field ? " id:'\(element.id)'" : ""
         let state    = element.state.map { " [\($0.rawValue)]" } ?? ""
-        let owner    = ownerNote ?? element.container.map { " {\($0)}" } ?? ""
+        let owner    = ownerNote ?? element.container.map { " {\(Self.inline($0))}" } ?? ""
         let recalled = element.isRecalled ? " ~recalled" : ""
-        let does     = element.does.map { ": \($0)" } ?? ""
+        let does     = element.does.map { ": \(Self.inline($0))" } ?? ""
         let extent   = element.kind == .canvas ? " " + size(element.bounds) : ""
         return "\(head)\(identity)\(state)\(pixelsNote(element))\(compactDetails(element))\(owner)\(recalled)\(does) "
             + "\(place(element.bounds))\(extent)\n"
@@ -294,6 +299,9 @@ extension SceneSnapshot {
 
     /// Value, selection and availability of an element, the compact way: `[sel a..b/n]`.
     private static func compactDetails(_ element: SceneElement) -> String {
+        if element.role == "AXSecureTextField" {
+            return " secret" + (element.isEnabled == false ? " [disabled]" : "")
+        }
         let value = element.value.flatMap { $0 == element.label ? nil : " = \(visibleValue($0))" } ?? ""
         let selection: String
         if let text = element.value, let range = SceneElement.validRange(element.selectedRange, value: text) {
@@ -305,6 +313,10 @@ extension SceneSnapshot {
     }
 
     private static func liveDetails(_ element: SceneElement) -> String {
+        if element.role == "AXSecureTextField" {
+            return " secret" + (element.isEnabled == false ? " [disabled]" : "")
+                + (element.container.map { " {\(Self.inline($0))}" } ?? "")
+        }
         let value = element.value.flatMap { $0 == element.label ? nil : " = \(visibleValue($0))" } ?? ""
         let selection: String
         if let text = element.value, let range = SceneElement.validRange(element.selectedRange, value: text) {
@@ -313,17 +325,45 @@ extension SceneSnapshot {
             selection = ""
         }
         let availability = element.isEnabled == false ? " [disabled]" : ""
-        let owner = element.container.map { " {\($0)}" } ?? ""
+        let owner = element.container.map { " {\(Self.inline($0))}" } ?? ""
         return value + selection + availability + owner
+    }
+
+    /// Writes text read from an application on one scene line. Line and paragraph separators
+    /// and control characters become spaces, so a fragment cannot start a line of its own.
+    /// Values keep `visibleValue`.
+    static func inline(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.map { isInlineControl($0) ? " " : $0 }))
+    }
+
+    /// Whether a plain-text label could read as a structural line: such a label keeps its tag.
+    /// This includes `[`, `#`, `+ `, `- `, `~ `, `icons:`, `commands` and `Unchanged since`.
+    static func readsAsStructure(_ label: String) -> Bool {
+        if label.unicodeScalars.contains(where: isInlineControl) { return true }
+        let text = inline(label).trimmingCharacters(in: .whitespaces)
+        return ["[", "#", "+ ", "- ", "~ ", "icons:", "commands", "Unchanged since"].contains {
+            text.hasPrefix($0)
+        }
+    }
+
+    private static func isInlineControl(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.properties.generalCategory == .control || scalar.value == 0x2028 || scalar.value == 0x2029
     }
 
     /// Escapes whitespace without turning one native value into additional scene rows.
     private static func visibleValue(_ value: String) -> String {
         if value.isEmpty || value != value.trimmingCharacters(in: .whitespacesAndNewlines)
-            || value.contains("\n") || value.contains("\r") || value.contains("\t") {
-            return String(reflecting: value)
+            || value.unicodeScalars.contains(where: isInlineControl) {
+            return escapedValue(value)
         }
         return value
+    }
+
+    /// Keeps Swift's quoted value syntax, escaping separators it otherwise leaves literal.
+    private static func escapedValue(_ value: String) -> String {
+        String(reflecting: value).unicodeScalars.map { scalar in
+            isInlineControl(scalar) ? "\\u{\(String(scalar.value, radix: 16))}" : String(scalar)
+        }.joined()
     }
 
     /// Map order: stateful first, learned affordance second, any labeled control, icon or canvas third.

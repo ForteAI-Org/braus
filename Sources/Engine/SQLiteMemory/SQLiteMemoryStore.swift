@@ -9,13 +9,16 @@ import Foundation
 import Memory
 import SQLiteAmalgamation
 import Synchronization
+#if BRAUS_PHASES
+import Darwin
+import os
+#endif
 
 /// SQLiteMemoryStore is the living memory's one SQLite file, opened explicitly at a path the
-/// composition root chose and used through typed transactions. It owns two connections: a writer,
-/// which runs every change inside `BEGIN IMMEDIATE ... COMMIT`, and a reader, which sees the last
-/// committed state without waiting on the writer. Actor isolation serializes both within the
-/// process; between processes the file's own locks do, which is why every transaction is short,
-/// holds no `await`, and is retried with the same identifiers when the lock is busy.
+/// composition root chose and used through typed transactions. A writer and three readers each own
+/// a serial executor with fixed QoS. The writer runs every change inside `BEGIN IMMEDIATE ... COMMIT`;
+/// readers see committed state independently of it. Between processes the file's own locks serialize
+/// writes. Every transaction holds no `await` and is retried with the same identifiers when the lock is busy.
 ///
 /// A write is answered only after its commit. The ordinary `write` holds the work while the lock
 /// is busy: the body and the caller's task are the work, and they stay where they are, cycle after
@@ -34,7 +37,7 @@ import Synchronization
 ///
 /// After a failure of the device or the file the store looks at the transaction it interrupted,
 /// ends it if the library had not, and reports which (`MemoryStoreFault.cleanup`). A transaction
-/// it could not end makes the connection untrusted: the store lets go of both connections and
+/// it could not end makes the connection untrusted: the store lets go of all connections and
 /// answers `unavailable(.failed)` until it is closed, and recovery is a new instance opened on
 /// the same path once the cause is removed. Nothing is retried on the store's own initiative.
 ///
@@ -48,6 +51,10 @@ import Synchronization
 /// in progress within one lock budget, then answers `contention`. An open that finds the record of a
 /// recovery that stopped half way opens nothing and makes nothing (`interruptedRecovery`).
 public actor SQLiteMemoryStore {
+
+    nonisolated let executor = SQLiteConnectionExecutor(role: .writer)
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+    private nonisolated let readPool = SQLiteReadPool()
 
     /// Configuration is the store's waiting policy, chosen at composition. The defaults are what
     /// the module's tests run with; they are not a measured guarantee of availability. A policy
@@ -69,16 +76,35 @@ public actor SQLiteMemoryStore {
         /// for cancellation. Above zero.
         public var snapshotPagesPerStep: Int32
 
+        /// Page cache budgets, in KiB, applied as negative SQLite cache_size values.
+        public var writerCacheKiB: Int32
+        public var readerCacheKiB: Int32
+        public var bulkCacheKiB: Int32
+
+        /// Passive checkpoint thresholds in WAL frames, during a pause and during continuous work.
+        public var checkpointFrames: Int
+        public var forcedCheckpointFrames: Int
+
         public init(
             lockBudget          : Duration = .seconds(2),
             retryPause          : Duration = .milliseconds(5),
             maximumRetryPause   : Duration = .milliseconds(100),
-            snapshotPagesPerStep: Int32    = 256
+            snapshotPagesPerStep: Int32    = 256,
+            writerCacheKiB      : Int32    = 8192,
+            readerCacheKiB      : Int32    = 4096,
+            bulkCacheKiB        : Int32    = 2048,
+            checkpointFrames    : Int      = 1000,
+            forcedCheckpointFrames: Int    = 16000
         ) {
             self.lockBudget           = lockBudget
             self.retryPause           = retryPause
             self.maximumRetryPause    = maximumRetryPause
             self.snapshotPagesPerStep = snapshotPagesPerStep
+            self.writerCacheKiB = writerCacheKiB
+            self.readerCacheKiB = readerCacheKiB
+            self.bulkCacheKiB = bulkCacheKiB
+            self.checkpointFrames = checkpointFrames
+            self.forcedCheckpointFrames = forcedCheckpointFrames
         }
 
         /// The rule this configuration breaks, or nil when every cycle of waiting it allows holds
@@ -95,6 +121,12 @@ public actor SQLiteMemoryStore {
             }
             if snapshotPagesPerStep <= 0 {
                 return "snapshotPagesPerStep must be above zero"
+            }
+            if writerCacheKiB <= 0 || readerCacheKiB <= 0 || bulkCacheKiB <= 0 {
+                return "connection cache sizes must be above zero"
+            }
+            if checkpointFrames <= 0 || forcedCheckpointFrames < checkpointFrames {
+                return "checkpoint thresholds must be positive and ordered"
             }
             return nil
         }
@@ -118,6 +150,9 @@ public actor SQLiteMemoryStore {
 
         /// The migration this open ran on an archive of an earlier schema, nil when it ran none.
         public let migration: Migration?
+        /// Cleanup failures are separate from the primary snapshot or migration error.
+        public let lastRetirement: RetirementReport?
+        public let lastRetirementError: String?
 
         /// Committed write transactions since the open.
         public let commits: Int
@@ -134,16 +169,30 @@ public actor SQLiteMemoryStore {
         /// same write, never by a dropped one.
         public let exhaustedCycles: Int
 
-        /// The log size, in frames, at which the library checkpoints on its own after a commit on
-        /// the writer: `wal_autocheckpoint`, left at the library's default.
+        /// The writer's automatic checkpoint threshold, disabled so checkpoints run explicitly.
         public let autoCheckpointFrames: Int64
 
         /// Explicit checkpoints run since the open, and the last one's report.
         public let checkpoints   : Int
         public let lastCheckpoint: Checkpoint?
 
+        /// Pages emitted to WAL by committed write calls since open and by the latest call.
+        public let framesAdded: Int
+        public let lastWriteFramesAdded: Int
+        /// Logical frames not yet copied and physical WAL allocation, which can remain after a passive checkpoint.
+        public let residualWALFrames: Int
+        public let walBytes: UInt64
+        public let checkpointedFrames: Int
+        public let checkpointDuration: Duration
+        public let pauseCheckpoints: Int
+        public let forcedCheckpoints: Int
+        public let lastCheckpointError: MemoryStoreError?
+        package let connectionRoles: [ConnectionRole]
+
         /// Snapshots handed over since the open.
         public let snapshots: Int
+        /// Duration of the most recent snapshot attempt, including a failed attempt.
+        public let lastSnapshotDuration: Duration?
     }
 
     /// Checkpoint is the report of one explicit passive checkpoint: how many frames the log held,
@@ -165,6 +214,8 @@ public actor SQLiteMemoryStore {
 
         public let frames            : Int
         public let checkpointedFrames: Int
+        /// Frames newly copied by this checkpoint, excluding those already in the database file.
+        public let framesCopied      : Int
         public let outcome           : Outcome
         public let duration          : Duration
     }
@@ -197,13 +248,27 @@ public actor SQLiteMemoryStore {
     public nonisolated let url          : URL
     public nonisolated let configuration: Configuration
 
-    /// Connections this store holds open: two while open, zero once closed or failed, whatever
+    /// Connections this store holds open: four while open, zero once closed or failed, whatever
     /// an open in flight was doing when the close arrived. A snapshot in flight holds two more
     /// until its next step finds the store closed.
     private(set) var liveHandles = 0
 
     private var writer          : SQLiteConnection?
-    private var reader          : SQLiteConnection?
+    private var openingKind     : Opening?
+    private var forcedCheckpointTask: Task<Void, Never>?
+    private var checkpointGate: (@Sendable () -> Void)?
+    private var readers: [SQLiteReader] = []
+    private var readerShutdown: Task<Void, Never>?
+    private var closing: Task<Void, Never>?
+    /// A failure of the final checkpoint or of an open interrupted by close, nil when none occurred.
+    public private(set) var lastCloseError: MemoryStoreError?
+    private var framesAdded = 0
+    private var lastWriteFramesAdded = 0
+    private var checkpointedFrames = 0
+    private var checkpointDuration = Duration.zero
+    private var pauseCheckpoints = 0
+    private var forcedCheckpoints = 0
+    private var lastCheckpointError: MemoryStoreError?
     private var lifecycle       = Lifecycle.notOpened
     private var opening         : Task<Void, any Error>?
     private var bootstrappedNow = false
@@ -216,12 +281,16 @@ public actor SQLiteMemoryStore {
     private var checkpoints     = 0
     private var lastCheckpoint  : Checkpoint?
     private var snapshots       = 0
+    /// Retirement diagnostics remain readable after a failed open or a close.
+    public private(set) var lastRetirement: RetirementReport?
+    public private(set) var lastRetirementError: String?
+    private var lastSnapshotDuration: Duration?
     private var waitObserver    : (@Sendable (WaitEvent) -> Void)?
     private var slowObserver    : (threshold: Duration, report: @Sendable (SlowOperation) -> Void)?
-    private var refusedRollback : SQLiteConnection.Failure?
     private var stepGate        : (@Sendable () async throws -> Void)?
     private var verificationGate: (@Sendable () async -> Void)?
     private var migrationFault  : (@Sendable () throws -> Void)?
+    private var beforeMigrationCommit: (@Sendable () async -> Void)?
     private var presence        : SQLiteMemoryPresence?
     private let clock           = ContinuousClock()
 
@@ -275,6 +344,7 @@ public actor SQLiteMemoryStore {
     /// Reports the transactions that take at least `threshold` inside the store, or stops when nil: for the measures only.
     package func observeSlowOperations(threshold: Duration, _ report: (@Sendable (SlowOperation) -> Void)?) {
         slowObserver = report.map { (threshold, $0) }
+        readPool.observeSlowOperations(threshold: threshold, report: report)
     }
 
     private func reportIfSlow(_ kind: String, since started: ContinuousClock.Instant) {
@@ -380,9 +450,36 @@ public actor SQLiteMemoryStore {
         return store
     }
 
+    #if BRAUS_PHASES
+    private static let signposter = OSSignposter(subsystem: "dev.forte.Braus.phases", category: "phases")
+
+    private static func recordOpening(at url: URL) {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size
+        )
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+            signposter.emitEvent("memory.open",
+                "archive_bytes=\(size) phys_footprint=\(info.phys_footprint) task_info_result=\(result)")
+        } catch {
+            signposter.emitEvent(
+                "memory.open",
+                "archive_bytes=-1 phys_footprint=\(info.phys_footprint) task_info_result=\(result) archive_size_error=\(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+    #endif
+
     // MARK: Lifecycle
 
-    /// Opens the writer and the reader, checks the linked library, enables foreign keys, sets WAL
+    /// Opens the writer and the readers, checks the linked library, enables foreign keys, sets WAL
     /// and `synchronous=FULL`, then bootstraps (`producer` only) or verifies the schema under the write
     /// lock (a reader inspects in a read transaction); `existingArchive` creates no file and refuses
     /// one with no schema yet (`Opening`). A second
@@ -415,45 +512,103 @@ public actor SQLiteMemoryStore {
         if lifecycle == .closed { throw MemoryStoreError.unavailable(.closed) }
     }
 
-    /// Closes both connections and ends an open still in flight, which then answers
-    /// `unavailable(.closed)` and lets go of its connection. A transaction still waiting for a
-    /// lock, or a snapshot between two steps, finds the store closed after its pause and answers
-    /// the same; nothing is written after this returns. Definitive: a failed instance closes the
-    /// same way and never reopens.
-    public func close() {
+    /// Closes every connection on its owner executor. Writable openings attempt a final TRUNCATE
+    /// after readers close. A busy outcome or checkpoint error remains in lastCloseError.
+    public func close() async {
+        if let closing { await closing.value; return }
+        let inFlight = opening
         opening?.cancel()
-        if let writer { release(writer) }
-        if let reader { release(reader) }
-        writer    = nil
-        reader    = nil
         lifecycle = .closed
+        readPool.stop(with: .unavailable(.closed))
+        let closing = Task {
+            if let inFlight {
+                switch await inFlight.result {
+                case .success: break
+                case .failure(let error):
+                    switch error as? MemoryStoreError {
+                    case .unavailable(.closed), .cancelled: break
+                    default: lastCloseError = Self.maintenanceError(error)
+                    }
+                }
+            }
+            await forcedCheckpointTask?.value
+            await readerShutdown?.value
+            await closeReaders()
+            if let writer {
+                if openingKind?.writes == true {
+                    do {
+                        let result = try writer.checkpoint(mode: SQLITE_CHECKPOINT_TRUNCATE)
+                        if result.wasBusy {
+                            throw SQLiteConnection.Failure(
+                                primary: SQLITE_BUSY,
+                                extended: SQLITE_BUSY,
+                                message: "close TRUNCATE checkpoint is busy"
+                            )
+                        }
+                    } catch { lastCloseError = Self.maintenanceError(error) }
+                }
+                release(writer)
+            }
+            writer = nil
+            releasePresenceWhenIdle()
+        }
+        self.closing = closing
+        await closing.value
+    }
+
+    private func closeReaders() async {
+        let closingReaders = readers
+        readers = []
+        for reader in closingReaders {
+            await reader.close()
+            liveHandles -= 1
+        }
         releasePresenceWhenIdle()
     }
 
-    /// What the store knows about its file and its waiting, read from the reader connection.
-    public func diagnostics() throws -> Diagnostics {
-        let reader = try connection(.reader)
-        let writer = try connection(.writer)
+    /// Reads connection settings and accumulated waiting, WAL and checkpoint diagnostics.
+    public func diagnostics() async throws -> Diagnostics {
+        _ = try writerConnection()
+        var readerRetries = 0
+        var readerWaited = Duration.zero
+        for reader in readers {
+            readerRetries += await reader.busyRetries
+            readerWaited += await reader.waited
+        }
+        let writer = try writerConnection()
         do {
             return Diagnostics(
                 path                : url.path,
                 libraryVersion      : SQLiteLibrary.version,
                 librarySourceID     : SQLiteLibrary.sourceID,
-                schemaVersion       : Int32(try Self.integerPragma(reader, "user_version")),
-                journalMode         : try Self.textPragma(reader, "journal_mode"),
-                synchronous         : try Self.integerPragma(reader, "synchronous"),
-                foreignKeysEnabled  : try Self.integerPragma(reader, "foreign_keys") == 1,
+                schemaVersion       : Int32(try Self.integerPragma(writer, "user_version")),
+                journalMode         : try Self.textPragma(writer, "journal_mode"),
+                synchronous         : try Self.integerPragma(writer, "synchronous"),
+                foreignKeysEnabled  : try Self.integerPragma(writer, "foreign_keys") == 1,
                 bootstrappedNow     : bootstrappedNow,
                 migration           : migration,
+                lastRetirement      : lastRetirement,
+                lastRetirementError : lastRetirementError,
                 commits             : commits,
-                busyRetries         : busyRetries,
-                waited              : waited,
+                busyRetries         : busyRetries + readerRetries,
+                waited              : waited + readerWaited,
                 retainedWrites      : retainedWrites,
                 exhaustedCycles     : exhaustedCycles,
                 autoCheckpointFrames: try Self.integerPragma(writer, "wal_autocheckpoint"),
                 checkpoints         : checkpoints,
                 lastCheckpoint      : lastCheckpoint,
-                snapshots           : snapshots
+                framesAdded         : framesAdded,
+                lastWriteFramesAdded: lastWriteFramesAdded,
+                residualWALFrames   : max(0, try writer.checkpoint(mode: SQLITE_CHECKPOINT_NOOP).remaining),
+                walBytes            : try Self.walBytes(at: url),
+                checkpointedFrames  : checkpointedFrames,
+                checkpointDuration  : checkpointDuration,
+                pauseCheckpoints    : pauseCheckpoints,
+                forcedCheckpoints   : forcedCheckpoints,
+                lastCheckpointError : lastCheckpointError,
+                connectionRoles     : [.writer] + readers.map(\.role),
+                snapshots           : snapshots,
+                lastSnapshotDuration: lastSnapshotDuration
             )
         } catch {
             throw Self.classified(error, phase: .statement)
@@ -464,6 +619,7 @@ public actor SQLiteMemoryStore {
     /// pause or the yield it announces; it must not call back into the store synchronously.
     package func observeWaits(_ observer: (@Sendable (WaitEvent) -> Void)?) {
         waitObserver = observer
+        readPool.observeWaits(observer)
     }
 
     /// A test's seam into the cleanup, for the package's tests only (never public): the next rollback
@@ -473,12 +629,12 @@ public actor SQLiteMemoryStore {
     /// consequences (`invalidate`) follow unchanged. One use; nothing is broken on the device, so what
     /// it proves is the store's path and its owner's, not a real fault.
     package func refuseNextRollback(primary: Int32, extended: Int32, message: String) {
-        refusedRollback = SQLiteConnection.Failure(primary: primary, extended: extended, message: message)
+        readPool.refuseRollback(SQLiteConnection.Failure(primary: primary, extended: extended, message: message))
     }
 
     /// The same seam, with the library's failure as the module's own type.
     func refuseNextRollback(with failure: SQLiteConnection.Failure) {
-        refusedRollback = failure
+        readPool.refuseRollback(failure)
     }
 
     /// A test's seam into a snapshot, for the package's tests only: awaited between two steps of every
@@ -540,71 +696,158 @@ public actor SQLiteMemoryStore {
     /// The body runs again on each attempt of the cycle. For a caller that classifies the spent
     /// budget itself; the ordinary path is `write`.
     package func attemptWrite<T: Sendable>(_ body: @Sendable (SQLiteTransaction) throws -> T) async throws -> T {
-        let writer  = try connection(.writer)
+        let writer  = try writerConnection()
         let started = clock.now
-        let value   = try await transaction(on: writer, begin: "BEGIN IMMEDIATE", phase: .statement) {
-            try body(SQLiteTransaction(connection: writer))
+        let committed: (value: T, cacheWritesBefore: Int)
+        do {
+            committed = try await transaction(
+                on: writer,
+                begin: "BEGIN IMMEDIATE",
+                phase: .statement,
+                didCommit: { self.recordWAL(on: writer, since: $0.cacheWritesBefore) }
+            ) {
+                let before = try writer.cacheWrites()
+                return (value: try body(SQLiteTransaction(connection: writer)), cacheWritesBefore: before)
+            }
+        } catch {
+            await readerShutdown?.value
+            throw error
         }
         commits += 1
         Self.tally?.committed()
         Self.timing?.add(started.duration(to: clock.now))
         reportIfSlow("write", since: started)
-        return value
+        return committed.value
+    }
+
+    /// Counts emitted frames synchronously, then schedules maintenance away from the writer.
+    private func recordWAL(on writer: SQLiteConnection, since before: Int) {
+        do {
+            lastWriteFramesAdded = max(0, try writer.cacheWrites() - before)
+            framesAdded += lastWriteFramesAdded
+            let status = try writer.checkpoint(mode: SQLITE_CHECKPOINT_NOOP)
+            if status.remaining > configuration.forcedCheckpointFrames, forcedCheckpointTask == nil {
+                forcedCheckpointTask = Task {
+                    defer { forcedCheckpointTask = nil }
+                    do {
+                        _ = try await checkpoint()
+                        forcedCheckpoints += 1
+                    } catch MemoryStoreError.unavailable(.closed) {
+                        // Closing ends maintenance that has not started yet.
+                    } catch {
+                        lastCheckpointError = Self.maintenanceError(error)
+                    }
+                }
+            }
+        } catch {
+            // The commit already succeeded. Report maintenance failure without inviting a replay.
+            lastCheckpointError = Self.maintenanceError(error)
+        }
+    }
+
+    private static func maintenanceError(_ error: any Error) -> MemoryStoreError {
+        if let error = error as? MemoryStoreError { return error }
+        if let failure = error as? SQLiteConnection.Failure { return MemoryStoreError(failure, phase: .checkpoint) }
+        return .failed(MemoryStoreFault(code: .init(primary: 0, extended: 0), phase: .checkpoint,
+                                       message: String(describing: error)))
     }
 
     /// Runs the body on the reader inside one deferred transaction: every query in it sees the same
     /// committed state, and the transaction ends when the body returns. A write in progress on
     /// another connection is neither seen nor waited for; a busy answer, rare in WAL, is waited
     /// for within one budget.
-    package func read<T: Sendable>(_ body: @Sendable (SQLiteSnapshot) throws -> T) async throws -> T {
-        let reader  = try connection(.reader)
-        let started = clock.now
-        defer { reportIfSlow("read", since: started) }
-        return try await transaction(on: reader, begin: "BEGIN", phase: .statement) {
-            try body(SQLiteSnapshot(connection: reader))
+    package nonisolated func read<T: Sendable>(
+        priority: ReadPriority = .common,
+        _ body: @Sendable (SQLiteSnapshot) throws -> T
+    ) async throws -> T {
+        let reader = try readPool.reader(for: priority)
+        do {
+            return try await reader.read(body)
+        } catch let failure as SQLiteReader.FailedCleanup {
+            await failRead(with: failure.fault)
+            throw failure.primary
         }
     }
 
-    /// The archive's data version as the reader sees it: a number that moves whenever a commit by
-    /// another connection, of this process or another one, changed the file since the reader last
-    /// looked. A cache of what was read stays good while it does not move.
-    public func dataVersion() async throws -> Int64 {
-        try await read { snapshot in
+    private func failRead(with fault: MemoryStoreFault) async {
+        invalidate(with: fault)
+        await readerShutdown?.value
+    }
+
+    /// Reads a cache token from the reserved reader, whose data_version values are comparable.
+    public nonisolated func dataVersion() async throws -> Int64 {
+        try await read(priority: .critical) { snapshot in
             try snapshot.query("PRAGMA data_version") { $0.integer(0) ?? 0 }.first ?? 0
         }
     }
 
+    /// Reads the cache token before the body, in one transaction on the reserved reader.
+    package nonisolated func readVersioned<T: Sendable>(
+        _ body: @Sendable (SQLiteSnapshot) throws -> T
+    ) async throws -> (version: Int64, value: T) {
+        try await read(priority: .critical) { snapshot in
+            let version = try snapshot.query("PRAGMA data_version") { $0.integer(0) ?? 0 }.first ?? 0
+            return (version, try body(snapshot))
+        }
+    }
+
+    /// Releases unused page cache memory on each connection's own executor.
+    public func releaseMemory() async throws {
+        let writer = try writerConnection()
+        try writer.releaseMemory()
+        for reader in readers { try await reader.releaseMemory() }
+        try stillOpen()
+    }
+
     // MARK: Checkpoint
 
-    /// Runs one passive checkpoint on the writer: frames of the log are copied into the file as far
-    /// as no reader, in this process or another, still needs them; nothing is waited for and the
-    /// log is neither truncated nor restarted, so other processes on the file are never assumed
-    /// absent. A partial or busy outcome is reported, not thrown. The library's own automatic
-    /// checkpoint, after a commit that leaves the log above `autoCheckpointFrames`, is the same
-    /// passive kind and stays in force.
-    public func checkpoint() throws -> Checkpoint {
-        let writer  = try connection(.writer)
-        let started = clock.now
+    /// Runs a passive checkpoint on the bulk connection, leaving the writer free to commit.
+    /// A partial or busy outcome is reported, not thrown. Automatic checkpoints are disabled.
+    public func checkpoint() async throws -> Checkpoint {
+        _ = try writerConnection()
+        let reader = try readPool.reader(for: .bulk)
         do {
-            let result  = try writer.checkpoint()
-            let outcome: Checkpoint.Outcome
-            if result.wasBusy {
-                outcome = .busy
-            } else {
-                outcome = result.checkpointed == result.frames ? .complete : .partial
-            }
-            let report = Checkpoint(
-                frames            : result.frames,
-                checkpointedFrames: result.checkpointed,
-                outcome           : outcome,
-                duration          : clock.now - started
-            )
-            checkpoints   += 1
+            let report = try await reader.checkpoint(gate: checkpointGate)
+            try stillOpen()
+            checkpoints += 1
             lastCheckpoint = report
+            checkpointedFrames += report.framesCopied
+            checkpointDuration += report.duration
+            lastCheckpointError = nil
+            #if BRAUS_PHASES
+            Self.signposter.emitEvent("memory.wal",
+                "frames=\(report.frames) checkpointed=\(report.checkpointedFrames)")
+            #endif
             return report
         } catch let failure as SQLiteConnection.Failure {
-            throw MemoryStoreError(failure, phase: .checkpoint)
+            let error = MemoryStoreError(failure, phase: .checkpoint)
+            lastCheckpointError = error
+            throw error
         }
+    }
+
+    /// Runs a passive checkpoint when the caller has observed a pause and the WAL exceeds its threshold.
+    /// Continuous writers use the higher forced threshold after their commits instead.
+    @discardableResult
+    public func checkpointIfDue() async throws -> Checkpoint? {
+        if Task.isCancelled { return nil }
+        let writer = try writerConnection()
+        let status = try writer.checkpoint(mode: SQLITE_CHECKPOINT_NOOP)
+        guard status.remaining > configuration.checkpointFrames else { return nil }
+        let report = try await checkpoint()
+        pauseCheckpoints += 1
+        return report
+    }
+
+    /// Holds checkpoint execution on its connection queue, for the package's tests only.
+    package func holdCheckpoints(_ gate: (@Sendable () -> Void)?) {
+        checkpointGate = gate
+    }
+
+    private static func walBytes(at url: URL) throws -> UInt64 {
+        let path = url.path + "-wal"
+        guard FileManager.default.fileExists(atPath: path) else { return 0 }
+        return (try FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.uint64Value ?? 0
     }
 
     // MARK: Snapshot
@@ -617,11 +860,14 @@ public actor SQLiteMemoryStore {
     /// built at a temporary path beside the destination that only this call names, checked
     /// (`integrity_check`, `foreign_key_check`, the current schema with every table), put in rollback
     /// journal mode so it is one self-contained file, and then renamed into place without
-    /// clobbering. Any refusal, failure, cancellation between steps or close of the store removes
-    /// the temporary files this call created and leaves no copy: an interrupted copy is never
+    /// clobbering. Any refusal, failure, cancellation between steps or close of the store retires
+    /// the temporary family this call created without publishing a copy: an interrupted copy is never
     /// handed over, and nothing is restored from a copy on the store's own initiative.
     public func snapshot(to destination: URL) async throws -> Snapshot {
-        _ = try connection(.writer)
+        let attemptStarted = clock.now
+        var completedDuration: Duration?
+        defer { lastSnapshotDuration = completedDuration ?? (clock.now - attemptStarted) }
+        _ = try writerConnection()
         let target = Self.resolved(destination)
         let own    = Self.resolved(url).path
         guard !["", "-wal", "-shm", "-journal", ".lock", ".recovering"].map({ own + $0 }).contains(target.path) else {
@@ -632,7 +878,6 @@ public actor SQLiteMemoryStore {
         }
         let partial = target.deletingLastPathComponent()
             .appendingPathComponent(".\(target.lastPathComponent).partial-\(UUID().uuidString)")
-        let started = clock.now
         var copying = SnapshotResources(partialPath: partial.path)
         do {
             let source = try acquire(url.path, readOnly: true)
@@ -687,18 +932,23 @@ public actor SQLiteMemoryStore {
             // is handed over only by a snapshot nobody stopped.
             if Task.isCancelled { throw MemoryStoreError.cancelled(.snapshot) }
             try stillOpen()
+            try SQLiteArchiveRetirement.protectFamily(partial)
+            try SQLiteArchiveRetirement.excludeFamily(partial)
             try Self.move(copying.partialPath, to: target.path)
-            copying.removeJournals()
+            retireSnapshotFiles(copying.partialPath, residues: true)
             snapshots += 1
+            let duration = clock.now - attemptStarted
+            completedDuration = duration
             return Snapshot(
                 destination: target,
                 pageCount  : pageCount,
                 pageSize   : pageSize,
                 steps      : steps,
-                duration   : clock.now - started
+                duration   : duration
             )
         } catch {
             copying.abandon(releasing: self)
+            retireSnapshotFiles(copying.partialPath, residues: false)
             throw Self.classified(error, phase: .snapshot)
         }
     }
@@ -713,24 +963,31 @@ public actor SQLiteMemoryStore {
         var backup     : SQLiteBackup?
 
         /// Ends the copy without handing it over: the backup object first, so the connections can
-        /// close, then the files. A finish that fails here is not answered: the primary error is
+        /// close, then retires the files. A finish failure is recorded separately: the primary error is
         /// the one that brought the snapshot here.
         mutating func abandon(releasing store: isolated SQLiteMemoryStore) {
-            if let backup { try? backup.finish() }
+            if let backup {
+                do { try backup.finish() }
+                catch { store.lastRetirementError = "backup finish: \(error)" }
+            }
             backup = nil
             if let copy { store.release(copy) }
             copy = nil
             if let source { store.release(source) }
             source = nil
-            for path in family { try? FileManager.default.removeItem(atPath: path) }
         }
+    }
 
-        /// Removes the journal siblings a verification may have created beside a finished copy.
-        func removeJournals() {
-            for path in family.dropFirst() { try? FileManager.default.removeItem(atPath: path) }
+    private func retireSnapshotFiles(_ path: String, residues: Bool) {
+        let base = URL(fileURLWithPath: path)
+        let directory = base.deletingLastPathComponent().appendingPathComponent(".retired")
+        do {
+            lastRetirement = try residues
+                ? SQLiteArchiveRetirement.retireResidues(base, into: directory)
+                : SQLiteArchiveRetirement.retire(base, into: directory)
+        } catch {
+            lastRetirementError = String(describing: error)
         }
-
-        private var family: [String] { ["", "-wal", "-shm", "-journal"].map { partialPath + $0 } }
     }
 
     /// Opens the read transaction the whole copy reads through. A busy answer leaves no
@@ -747,7 +1004,7 @@ public actor SQLiteMemoryStore {
 
     /// Checks the finished copy and answers its page size. Anything short of `ok`, no violation
     /// and exactly the schema expected (the current one, or the earlier one a migration copies) is a
-    /// refusal, and the copy is removed by the caller.
+    /// refusal, and the copy is retired by the caller.
     private static func verify(copy: SQLiteConnection, expecting wanted: Inspection = .current) throws -> Int {
         let integrity = try copy.query("PRAGMA integrity_check") { try $0.text(0) ?? "" }
         guard integrity == ["ok"] else { throw MemoryStoreError.snapshot(.copyFailedIntegrityCheck(integrity)) }
@@ -812,7 +1069,7 @@ public actor SQLiteMemoryStore {
     /// the migration text from its version runs, the version is set and recorded with the copy's
     /// name, and the result must be exactly the current shape: anything else rolls the whole
     /// migration back and leaves the archive at its earlier schema, with the copy beside it. Answers
-    /// nil when another process migrated it meanwhile; this open's copy is then removed.
+    /// nil when another process migrated it meanwhile; this open's copy is then retired.
     private func migrate(
         _ writer    : SQLiteConnection,
         from found  : Inspection,
@@ -830,6 +1087,8 @@ public actor SQLiteMemoryStore {
         let copyName = "\(url.lastPathComponent).schema-\(shape?.name ?? String(version))-\(Self.stamp(Date()))"
         let copy     = url.deletingLastPathComponent().appendingPathComponent(copyName)
         try await copyBeforeMigration(to: copy, expecting: found)
+        defer { retireEarlierSchemaCopies() }
+        if let beforeMigrationCommit { await beforeMigrationCommit() }
         try stillOpening()
         let text  = shape == nil ? try SQLiteMemorySchema.migrationText(from: version) : ""
         let nowMS = Self.nowMS()
@@ -869,17 +1128,42 @@ public actor SQLiteMemoryStore {
             return true
         }
         guard migrated else {
-            for suffix in ["", "-wal", "-shm", "-journal"] {
-                try? FileManager.default.removeItem(atPath: copy.path + suffix)
-            }
+            retireSnapshotFiles(copy.path, residues: false)
             return nil
         }
         return Migration(fromVersion: version, toVersion: SQLiteMemorySchema.version, copyName: copyName, fromShape: shape?.name)
     }
 
+    package func holdMigrationCommit(_ gate: (@Sendable () async -> Void)?) {
+        beforeMigrationCommit = gate
+    }
+
+    private func retireEarlierSchemaCopies() {
+        do {
+            let directory = url.deletingLastPathComponent()
+            let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            let copies = files.filter {
+                $0.lastPathComponent.hasPrefix(url.lastPathComponent + ".schema-")
+                    && !["-wal", "-shm", "-journal"].contains(where: $0.lastPathComponent.hasSuffix)
+            }.sorted { $0.lastPathComponent.suffix(22) > $1.lastPathComponent.suffix(22) }
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "UTC")
+            formatter.dateFormat = "yyyy-MM-dd'T'HHmmss.SSS'Z'"
+            formatter.isLenient = false
+            guard copies.allSatisfy({ formatter.date(from: String($0.lastPathComponent.suffix(22))) != nil }) else {
+                lastRetirementError = "retirementNeedsReview: schema creation timestamp is unknown"
+                return
+            }
+            for copy in copies.dropFirst() { retireSnapshotFiles(copy.path, residues: false) }
+        } catch {
+            lastRetirementError = String(describing: error)
+        }
+    }
+
     /// Copies the archive, at its earlier schema, to `target` through the backup API, consistent as of
     /// one read transaction, verified (integrity, foreign keys, exactly that schema), in rollback
-    /// journal mode and renamed into place without clobbering. Any failure removes what it made.
+    /// journal mode and renamed into place without clobbering. Any failure preserves the temporary family in retirement.
     private func copyBeforeMigration(to target: URL, expecting found: Inspection) async throws {
         guard !FileManager.default.fileExists(atPath: target.path) else {
             throw MemoryStoreError.snapshot(.destinationExists)
@@ -912,10 +1196,13 @@ public actor SQLiteMemoryStore {
             try Self.settle(copy: copy)
             release(copy)
             copying.copy = nil
+            try SQLiteArchiveRetirement.protectFamily(partial)
+            try SQLiteArchiveRetirement.excludeFamily(partial)
             try Self.move(copying.partialPath, to: target.path)
-            copying.removeJournals()
+            retireSnapshotFiles(copying.partialPath, residues: true)
         } catch {
             copying.abandon(releasing: self)
+            retireSnapshotFiles(copying.partialPath, residues: false)
             throw Self.classified(error, phase: .snapshot)
         }
     }
@@ -949,7 +1236,10 @@ public actor SQLiteMemoryStore {
     /// first connection), leaves the store not opened with no handle held, so a later open on this
     /// instance may try again.
     private func performOpen(_ kind: Opening) async throws {
-        defer { opening = nil }
+        #if BRAUS_PHASES
+        defer { Self.recordOpening(at: url) }
+        #endif
+        defer { opening = nil; releasePresenceWhenIdle() }
         let path = url.path
         let ddl     : String
         let expected: Expected
@@ -969,6 +1259,13 @@ public actor SQLiteMemoryStore {
                     primary: SQLITE_CANTOPEN, extended: SQLITE_CANTOPEN, message: "unable to open database file"
                 ), phase: .open)
             }
+            let parent = url.deletingLastPathComponent()
+            guard FileManager.default.fileExists(atPath: parent.path) else {
+                throw MemoryStoreError(SQLiteConnection.Failure(
+                    primary: SQLITE_CANTOPEN, extended: SQLITE_CANTOPEN, message: "unable to open database directory"
+                ), phase: .open)
+            }
+            try SQLiteArchiveRetirement.privateDirectory(parent)
             try await takePresence()
             // Under the shared presence no recovery is in progress, so a record beside the archive is one
             // that stopped half way: nothing opens the archive, or makes an empty one, until a recovery
@@ -1028,19 +1325,27 @@ public actor SQLiteMemoryStore {
                 migration = try await migrate(writer, from: found, expected: expected)
                 try stillOpening()
             }
-            let reader = try acquire(path, mayCreate: kind.creates)
-            do {
-                try Self.verifyJournal(reader, phase: .open)
-            } catch {
-                release(reader)
-                throw error
+            try writer.execute("PRAGMA cache_size = -\(configuration.writerCacheKiB)")
+            for role in [ConnectionRole.reader(index: 0), .reader(index: 1), .bulk] {
+                let reader = SQLiteReader(role: role, configuration: configuration, pool: readPool)
+                do {
+                    try await reader.open(path: path, role: role)
+                } catch {
+                    await reader.close()
+                    throw Self.classified(error, phase: .open)
+                }
+                readers.append(reader)
+                liveHandles += 1
+                try stillOpening()
             }
-            self.writer          = writer
-            self.reader          = reader
+            self.writer = writer
+            self.openingKind = kind
             self.bootstrappedNow = created
             self.migration       = migration
             self.lifecycle       = .open
+            readPool.publish(readers)
         } catch {
+            await closeReaders()
             release(writer)
             throw abandonedOpen(after: error)
         }
@@ -1086,7 +1391,7 @@ public actor SQLiteMemoryStore {
     /// Lets go of the presence lock once nothing of this store holds the archive's files: no
     /// connection of its own or of a copy still in flight, and no open in progress or done.
     private func releasePresenceWhenIdle() {
-        guard liveHandles == 0, lifecycle != .open, lifecycle != .opening else { return }
+        guard liveHandles == 0, lifecycle != .open, lifecycle != .opening, opening == nil else { return }
         presence?.release()
         presence = nil
     }
@@ -1128,16 +1433,16 @@ public actor SQLiteMemoryStore {
         releasePresenceWhenIdle()
     }
 
-    /// Lets go of both connections after a transaction that could not be ended: nothing more goes
+    /// Lets go of every connection after a transaction that could not be ended: nothing more goes
     /// through a connection the store does not trust. The fault stays as the reason, for every
     /// later call, until `close`.
     private func invalidate(with fault: MemoryStoreFault) {
         guard lifecycle == .open else { return }
         if let writer { release(writer) }
-        if let reader { release(reader) }
-        writer    = nil
-        reader    = nil
+        writer = nil
         lifecycle = .failed(fault)
+        readPool.stop(with: .unavailable(.failed(fault)))
+        readerShutdown = Task { await closeReaders() }
         releasePresenceWhenIdle()
     }
 
@@ -1146,10 +1451,12 @@ public actor SQLiteMemoryStore {
     private static func connect(_ path: String, readOnly: Bool, mayCreate: Bool = true) throws -> SQLiteConnection {
         do {
             let connection = try SQLiteConnection(path: path, readOnly: readOnly, mayCreate: mayCreate)
+            try connection.disableAutomaticCloseCheckpoint()
             try connection.execute("PRAGMA foreign_keys = ON")
             guard try integerPragma(connection, "foreign_keys") == 1 else {
                 throw refusal(.open, "foreign_keys could not be enabled")
             }
+            try SQLiteArchiveRetirement.protectFamily(URL(fileURLWithPath: path))
             return connection
         } catch let failure as SQLiteConnection.Failure {
             throw MemoryStoreError(failure, phase: .open)
@@ -1165,6 +1472,9 @@ public actor SQLiteMemoryStore {
             throw refusal(phase, "journal_mode=WAL was not accepted; the file answered '\(mode)'")
         }
         try connection.execute("PRAGMA synchronous = FULL")
+        try connection.execute("PRAGMA wal_autocheckpoint = 0")
+        try connection.execute("PRAGMA journal_size_limit = 67108864")
+        try SQLiteArchiveRetirement.protectFamily(URL(fileURLWithPath: connection.path))
     }
 
     /// Confirms the file is in WAL, sets `synchronous=FULL`, and makes the connection read-only.
@@ -1296,7 +1606,7 @@ public actor SQLiteMemoryStore {
 
     /// The store's error for anything a step threw: a library failure by its code and the phase,
     /// an invalid text by its position, the store's own errors unchanged.
-    private static func classified(_ error: any Error, phase: MemoryStoreError.Phase) -> any Error {
+    static func classified(_ error: any Error, phase: MemoryStoreError.Phase) -> any Error {
         switch error {
         case let failure as SQLiteConnection.Failure   : MemoryStoreError(failure, phase: phase)
         case let invalid as SQLiteStatement.InvalidText: MemoryStoreError(invalid)
@@ -1306,26 +1616,15 @@ public actor SQLiteMemoryStore {
 
     // MARK: Running a transaction
 
-    private enum Role {
-        case writer, reader
-    }
-
-    private func connection(_ role: Role) throws -> SQLiteConnection {
+    private func writerConnection() throws -> SQLiteConnection {
         switch lifecycle {
         case .notOpened, .opening: throw MemoryStoreError.unavailable(.notOpened)
-        case .closed             : throw MemoryStoreError.unavailable(.closed)
-        case .failed(let fault)  : throw MemoryStoreError.unavailable(.failed(fault))
-        case .open               : break
+        case .closed: throw MemoryStoreError.unavailable(.closed)
+        case .failed(let fault): throw MemoryStoreError.unavailable(.failed(fault))
+        case .open: break
         }
-        let candidate: SQLiteConnection?
-        switch role {
-        case .writer: candidate = writer
-        case .reader: candidate = reader
-        }
-        guard let connection = candidate, connection.isOpen else {
-            throw MemoryStoreError.unavailable(.closed)
-        }
-        return connection
+        guard let writer, writer.isOpen else { throw MemoryStoreError.unavailable(.closed) }
+        return writer
     }
 
     /// Runs the step until it returns or throws anything but `Busy`. A busy answer pauses outside
@@ -1360,11 +1659,17 @@ public actor SQLiteMemoryStore {
         on connection: SQLiteConnection,
         begin        : String,
         phase        : MemoryStoreError.Phase,
+        didCommit    : ((T) -> Void)? = nil,
         _ body       : () throws -> T
     ) async throws -> T {
         let beginPhase  = phase == .bootstrap ? phase : MemoryStoreError.Phase.begin
         let commitPhase = phase == .bootstrap ? phase : MemoryStoreError.Phase.commit
         return try await retrying(phase: beginPhase) {
+            switch lifecycle {
+            case .closed: throw MemoryStoreError.unavailable(.closed)
+            case .failed(let fault): throw MemoryStoreError.unavailable(.failed(fault))
+            default: break
+            }
             // A connection let go of while this waited: closed by `close`, or by `invalidate`, whose
             // fault is the answer then, as for every later call.
             guard connection.isOpen else {
@@ -1388,6 +1693,7 @@ public actor SQLiteMemoryStore {
             } catch let failure as SQLiteConnection.Failure {
                 throw ended(after: failure, on: connection, phase: commitPhase)
             }
+            didCommit?(value)
             return value
         }
     }
@@ -1402,8 +1708,7 @@ public actor SQLiteMemoryStore {
         phase        : MemoryStoreError.Phase
     ) -> any Error {
         let cleanup: MemoryStoreFault.Cleanup
-        if let refusal = refusedRollback {
-            refusedRollback = nil
+        if let refusal = readPool.takeRefusal() {
             cleanup = Self.cleanupOutcome(
                 inTransaction     : connection.isInTransaction,
                 rollback          : { refusal },

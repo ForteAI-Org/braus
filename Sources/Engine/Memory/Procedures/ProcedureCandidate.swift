@@ -78,7 +78,10 @@ public enum ProcedureSegmentation {
     /// and presses nothing, which `MenuBarCommand` concludes as `acted_noop`, the only no-op a `menu`
     /// call has. A no-op of any other operation (a toggle already in its state) is a step.
     public static func isListing(tool: AgentTool, resultKind: ActOutcomeKind?) -> Bool {
-        tool == .menu && resultKind == .actedNoop
+        guard tool == .menu, let resultKind else { return false }
+        let outcome = Outcome.converting(resultKind, check: nil, notSent: nil, noop: .listing, sceneAttached: false)
+        return outcome == Outcome(gesture: .notSent, effect: .notApplicable, recovery: .continue)
+            && resultKind != .dryRun
     }
 
     /// The steps of the calls, in their order, each with its block.

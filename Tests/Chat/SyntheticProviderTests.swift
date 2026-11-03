@@ -18,7 +18,7 @@ struct SyntheticProviderTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let definitions = AutomationTools.definitions
         var calls: [String] = []
-        let router = MCPRouter(tools: definitions) { name, _ in
+        let router = MCPRouter(tools: definitions, instructions: nil) { name, _ in
             calls.append(name)
             return MCPRouter.toolResult(.object([
                 "synthetic": .bool(true),

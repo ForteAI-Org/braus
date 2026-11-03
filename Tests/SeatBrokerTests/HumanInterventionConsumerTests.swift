@@ -508,8 +508,8 @@ struct HumanInterventionConsumerTests {
     @Test(arguments: ["secure role", "secure subrole", "reserved", "unreadable", "ordinary"])
     func protectedValuesAreRefusedBeforeTheValueClosure(scenario: String) {
         var readValue = false
-        let result: String? = AccessibilityValueReading.read(
-            isReservedLabel: { $0 == "Password" },
+        let result: String? = AccessibilityValueReading.readText(
+            guard: SensitivityClassifier().valueGuard,
             attribute: { name in
                 if name == "AXRole" { return scenario == "secure role" ? "AXSecureTextField" : "AXTextField" }
                 if name == "AXSubrole" {
@@ -536,15 +536,15 @@ struct HumanInterventionConsumerTests {
             #"= "1"  (was "1")"#, before: scene, after: scene) == #"= "[withheld]"  (was "[withheld]")"#)
     }
 
-    @Test(arguments: ["1", "12", "session-1031", "a\"b\\c"])
-    func diagnosticSecretsUseFragmentsOnlyForLongValues(value: String) {
+    @Test(arguments: [("1", false), ("12", false), ("session-1031", true), ("a\"b\\c", false)])
+    func diagnosticSecretsUseFragmentsOnlyForLongValues(value: String, withholdsFragment: Bool) {
         let scene = SceneSnapshot(bundleID: "test", appName: "Mixer", windowTitle: "Edit",
             viewportPixelSize: .init(width: 310, height: 243), elements: [
                 .init(id: "token", kind: .control, label: "Session token",
                       bounds: .init(x: 0, y: 0, width: 1, height: 1), value: value)])
         let fragment = "prefix \(value) suffix"
         let diagnostic = HumanInterventionConsumer.diagnosticDifference(fragment, before: scene, after: scene)
-        #expect(diagnostic == (value.count <= 2 ? fragment : "prefix [withheld] suffix"))
+        #expect(diagnostic == (withholdsFragment ? "prefix [withheld] suffix" : fragment))
         let quoted = "= " + String(reflecting: value)
         #expect(HumanInterventionConsumer.diagnosticDifference(quoted, before: scene, after: scene)
             == #"= "[withheld]""#)

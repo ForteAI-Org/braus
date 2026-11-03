@@ -1,0 +1,1 @@
+{"evidence":{"command":"uncertain","effect":{"condition":"structural_effect","limits":["delivery_uncertain","no_after_scene"],"method":"scene_difference","verdict":"unknown","version":"engine-oracle-1"},"goal":"not judged by a call: the task's result check says it"},"message":"Delivery uncertain. Observe before retrying.","session":null,"status":"acted_unverified"}

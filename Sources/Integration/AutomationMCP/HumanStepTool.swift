@@ -16,8 +16,8 @@ enum HumanStepTool {
     static var definition: JSONValue {
         .object([
             "name": .string(name),
-            "description": .string("Read human-control steps, a window's net diff, or a step's picture. "
-                + "Available only during the resumed turn; use the digest's step numbers and § IDs."),
+            "description": .string(ModelText.text(.init(rawValue: "tool.human_step.v1.description"))
+                + ModelText.text(.init(rawValue: "human_step_tool.definition.v1"))),
             "inputSchema": .object([
                 "type": .string("object"),
                 "additionalProperties": .bool(false),
@@ -25,14 +25,14 @@ enum HumanStepTool {
                     "steps": .object([
                         "type": .string("string"),
                         "pattern": .string("^[1-9][0-9]*(-[1-9][0-9]*)?$"),
-                        "description": .string("One step or a range of at most 20, such as 3-5.")
+                        "description": .string(ModelText.text(.init(rawValue: "human_step_tool.definition.v1.2")))
                     ]),
                     "diff": .object([
                         "oneOf": .array([
                             .object(["type": .string("string"), "pattern": .string("^§?[1-9][0-9]*$")]),
                             .object(["type": .string("integer"), "minimum": .number(1)])
                         ]),
-                        "description": .string("Window § ID from the digest, or its window number.")
+                        "description": .string(ModelText.text(.init(rawValue: "human_step_tool.definition.v1.3")))
                     ]),
                     "picture": .object([
                         "type": .string("integer"),
@@ -95,7 +95,7 @@ enum HumanStepTool {
     }
 
     private static var invalid: AutomationFailure {
-        AutomationFailure("Use one of steps (1 or 3-5, at most 20), diff (window § ID or number), or picture (step).")
+        AutomationFailure(ModelText.text(.init(rawValue: "tool.human_step.v1.refusal")))
     }
 
     private static func positiveInteger(_ text: String) -> Int? {

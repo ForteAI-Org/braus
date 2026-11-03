@@ -36,27 +36,38 @@ public struct ActOutcome: Sendable, Equatable {
     public let message: String
     public let scene: SceneSnapshot?
     public let check: OperationCheck?
+    public let notSent: NotSentCause?
+    public let noop: NoopKind?
+    public let cause: String?
 
-    public init(_ kind: ActOutcomeKind, _ message: String, scene: SceneSnapshot? = nil, check: OperationCheck? = nil) {
+    public var outcome: Outcome {
+        Outcome.converting(kind, check: check, notSent: notSent, noop: noop, sceneAttached: scene != nil)
+    }
+
+    public init(_ kind: ActOutcomeKind, _ message: String, scene: SceneSnapshot? = nil, check: OperationCheck? = nil,
+                notSent: NotSentCause? = nil, noop: NoopKind? = nil, cause: String? = nil) {
         self.kind    = kind
         self.message = message
         self.scene   = scene
         self.check   = check
+        self.notSent = notSent
+        self.noop = noop
+        self.cause = OutcomeKey.stableCause(cause)
     }
 
     /// The same outcome with another scene, its check kept.
     public func with(scene: SceneSnapshot?) -> ActOutcome {
-        ActOutcome(kind, message, scene: scene, check: check)
+        ActOutcome(kind, message, scene: scene, check: check, notSent: notSent, noop: noop, cause: cause)
     }
 
     /// The same outcome with another message, its scene and check kept.
     public func with(message: String) -> ActOutcome {
-        ActOutcome(kind, message, scene: scene, check: check)
+        ActOutcome(kind, message, scene: scene, check: check, notSent: notSent, noop: noop, cause: cause)
     }
 
     /// The same outcome with this check, its kind, message and scene kept.
     public func with(check: OperationCheck?) -> ActOutcome {
-        ActOutcome(kind, message, scene: scene, check: check)
+        ActOutcome(kind, message, scene: scene, check: check, notSent: notSent, noop: noop, cause: cause)
     }
 
     /// True for the one outcome that claims success. Everything else asks the caller to look again.

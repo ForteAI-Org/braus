@@ -36,7 +36,7 @@ enum CommandLineBatch {
         parent  : CallRecorder,
         children: [CallRecorder],
         prepare : (Int, BatchStep) async throws -> Void = { _, _ in },
-        perform : (Int, BatchStep, CallRecorder) async throws -> ActOutcomeKind
+        perform : (Int, BatchStep, CallRecorder) async throws -> ActOutcome
     ) async throws {
         precondition(children.count == steps.count, "one recorder per step")
         do {
@@ -55,12 +55,12 @@ enum CommandLineBatch {
                 } catch {
                     print("refused: Braus's memory did not confirm step \(number) before it could act (\(error)); "
                         + "it was not run")
-                    return .refused
+                    return ActOutcome(.refused, "The memory did not confirm the step.")
                 }
                 started += 1
-                let kind = try await perform(number, step, children[number - 1])
-                if step.accepts(kind) { verified += 1 }
-                return kind
+                let result = try await perform(number, step, children[number - 1])
+                if step.accepts(step.outcome(of: result)) { verified += 1 }
+                return result
             }
         } catch {
             stop = error

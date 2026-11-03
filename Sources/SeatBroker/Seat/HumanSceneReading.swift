@@ -76,19 +76,19 @@ nonisolated struct NativeHumanSceneReader: HumanSceneReading {
         let timing = Timing()
         pipeline = Timing.$current.withValue(timing) {
             ProductionPerception.pipeline(
-                valueGuard: { ValueMinimization.namesSecret($0) || ValueMinimization.scrubCredentials($0).1 },
+                valueGuard: SensitivityClassifier().valueGuard,
                 timingHook: { Timing.current?.record($0, duration: $1) })
         }
         textPipeline = Timing.$current.withValue(timing) {
             ProductionPerception.pipeline(
                 mode: .textOnly,
-                valueGuard: { ValueMinimization.namesSecret($0) || ValueMinimization.scrubCredentials($0).1 },
+                valueGuard: SensitivityClassifier().valueGuard,
                 timingHook: { Timing.current?.record($0, duration: $1) })
         }
         nativePipeline = Timing.$current.withValue(timing) {
             ScenePipeline(text: NoText(), augmentation: AccessibilityAugmenter(
                 windowNumberResolver: { WindowRelocator.windowNumber(of: $0) },
-                valueGuard: { ValueMinimization.namesSecret($0) || ValueMinimization.scrubCredentials($0).1 }
+                valueGuard: SensitivityClassifier().valueGuard
             ), timingHook: { Timing.current?.record($0, duration: $1) })
         }
         let log = Logger(subsystem: "dev.forte.AgentSeatKit", category: "Preview")
@@ -134,7 +134,7 @@ nonisolated struct NativeHumanSceneReader: HumanSceneReading {
         let semantics = await NativeInteractionSemanticReader.capture(
             processID: window.processID, windows: [window.number],
             resolveWindow: { WindowRelocator.windowNumber(of: $0) },
-            isReserved: { ValueMinimization.namesSecret($0) || ValueMinimization.scrubCredentials($0).1 })
+            isReserved: { SensitivityClassifier().classify($0, in: .init(labels: [$0])).sensitivity == .secret })
             .withholding { ValueMinimization().minimize(text: $0).0 }
         timing.recordSemantics(semantics)
         return (scene, frame)
@@ -187,7 +187,7 @@ nonisolated struct NativeHumanSceneReader: HumanSceneReading {
             processID: processID, windows: Set(windows + [number].compactMap { $0 }), seconds: seconds,
             resolveWindow: { WindowRelocator.windowNumber(of: $0) },
             hostName: { NSRunningApplication(processIdentifier: $0)?.localizedName },
-            isReserved: { ValueMinimization.namesSecret($0) || ValueMinimization.scrubCredentials($0).1 })
+            isReserved: { SensitivityClassifier().classify($0, in: .init(labels: [$0])).sensitivity == .secret })
             .withholding { ValueMinimization().minimize(text: $0).0 }
     }
 

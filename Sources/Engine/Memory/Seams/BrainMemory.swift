@@ -37,17 +37,20 @@ public actor BrainMemory: EffectExpecting {
     private let brains: any BrainReading
     private let applications: any BrainApplicationStoring
     private let relations: (any BrainRelationReading)?
+    private let minimization: ValueMinimization
     private let clock: @Sendable () -> Date
 
     public init(
         brains      : any BrainReading,
         applications: any BrainApplicationStoring,
         relations   : (any BrainRelationReading)? = nil,
+        minimization: ValueMinimization = ValueMinimization(),
         clock       : @escaping @Sendable () -> Date
     ) {
         self.brains       = brains
         self.applications = applications
         self.relations    = relations
+        self.minimization = minimization
         self.clock        = clock
     }
 
@@ -70,9 +73,14 @@ public actor BrainMemory: EffectExpecting {
         guard let target = CaptureElement(element),
               let index = sample.elements.firstIndex(where: { $0 == target }),
               let key = SceneElementKey.identities(in: sample.elements)[index]?.key else { return nil }
+        let skeleton = SceneSkeleton.comparable(
+            sample,
+            minimization: minimization,
+            surface     : ConfidentialSurfaces.surface(of: bundleID)
+        )
         let found: [BrainRelation]
         do {
-            guard let state = try await relations.state(of: SceneSkeleton(sample: sample), isComplete: sample.quality.isComplete,
+            guard let state = try await relations.state(of: skeleton, isComplete: sample.quality.isComplete,
                                                         in: bundleID) else { return nil }
             found = try await relations.relations(from: state, in: bundleID, elementKeys: [key], includingContext: false)
         } catch {
@@ -146,7 +154,8 @@ public actor BrainMemory: EffectExpecting {
 
     /// The scene with its elements named from the projection (sibling groups, recalled labels), and
     /// nothing said about the state: for a scene whose capture is not at hand, so its state cannot be
-    /// placed. The live scene, said unavailable, when the projection cannot be read.
+    /// placed, so its knowledge is nil and the reader prints no memory line. If the projection
+    /// cannot be read, the live scene carries unavailable knowledge without a rendered status line.
     public func enrich(_ scene: SceneSnapshot) async -> SceneSnapshot {
         guard let elements = await named(scene) else { return Self.unavailable(scene) }
         return Self.rebuilt(scene, elements: elements, knowledge: nil)
@@ -157,9 +166,13 @@ public actor BrainMemory: EffectExpecting {
     /// operations learned on the window itself, and what the memory could say (`SceneKnowledge`).
     public func enrich(_ scene: SceneSnapshot, window: PerceivedWindow) async -> SceneSnapshot {
         let sample = CaptureSample(key: CaptureSampleKey(eventID: "enrichment", phase: .current), of: window, sessionRevision: nil)
+        let skeleton = SceneSkeleton.comparable(
+            sample,
+            minimization: minimization,
+            surface     : ConfidentialSurfaces.surface(of: window.scene.bundleID)
+        )
         return await enrich(scene) { relations in
-            try await relations.state(of: SceneSkeleton(sample: sample), isComplete: sample.quality.isComplete,
-                                      in: window.scene.bundleID)
+            try await relations.state(of: skeleton, isComplete: sample.quality.isComplete, in: window.scene.bundleID)
         }
     }
 

@@ -165,6 +165,7 @@ public struct ProviderEventDecoder {
         return ProviderUsage.Tokens(
             input: count("input_tokens") + count("cache_read_input_tokens") + count("cache_creation_input_tokens"),
             cacheReads: count("cache_read_input_tokens"), cacheWrites: count("cache_creation_input_tokens"),
+            cacheWritesHour: (usage["cache_creation"] as? [String: Any])?["ephemeral_1h_input_tokens"] as? Int ?? 0,
             output: count("output_tokens"), reasoning: details?["thinking_tokens"] as? Int ?? 0)
     }
 

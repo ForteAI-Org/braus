@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 25/09/2026.
 //
 
+import AgentLoop
 import AutomationMCP
 import AutomationRuntime
 import ChatCore
@@ -16,6 +17,7 @@ import Memory
 import PerceptionCore
 import Synchronization
 import Testing
+import Turn
 @testable import Braus
 
 private let usage = ModelUsage(
@@ -497,12 +499,17 @@ struct ModelToolLoopTests {
             ),
         ]
 
-        try await ModelToolLoop { try await tools.call($0, $1) }.run(
+        try await ModelToolLoop(
+            call: { try await tools.call($0, $1) },
+            definitions: AutomationTools.definitions,
+            instructions: WorkerLoopInstructions()
+        ).run(
             transport: transport,
             role     : "Be brief.",
             history  : history,
-            prompt   : "Is all well?"
-        ) { events.append($0) }
+            prompt   : "Is all well?",
+            instructions: AutomationTools.instructions
+        ) { events.append(.provider($0)) }
 
         #expect(events.count == 4)
         #expect(events.first == .tool("→ status {}"))
@@ -544,8 +551,16 @@ struct ModelToolLoopTests {
 
         try await ModelToolLoop(
             call    : { _, _ in MCPRouter.toolResult(.object([:])) },
-            reminder: { reminders.popLast() }
-        ).run(transport: transport, role: nil, history: [], prompt: "Rotate it.") { events.append($0) }
+            reminder: { reminders.popLast() },
+            definitions: AutomationTools.definitions,
+            instructions: WorkerLoopInstructions()
+        ).run(
+            transport: transport,
+            role: nil,
+            history: [],
+            prompt: "Rotate it.",
+            instructions: AutomationTools.instructions
+        ) { events.append(.provider($0)) }
 
         #expect(transport.sent.count == 2, "one more round, then the end once nothing is pending")
         #expect(transport.sent.last?.messages.suffix(2).map(\.role) == [.assistant, .user])
@@ -567,11 +582,16 @@ struct ModelToolLoopTests {
             ]
         )
 
-        try await ModelToolLoop { _, _ in MCPRouter.toolResult(.object([:])) }.run(
+        try await ModelToolLoop(
+            call: { _, _ in MCPRouter.toolResult(.object([:])) },
+            definitions: AutomationTools.definitions,
+            instructions: WorkerLoopInstructions()
+        ).run(
             transport: transport,
             role     : nil,
             history  : [],
-            prompt   : "Check."
+            prompt   : "Check.",
+            instructions: AutomationTools.instructions
         ) { _ in }
 
         let asked = try #require(transport.sent.last?.messages.dropLast().last)
@@ -587,16 +607,21 @@ struct ModelToolLoopTests {
         )
         var events = [WorkerAgentEvent]()
 
-        try await ModelToolLoop { _, _ in
-            Issue.record("A model without tools ran one.")
-            return .null
-        }.run(
+        try await ModelToolLoop(
+            call: { _, _ in
+                Issue.record("A model without tools ran one.")
+                return .null
+            },
+            definitions: AutomationTools.definitions,
+            instructions: WorkerLoopInstructions()
+        ).run(
             transport: transport,
             role     : "Answer in Italian.",
             history  : [],
             prompt   : "Hello",
-            seat     : "Braus seat: no session is open."
-        ) { events.append($0) }
+            seat     : "Braus seat: no session is open.",
+            instructions: AutomationTools.instructions
+        ) { events.append(.provider($0)) }
 
         #expect(events == [.provider(.assistant("Ciao.")), .provider(.completed)])
         let sent         = try #require(transport.sent.first)
@@ -621,12 +646,17 @@ struct ModelToolLoopTests {
         var events = [WorkerAgentEvent]()
         tools.record = { events.append(.tool($0)) }
 
-        try await ModelToolLoop { try await tools.call($0, $1) }.run(
+        try await ModelToolLoop(
+            call: { try await tools.call($0, $1) },
+            definitions: AutomationTools.definitions,
+            instructions: WorkerLoopInstructions()
+        ).run(
             transport: transport,
             role     : nil,
             history  : [],
-            prompt   : "Open TextEdit."
-        ) { events.append($0) }
+            prompt   : "Open TextEdit.",
+            instructions: AutomationTools.instructions
+        ) { events.append(.provider($0)) }
 
         #expect(events.first == .tool(#"→ open_session {"app":"TextEdit"}"#))
         #expect(events.last == .provider(.completed))
@@ -930,7 +960,7 @@ struct ModelToolLoopTests {
         #expect(transport.wasCancelled)
         #expect(session.log.isEmpty)
         #expect(!host.isRunning)
-        await #expect(throws: AutomationFailure.self) {
+        await #expect(throws: TurnRefusal.personHasControl) {
             try await host.run(
                 prompt   : "Too early.",
                 selection: ollama,
@@ -938,7 +968,7 @@ struct ModelToolLoopTests {
                 role     : nil
             ) { _ in }
         }
-        await #expect(throws: AutomationFailure.self) {
+        await #expect(throws: TurnRefusal.personHasControl) {
             _ = try await host.compact(
                 selection: ollama,
                 sessionID: nil,
@@ -946,10 +976,10 @@ struct ModelToolLoopTests {
                 trigger  : .manual
             )
         }
-        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(UUID()) }
+        #expect(throws: TurnRefusal.staleEpisode) { try host.endHumanIntervention(UUID()) }
         #expect(transport.sent.count == 1)
         try host.endHumanIntervention(token)
-        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        #expect(throws: TurnRefusal.staleEpisode) { try host.endHumanIntervention(token) }
         #expect(transport.sent.count == 1, "ending suspension starts no provider and replays no tools")
         try await host.close()
         #expect(session.log == ["close"])
@@ -1051,7 +1081,7 @@ struct ModelToolLoopTests {
         }
         try await Self.wait { session.isOpening }
         let token = try host.suspendForHumanIntervention()
-        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        #expect(throws: TurnRefusal.staleEpisode) { try host.endHumanIntervention(token) }
         #expect(session.log == ["open"])
         var drained = false
         let cleanup = Task {
@@ -1182,11 +1212,11 @@ struct ModelToolLoopTests {
             try await host.close()
         } else {
             host.stop()
-            #expect(throws: AutomationFailure.self) { try host.suspendForHumanIntervention() }
+            #expect(throws: TurnRefusal.previousTurnStopping) { try host.suspendForHumanIntervention() }
         }
         await #expect(throws: CancellationError.self) { try await turn.value }
         #expect(session.log.contains("close"))
-        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        #expect(throws: TurnRefusal.staleEpisode) { try host.endHumanIntervention(token) }
     }
 
     @Test
@@ -1217,8 +1247,8 @@ struct ModelToolLoopTests {
         session.holdsClose = true
         host.stop()
         try await Self.wait { session.isClosing }
-        #expect(throws: AutomationFailure.self) { try host.suspendForHumanIntervention() }
-        await #expect(throws: AutomationFailure.self) {
+        #expect(throws: TurnRefusal.previousEpisodeReleasing) { try host.suspendForHumanIntervention() }
+        await #expect(throws: TurnRefusal.personHasControl) {
             try await host.run(
                 prompt   : "Too early.",
                 selection: ollama,
@@ -1226,7 +1256,7 @@ struct ModelToolLoopTests {
                 role     : nil
             ) { _ in }
         }
-        #expect(throws: AutomationFailure.self) { try host.endHumanIntervention(token) }
+        #expect(throws: TurnRefusal.staleEpisode) { try host.endHumanIntervention(token) }
         session.holdsClose = false
         session.finishClosing()
         await host.waitForHumanInterventionCleanup()
@@ -1397,14 +1427,19 @@ struct ModelToolLoopTests {
         var calls = 0
 
         let failure = await #expect(throws: AutomationFailure.self) {
-            try await ModelToolLoop { _, _ in
-                calls += 1
-                return MCPRouter.toolResult(.object([:]))
-            }.run(
+            try await ModelToolLoop(
+                call: { _, _ in
+                    calls += 1
+                    return MCPRouter.toolResult(.object([:]))
+                },
+                definitions: AutomationTools.definitions,
+                instructions: WorkerLoopInstructions()
+            ).run(
                 transport: transport,
                 role     : nil,
                 history  : [],
-                prompt   : "Loop."
+                prompt   : "Loop.",
+                instructions: AutomationTools.instructions
             ) { _ in }
         }
         #expect(failure?.description.contains("after \(ModelToolLoop.toolRoundLimit) rounds") == true)

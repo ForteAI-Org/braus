@@ -52,13 +52,14 @@ struct GeminiClient: ModelTransport {
     func converse(_ messages: [TurnMessage], tools: [ToolDefinition], timeout: TimeInterval)
         throws -> AsyncThrowingStream<TurnEvent, any Error> {
         guard !apiKey.isEmpty else { throw ProviderError.missingAPIKey(.gemini) }
+        let names = try ToolNameAliases(tools: tools, messages: messages)
         let body = try requestBody(messages: messages, tools: tools)
         // Without alt=sse the streaming endpoint answers with one JSON array
         // instead of events, which is not a stream at all.
         let request = try HTTPTransport.request(try Self.endpoint(model, "streamGenerateContent?alt=sse"),
                                                 headers: headers, body: body, timeout: timeout)
         return HTTPTransport.stream(request, assembler: TurnAssembler(format: .serverSentEvents, decode: Self.decode,
-                                                                      recording: .gemini))
+                                                                      recording: .gemini, toolNames: names))
     }
 
     /// Gemini's text models take tools. The speech and image generation models
@@ -85,8 +86,9 @@ struct GeminiClient: ModelTransport {
         messages: [TurnMessage],
         tools   : [ToolDefinition]
     ) throws -> [String: Any] {
+        let names = try ToolNameAliases(tools: tools, messages: messages)
         let capabilities = knownCapabilities
-        let prepared = messages.map { $0.forModel(with: capabilities) }
+        let prepared = messages.map { names.sending($0.forModel(with: capabilities)) }
         let perPartResolution = model.hasPrefix("gemini-3-") || model.hasPrefix("gemini-3.")
             || model.hasPrefix("gemini-4-")
         var body: [String: Any] = ["contents": try Self.contents(
@@ -100,7 +102,7 @@ struct GeminiClient: ModelTransport {
         }
         if !tools.isEmpty {
             body["tools"] = [["functionDeclarations": try tools.map { tool in
-                ["name": tool.name, "description": tool.description,
+                ["name": ToolNameAliases.wireName(tool.name), "description": tool.description,
                  "parametersJsonSchema": try JSONSerialization.jsonObject(with: tool.parameters)]
             }]]
         }
@@ -122,11 +124,13 @@ struct GeminiClient: ModelTransport {
         var contents: [[String: Any]] = []
         var responses: [[String: Any]]?
         var calledIDs: Set<String> = []
+        var calledNames: [String: String] = [:]
         for message in messages where message.role != .system {
             if message.role == .tool {
                 let call = message.call
                 let key = message.isError ? "error" : "output"
-                var response: [String: Any] = ["name": call?.name ?? "", "response": [key: value(of: message.text)]]
+                let name = call.flatMap { calledNames[$0.id] } ?? call?.name ?? ""
+                var response: [String: Any] = ["name": name, "response": [key: value(of: message.text)]]
                 if let id = call?.id, calledIDs.contains(id) { response["id"] = id }
                 responses = (responses ?? []) + [["functionResponse": response]]
                 // v1beta Part accepts inlineData beside functionResponse in the same user turn.
@@ -147,7 +151,12 @@ struct GeminiClient: ModelTransport {
                 responses = nil
             }
             let parts = try parts(of: message)
-            calledIDs = Set(parts.compactMap { ($0["functionCall"] as? [String: Any])?["id"] as? String })
+            let calls = parts.compactMap { $0["functionCall"] as? [String: Any] }
+            calledIDs = Set(calls.compactMap { $0["id"] as? String })
+            calledNames = [:]
+            for (index, call) in calls.enumerated() {
+                calledNames[call["id"] as? String ?? "call_\(index)"] = call["name"] as? String
+            }
             contents.append(["role": message.role == .user ? "user" : "model", "parts": parts])
         }
         if let answered = responses { contents.append(["role": "user", "parts": answered]) }

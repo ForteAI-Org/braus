@@ -27,14 +27,14 @@ extension HumanInteractionReading {
 struct NativeHumanInteractionReader: HumanInteractionReading {
     func element(at point: CGPoint?, processID: Int32, menuBar: Bool) async -> InteractionElementMetadata? {
         await InteractionSceneReader.metadata(at: point, processID: processID, menuBar: menuBar) {
-            ValueMinimization.namesSecret($0) || ValueMinimization.scrubCredentials($0).1
+            SensitivityClassifier().classify($0, in: .init(labels: [$0])).sensitivity == .secret
         }
     }
 
     func semantics(processID: Int32, windows: Set<Int>) async -> InteractionSemanticSnapshot? {
         await NativeInteractionSemanticReader.capture(processID: processID, windows: windows, seconds: 0.1,
             resolveWindow: { WindowRelocator.windowNumber(of: $0) },
-            isReserved: { ValueMinimization.namesSecret($0) || ValueMinimization.scrubCredentials($0).1 })
+            isReserved: { SensitivityClassifier().classify($0, in: .init(labels: [$0])).sensitivity == .secret })
             .withholding { ValueMinimization().minimize(text: $0).0 }
     }
 

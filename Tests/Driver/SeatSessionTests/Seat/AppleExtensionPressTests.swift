@@ -385,18 +385,20 @@ struct AppleExtensionPressTests {
         #expect(shape.dark.performed.isEmpty, "the element that was not asked for is never pressed")
         #expect(outcome.role == kAXButtonRole)
         #expect(!outcome.needsPostedClick)
-        #expect(shape.pane.notes.lines.contains { $0.contains("'Dark'") && $0.contains("'Light' is pressed instead") })
+        #expect(shape.pane.notes.lines.contains {
+            $0.contains("AXButton") && $0.contains("the requested control is pressed instead")
+        })
     }
 
     @Test("a name nothing near the point answers to refuses without pressing anything")
     func aMissingNameRefuses() throws {
         let shape = try Self.appearance(pressing: "Dark")
 
-        #expect(throws: RemoteContentActuationRefusal.wrongElement(requested: "Sepia", found: "Dark")) {
+        #expect(throws: RemoteContentActuationRefusal.wrongElement(requested: "Sepia", foundRole: kAXButtonRole)) {
             try Self.press(shape, expecting: "Sepia").get()
         }
         for element in [shape.light, shape.dark, shape.auto, shape.capsule] { #expect(element.performed.isEmpty) }
-        #expect(!RemoteContentActuationRefusal.wrongElement(requested: "a", found: "b").wasDeclinedBeforeActing,
+        #expect(!RemoteContentActuationRefusal.wrongElement(requested: "a", foundRole: kAXButtonRole).wasDeclinedBeforeActing,
                 "an ordinary window's refusal is never posted instead")
     }
 

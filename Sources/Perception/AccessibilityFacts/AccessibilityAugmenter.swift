@@ -29,7 +29,7 @@ import Synchronization
 /// reported on its own.
 public struct AccessibilityAugmenter: SceneAugmenting {
 
-    private let valueGuard: (@Sendable (String) -> Bool)?
+    private let valueGuard: ValueGuard?
     private let budgetSeconds: TimeInterval
     private let messagingTimeoutSeconds: Float
     private let windowNumberResolver: (@Sendable (AXUIElement) -> Int?)?
@@ -45,7 +45,7 @@ public struct AccessibilityAugmenter: SceneAugmenting {
         budgetSeconds: TimeInterval = 1.5,
         messagingTimeoutSeconds: Float = 2,
         windowNumberResolver: (@Sendable (AXUIElement) -> Int?)? = nil,
-        valueGuard: (@Sendable (String) -> Bool)? = nil
+        valueGuard: ValueGuard? = nil
     ) {
         self.valueGuard = valueGuard
         self.budgetSeconds           = budgetSeconds

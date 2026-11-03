@@ -23,7 +23,7 @@ final class ExternalMCPSession {
     lazy var router: MCPRouter = {
         let router = MCPRouter(
             tools: profile.desktop ? tools.toolDefinitions : [],
-            instructions: profile.desktop ? tools.instructions + "\n" + Self.instructions : Self.withoutDesktop
+            instructions: profile.desktop ? AutomationTools.mcpInstructions(.full) : Self.withoutDesktop
         ) { [weak self] name, arguments in
             guard let self, !self.isClosed else {
                 throw MCPRequestFailure("This client is not authorized for desktop access.")
@@ -79,11 +79,6 @@ final class ExternalMCPSession {
             )
         }
     }
-
-    static let instructions = "Braus must remain open. open_session can launch an installed app: "
-        + "use apps to find its exact bundle ID. Calls share the app’s Seat queue with its workers; "
-        + "if a session expires, observe the current state before deciding what to do. "
-        + "Reconnects start a fresh session and do not restore the previous session ID."
 
     /// What a profile without desktop access is told instead of the desktop's instructions.
     static let withoutDesktop = "Braus must remain open. This client has no desktop access: it cannot see or "

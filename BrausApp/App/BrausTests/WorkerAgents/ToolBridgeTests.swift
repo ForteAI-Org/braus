@@ -21,7 +21,7 @@ struct ToolBridgeTests {
         let bridge = Bundle.main.bundleURL.appending(path: "Contents/Helpers/braus-bridge")
         try #require(FileManager.default.isExecutableFile(atPath: bridge.path))
 
-        let host = LocalMCPHost(router: MCPRouter(tools: [.object(["name": .string("status")])]) { _, _ in .null })
+        let host = LocalMCPHost(router: MCPRouter(tools: [.object(["name": .string("status")])], instructions: nil) { _, _ in .null })
         let endpoint = try await host.start()
         defer { host.stop() }
 
@@ -72,7 +72,7 @@ struct ToolBridgeTests {
         let bridge = Bundle.main.bundleURL.appending(path: "Contents/Helpers/braus-bridge")
         try #require(FileManager.default.isExecutableFile(atPath: bridge.path))
 
-        let host = LocalMCPHost(router: MCPRouter(tools: [.object(["name": .string("status")])]) { _, _ in .null })
+        let host = LocalMCPHost(router: MCPRouter(tools: [.object(["name": .string("status")])], instructions: nil) { _, _ in .null })
         let endpoint = try await host.start()
         defer { host.stop() }
 

@@ -67,19 +67,6 @@ nonisolated struct TurnUsage: Sendable, Hashable, Codable {
 // Token counts add up across turns, and a running total less the one before is a turn's own.
 nonisolated extension ProviderUsage.Tokens {
 
-    static func + (
-        lhs: Self,
-        rhs: Self
-    ) -> Self {
-        Self(
-            input      : lhs.input + rhs.input,
-            cacheReads : lhs.cacheReads + rhs.cacheReads,
-            cacheWrites: lhs.cacheWrites + rhs.cacheWrites,
-            output     : lhs.output + rhs.output,
-            reasoning  : lhs.reasoning + rhs.reasoning
-        )
-    }
-
     /// What `lhs` counts past `rhs`, never below zero.
     static func - (
         lhs: Self,
@@ -89,6 +76,7 @@ nonisolated extension ProviderUsage.Tokens {
             input      : max(0, lhs.input - rhs.input),
             cacheReads : max(0, lhs.cacheReads - rhs.cacheReads),
             cacheWrites: max(0, lhs.cacheWrites - rhs.cacheWrites),
+            cacheWritesHour: max(0, lhs.cacheWritesHour - rhs.cacheWritesHour),
             output     : max(0, lhs.output - rhs.output),
             reasoning  : max(0, lhs.reasoning - rhs.reasoning)
         )

@@ -447,7 +447,7 @@ public actor CallRecorder: ActionObserving {
     /// only when the call's check verified that effect (`end`).
     public func record(_ record: ActionRecord) async {
         let controls = noteConfidential([record.before, record.after], bundleID: record.bundleID)
-        let contentTarget = controls != nil && ConfidentialSurfaces.isContent(record.element)
+        let contentTarget = controls != nil && SensitivityClassifier().classify(record.element).sensitivity != .ordinary
         if contentTarget { withholdConfidential(wholes: [record.element.label]) }
         keep(effect: record.effect, controls: controls)
         attempt = record.attempt
@@ -464,11 +464,12 @@ public actor CallRecorder: ActionObserving {
     /// call's end. An input teaches the Brain nothing.
     public func record(_ input: InputRecord) async {
         let controls = noteConfidential([input.before, input.menu, input.after], bundleID: input.bundleID)
-        if controls != nil, let element = input.target, ConfidentialSurfaces.isContent(element) {
+        if controls != nil, let element = input.target, SensitivityClassifier().classify(element).sensitivity != .ordinary {
             withholdConfidential(wholes: [element.label])
         }
         keep(effect: input.effect, controls: controls)
         attempt = input.attempt
+        if let seen = input.after ?? input.before { lastPerceived = seen }
         target  = input.target.map(OperationCheck.Target.init)
         await keep([(input.before, .before), (input.menu, .menu), (input.after, .after)], bundleID: input.bundleID)
     }
@@ -505,7 +506,7 @@ public actor CallRecorder: ActionObserving {
     @discardableResult
     private func noteConfidential(_ scene: SceneSnapshot) -> ConfidentialSurface? {
         guard let surface = ConfidentialSurfaces.surface(of: scene.bundleID) else { return nil }
-        let content = scene.elements.filter(ConfidentialSurfaces.isContent)
+        let content = scene.elements.filter { SensitivityClassifier().classify($0).sensitivity != .ordinary }
         withholdConfidential(fragments: ConfidentialSurfaces.contentTexts(of: scene),
                              wholes: content.map(\.label) + scene.elements.compactMap(\.value)
                                  + (ConfidentialSurfaces.contentTitle(of: scene).map { [$0] } ?? []))
@@ -603,7 +604,7 @@ public actor CallRecorder: ActionObserving {
     public func record(before: PerceivedWindow?, menu: PerceivedWindow?, after: PerceivedWindow?, bundleID: String,
                        target: SceneElement? = nil) async {
         if noteConfidential([before, menu, after], bundleID: bundleID) != nil, let target,
-           ConfidentialSurfaces.isContent(target) {
+           SensitivityClassifier().classify(target).sensitivity != .ordinary {
             withholdConfidential(wholes: [target.label])
         }
         if let target { self.target = OperationCheck.Target(target) }

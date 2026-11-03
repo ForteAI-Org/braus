@@ -24,15 +24,32 @@ public struct ProviderUsage: Sendable, Equatable {
         public var input: Int
         public var cacheReads: Int
         public var cacheWrites: Int
+        /// The hour-lived portion of cacheWrites; absent in older stored records.
+        public var cacheWritesHour: Int
         public var output: Int
         public var reasoning: Int
 
-        public init(input: Int = 0, cacheReads: Int = 0, cacheWrites: Int = 0, output: Int = 0, reasoning: Int = 0) {
+        public init(input: Int = 0, cacheReads: Int = 0, cacheWrites: Int = 0, cacheWritesHour: Int = 0, output: Int = 0, reasoning: Int = 0) {
             self.input = input
             self.cacheReads = cacheReads
             self.cacheWrites = cacheWrites
+            self.cacheWritesHour = cacheWritesHour
             self.output = output
             self.reasoning = reasoning
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case input, cacheReads, cacheWrites, cacheWritesHour, output, reasoning
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            input = try values.decode(Int.self, forKey: .input)
+            cacheReads = try values.decode(Int.self, forKey: .cacheReads)
+            cacheWrites = try values.decode(Int.self, forKey: .cacheWrites)
+            cacheWritesHour = try values.decodeIfPresent(Int.self, forKey: .cacheWritesHour) ?? 0
+            output = try values.decode(Int.self, forKey: .output)
+            reasoning = try values.decode(Int.self, forKey: .reasoning)
         }
     }
 
@@ -71,5 +88,23 @@ public struct ProviderUsage: Sendable, Equatable {
         self.contextTokens = contextTokens
         self.contextWindow = contextWindow
         self.rateLimits = rateLimits
+    }
+}
+
+nonisolated extension ProviderUsage.Tokens {
+
+    /// Adds each token count across two usages.
+    public static func + (
+        lhs: Self,
+        rhs: Self
+    ) -> Self {
+        Self(
+            input      : lhs.input + rhs.input,
+            cacheReads : lhs.cacheReads + rhs.cacheReads,
+            cacheWrites: lhs.cacheWrites + rhs.cacheWrites,
+            cacheWritesHour: lhs.cacheWritesHour + rhs.cacheWritesHour,
+            output     : lhs.output + rhs.output,
+            reasoning  : lhs.reasoning + rhs.reasoning
+        )
     }
 }

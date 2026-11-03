@@ -20,16 +20,7 @@ struct AnthropicClient: ModelTransport {
     func complete(prompt: String, schema: Data, timeout: TimeInterval)
         async throws -> (text: String, usage: ModelUsage) {
         guard !apiKey.isEmpty else { throw ProviderError.missingAPIKey(.anthropic) }
-        let schemaObject = try JSONSerialization.jsonObject(with: schema)
-        // Haiku 4.5 rejects `effort`; every other current model takes it.
-        var outputConfig: [String: Any] = ["format": ["type": "json_schema", "schema": schemaObject]]
-        if !model.contains("haiku") { outputConfig["effort"] = effort.rawValue }
-        let body: [String: Any] = [
-            "model": model,
-            "max_tokens": 16000,
-            "output_config": outputConfig,
-            "messages": [["role": "user", "content": prompt]],
-        ]
+        let body = try structuredBody(prompt: prompt, schema: schema)
         let (json, elapsed) = try await HTTPTransport.postJSON(Self.endpoint, headers: headers,
                                                                body: body, timeout: timeout)
 
@@ -46,6 +37,21 @@ struct AnthropicClient: ModelTransport {
                                  duration: elapsed))
     }
 
+    /// Builds the structured Messages body without making a request.
+    func structuredBody(prompt: String, schema: Data) throws -> [String: Any] {
+        let schemaObject = try JSONSerialization.jsonObject(with: schema)
+        var outputConfig: [String: Any] = ["format": ["type": "json_schema", "schema": schemaObject]]
+        if !ModelSelection.supportedEfforts(provider: .anthropic, model: model).isEmpty {
+            outputConfig["effort"] = effort.rawValue
+        }
+        return [
+            "model": model,
+            "max_tokens": 16000,
+            "output_config": outputConfig,
+            "messages": [["role": "user", "content": prompt]],
+        ]
+    }
+
     func converse(_ messages: [TurnMessage], timeout: TimeInterval)
         throws -> AsyncThrowingStream<TurnEvent, any Error> {
         try converse(messages, tools: [], timeout: timeout)
@@ -54,10 +60,11 @@ struct AnthropicClient: ModelTransport {
     func converse(_ messages: [TurnMessage], tools: [ToolDefinition], timeout: TimeInterval)
         throws -> AsyncThrowingStream<TurnEvent, any Error> {
         guard !apiKey.isEmpty else { throw ProviderError.missingAPIKey(.anthropic) }
+        let names = try ToolNameAliases(tools: tools, messages: messages)
         let body = try requestBody(messages: messages, tools: tools)
         let request = try HTTPTransport.request(Self.endpoint, headers: headers, body: body, timeout: timeout)
         return HTTPTransport.stream(request, assembler: TurnAssembler(format: .serverSentEvents, decode: Self.decode,
-                                                                      recording: .anthropic))
+                                                                      recording: .anthropic, toolNames: names))
     }
 
     /// Every current Claude model takes tools and images, and thinks, so this
@@ -70,21 +77,24 @@ struct AnthropicClient: ModelTransport {
     /// the tools as `{name, description, input_schema}`, and one automatic
     /// cache breakpoint, which the API moves to the last block of each request.
     func requestBody(messages: [TurnMessage], tools: [ToolDefinition]) throws -> [String: Any] {
+        let names = try ToolNameAliases(tools: tools, messages: messages)
         var body: [String: Any] = [
             "model": model,
             "max_tokens": 16000,
             "stream": true,
             "cache_control": ["type": "ephemeral"],
-            "messages": try Self.messages(messages),
+            "messages": try Self.messages(messages.map(names.sending)),
         ]
         // The Messages API takes the system instruction beside the turns, not
         // as one of them.
         let system = messages.filter { $0.role == .system }.map(\.text).joined(separator: "\n\n")
         if !system.isEmpty { body["system"] = system }
-        if !model.contains("haiku") { body["output_config"] = ["effort": effort.rawValue] }
+        if !ModelSelection.supportedEfforts(provider: .anthropic, model: model).isEmpty {
+            body["output_config"] = ["effort": effort.rawValue]
+        }
         if !tools.isEmpty {
             body["tools"] = try tools.map { tool in
-                ["name": tool.name, "description": tool.description,
+                ["name": ToolNameAliases.wireName(tool.name), "description": tool.description,
                  "input_schema": try JSONSerialization.jsonObject(with: tool.parameters)]
             }
         }

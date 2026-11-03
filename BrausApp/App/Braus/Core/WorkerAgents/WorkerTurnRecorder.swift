@@ -10,6 +10,8 @@ import CLIProviders
 import Foundation
 import AutomationRuntime
 import ModelTransports
+// Preserve enum-case visibility for the existing application Ending interface.
+@_exported import enum Turn.TurnEnding
 
 /// WorkerTurnRecorder writes one agent turn into the workspace (§11.5).
 ///
@@ -40,15 +42,7 @@ import ModelTransports
 @MainActor
 final class WorkerTurnRecorder {
 
-    /// How a turn ended.
-    enum Ending: Sendable, Equatable {
-        case completed
-        case failed(reason: String)
-        case cancelled
-
-        /// The person took control of the application; nothing went wrong.
-        case handedToPerson
-    }
+    typealias Ending = TurnEnding
 
     /// The note a stopped turn leaves, word for word what `braus chat` writes.
     static let interruptedNote = "Stopped. Review the app before continuing."
@@ -186,13 +180,8 @@ final class WorkerTurnRecorder {
         continuation.finish()
         let state = await writer.value
 
-        let ending: Ending
-        switch thrown {
-        case .none where handedOver: ending = .handedToPerson
-        case is CancellationError:   ending = isHandedOver?() == true ? .handedToPerson : .cancelled
-        case .some(let error):       ending = .failed(reason: state.reportedFailure ?? error.localizedDescription)
-        case .none:                  ending = state.reportedFailure.map { .failed(reason: $0) } ?? .completed
-        }
+        let ending = TurnEnding(thrown: thrown, handedOver: handedOver,
+                                isHandedOver: isHandedOver?() == true, reportedFailure: state.reportedFailure)
         try await finish(ending, execution: execution.id)
         if let failure = state.firstFailure { throw failure }
         return ending

@@ -6,6 +6,7 @@
 //
 
 import AutomationRuntime
+import Darwin
 import Foundation
 import Memory
 @testable import SQLiteMemory
@@ -136,6 +137,38 @@ enum C {
 @Suite("Closing the memory: one bound, every write accounted for, no incomplete copy")
 struct MemoryClosingTests {
 
+    @Test("copy retirement waiting on another process does not hold the service's close")
+    func retirementDoesNotHoldClose() async throws {
+        let service = try C.service()
+        await service.setBeforeBackup { throw SkipBackup() }
+        _ = try await service.ready()
+        await service.waitForBackup()
+        await service.maintainCopies(now: Date(), verifiedBackupAt: nil)
+        let path = service.directory.appendingPathComponent(".retired/.retirement.lock").path
+        let lock = Darwin.open(path, O_RDWR)
+        try #require(lock >= 0)
+        defer { #expect(Darwin.close(lock) == 0) }
+        try #require(flock(lock, LOCK_EX | LOCK_NB) == 0)
+
+        let saved = Signal()
+        await service.enqueue("event") { repositories in
+            _ = try await repositories.captures.record(C.event("retirement-0"))
+            saved.raise()
+        }
+        #expect(await C.eventually { saved.isRaised })
+        try await Task.sleep(for: .milliseconds(20))
+        let took = await C.elapsed(C.budget + C.tolerance) {
+            await C.offer(service, "retirement-later", count: 5)
+            await service.close()
+        }
+        #expect(flock(lock, LOCK_UN) == 0)
+        #expect(took != nil)
+        await service.close()
+        #expect(await service.status().written == 6)
+        #expect(try await C.stored(in: service, "retirement", count: 1) == 1)
+        #expect(try await C.stored(in: service, "retirement-later", count: 5) == 5)
+    }
+
     @Test("ordinary close: every offered write is saved and none is left unaccounted")
     func nominal() async throws {
         let service = try C.service()
@@ -153,6 +186,7 @@ struct MemoryClosingTests {
     func copyHeldAtItsStart() async throws {
         let service = try C.service()
         let gate = Gate()
+        await service.setBackupEnvironment(now: { Date() }, capacity: { _ in Int64.max })
         await service.setBeforeBackup { try await gate.pass() }
         _ = try await service.ready()
         #expect(await gate.reached())
@@ -167,10 +201,11 @@ struct MemoryClosingTests {
         #expect(await service.status().lastClose?.contains("stopped with nothing published") == true)
     }
 
-    @Test("a copy held between two of its steps, its partial file on disk: the close cancels it there, removes the partial file and publishes nothing")
+    @Test("a copy held between two of its steps, its partial file on disk: the close cancels it there, retires the partial family and publishes nothing")
     func copyHeldBetweenTwoSteps() async throws {
         let service = try C.service(pagesPerStep: 1, backupInterval: .zero)
         let start = Gate(), step = Gate()
+        await service.setBackupEnvironment(now: { Date() }, capacity: { _ in Int64.max })
         await service.setBeforeBackup { try await start.pass() }
         _ = try await service.ready()
         #expect(await start.reached(), "the day's copy begins at the open")
@@ -182,7 +217,9 @@ struct MemoryClosingTests {
         let took = await C.elapsed(C.budget + C.tolerance) { await service.close() }
         #expect(took != nil, "the close returned within its bound")
         #expect(step.cancellations == 1, "the copy was cancelled while it waited between two steps")
-        #expect(try C.files(service, ".partial").isEmpty, "the cancelled copy left no partial file")
+        #expect(try C.files(service, ".partial").isEmpty, "the cancelled partial family is no longer active")
+        let retired = try FileManager.default.contentsOfDirectory(atPath: service.directory.appendingPathComponent(".retired").path)
+        #expect(retired.contains { $0.contains(".partial-") }, "the cancelled copy is preserved")
         #expect(try C.files(service, ".backup-").isEmpty, "the cancelled copy published nothing")
         let summary = await service.status().lastClose ?? ""
         #expect(summary.contains("stopped with nothing published"), "\(summary)")

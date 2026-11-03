@@ -8,6 +8,48 @@ import Synchronization
 @Suite("Accessibility value admission")
 struct LiveAccessibilityReaderTests {
 
+    @Test("The role-only guard never reserves a label", arguments: ["Key", "Token", "PIN", "Password"])
+    func roleOnlyGuard(label: String) {
+        let reads = Mutex(0)
+        let reader = LiveAccessibilityReader(valueGuard: ValueGuard(refusesLabel: { _ in false }, withholdsValue: { _, _ in false }), copyAttributeValue: { _, name, result in
+            switch name as String {
+                case kAXRoleAttribute: result.pointee = "AXTextField" as CFString
+                case kAXSubroleAttribute: result.pointee = "" as CFString
+                case kAXValueAttribute:
+                    reads.withLock { $0 += 1 }
+                    result.pointee = "ordinary" as CFString
+                default: result.pointee = label as CFString
+            }
+            return .success
+        })
+        #expect(reader.value(AXUIElementCreateApplication(0)) == "ordinary")
+        #expect(reads.withLock { $0 } == 1)
+    }
+
+    @Test("The role-only guard rejects secure classification before AXValue",
+          arguments: ["role", "subrole", "unreadable", "ordinary"])
+    func workerPipelineGuard(scenario: String) {
+        let reads = Mutex(0)
+        let reader = LiveAccessibilityReader(valueGuard: ValueGuard(refusesLabel: { _ in false }, withholdsValue: { _, _ in false }), copyAttributeValue: { _, name, result in
+            switch name as String {
+                case kAXRoleAttribute:
+                    result.pointee = (scenario == "role" ? "AXSecureTextField" : "AXTextField") as CFString
+                case kAXSubroleAttribute:
+                    if scenario == "unreadable" { return .cannotComplete }
+                    result.pointee = (scenario == "subrole" ? "AXSecureTextField" : "") as CFString
+                case kAXValueAttribute:
+                    reads.withLock { $0 += 1 }
+                    result.pointee = "ordinary" as CFString
+                default: return .noValue
+            }
+            return .success
+        })
+        let node = AXUIElementCreateApplication(0)
+        let role = reader.role(node), subrole = reader.subrole(node)
+        #expect(reader.value(node, role: role, subrole: subrole) == (scenario == "ordinary" ? "ordinary" : nil))
+        #expect(reads.withLock { $0 } == (scenario == "ordinary" ? 1 : 0))
+    }
+
     @Test("The default string read requests only AXValue", arguments: ["120.000", "", "  Tempo\n"])
     func unguardedString(value: String) {
         let requests = Mutex<[String]>([])
@@ -43,7 +85,7 @@ struct LiveAccessibilityReaderTests {
     func guardedValues(scenario: String, classified: Bool) {
         let requests = Mutex<[String]>([])
         let reader = LiveAccessibilityReader(
-            valueGuard: { $0 == "Password" },
+            valueGuard: ValueGuard(refusesLabel: { $0 == "Password" }, withholdsValue: { _, _ in false }),
             copyAttributeValue: { _, attribute, result in
                 let name = attribute as String
                 requests.withLock { $0.append(name) }
@@ -80,7 +122,7 @@ struct LiveAccessibilityReaderTests {
         for numeric in [false, true] {
             let requests = Mutex<[String]>([])
             let reader = LiveAccessibilityReader(
-                valueGuard: { $0 == "Password" },
+                valueGuard: ValueGuard(refusesLabel: { $0 == "Password" }, withholdsValue: { _, _ in false }),
                 copyAttributeValue: { _, attribute, result in
                     let name = attribute as String
                     requests.withLock { $0.append(name) }
@@ -112,12 +154,12 @@ struct LiveAccessibilityReaderTests {
         }
     }
 
-    @Test("The guarded walker adds no non-text AX requests", arguments: ["AXButton", "AXCheckBox"], [false, true])
+    @Test("The guarded walker reads only common non-text labels for value classification", arguments: ["AXButton", "AXCheckBox"], [false, true])
     func guardedWalkRequests(role: String, child: Bool) {
         func requests(guarded: Bool) -> [String] {
             let requests = Mutex<[String]>([])
-            let valueGuard: (@Sendable (String) -> Bool)?
-            if guarded { valueGuard = { _ in false } } else { valueGuard = nil }
+            let valueGuard: ValueGuard?
+            if guarded { valueGuard = ValueGuard(refusesLabel: { _ in false }, withholdsValue: { _, _ in false }) } else { valueGuard = nil }
             let reader = LiveAccessibilityReader(valueGuard: valueGuard,
                                                 copyAttributeValue: { node, name, result in
                 let isWindow = CFEqual(node, AXUIElementCreateApplication(0))
@@ -148,7 +190,13 @@ struct LiveAccessibilityReaderTests {
             return requests.withLock { $0 }
         }
         let names = requests(guarded: true)
-        #expect(names == requests(guarded: false))
+        let ordinary = requests(guarded: false)
+        let labels = [kAXTitleAttribute, kAXDescriptionAttribute]
+        #expect(names.filter { !labels.contains($0) } == ordinary.filter { !labels.contains($0) })
+        let valueReads = role == "AXCheckBox" ? 2 : 1
+        for label in labels {
+            #expect(names.filter { $0 == label }.count == ordinary.filter { $0 == label }.count + valueReads)
+        }
         #expect(names.filter { $0 == kAXRoleAttribute }.count == 1)
         #expect(names.filter { $0 == kAXSubroleAttribute }.count == (child ? 0 : 1))
         #expect(!names.contains(kAXHelpAttribute) && !names.contains(kAXPlaceholderValueAttribute))
@@ -181,7 +229,7 @@ struct LiveAccessibilityReaderTests {
         let single  = Mutex<[String]>([])
         let batches = Mutex(0)
         let reader  = LiveAccessibilityReader(
-            valueGuard         : { _ in false },
+            valueGuard         : ValueGuard(refusesLabel: { _ in false }, withholdsValue: { _, _ in false }),
             copyAttributeValue : { _, name, result in
                 single.withLock { $0.append(name as String) }
                 result.pointee = "asked alone" as CFString

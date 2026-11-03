@@ -33,12 +33,14 @@ BASELINES := Tests/Driver/Benchmarks/Baselines
 BENCH_OUT := .build/bench
 REPORTS   := Documentation/Driver/compatibility
 
-# SwiftPM reports a summary for each nonempty Swift Testing bundle. IncrementalText
-# now has a Swift Testing suite alongside its XCTest tests. SeatSession runs
-# separately through the synchronous native entry point because AppKit RunLoop
-# pumping can end its async main before it reports completion.
+# SwiftPM filters out SeatSession and reports 45 Swift Testing summaries.
+# Filtering also omits the empty Swift Testing companion of the XCTest-only
+# target; its XCTest tests still run. SeatSession's tests run separately
+# through the synchronous native entry point, for 46 required summaries:
+# AppKit RunLoop pumping can also end this otherwise pure bundle before its
+# async main reports completion.
 # The app's own tests remain in BrausTests. This is a run count, not a test count.
-UNIT_BUNDLES := 40
+UNIT_BUNDLES := 46
 
 # The seat cycle, alone in its own process.
 HOST_CYCLE_TESTS := 1
@@ -119,6 +121,9 @@ test: native-test-runner
 	@bash Tools/Driver/Scripts/test-seatbench-contract.sh
 	@$(PYTHON) Tools/Engine/Scripts/verify-memory-schema.py
 	@bash Tools/Engine/Scripts/check-product-name.sh
+	@$(PYTHON) Tools/Lint/check-open-boundary
+	@$(PYTHON) Tools/Lint/check-public-logs
+	@$(PYTHON) Tools/Lint/check-model-text
 	@$(PYTHON) Tools/Driver/Phases/test-phase-table.py
 	@TIER_BUNDLES=$(UNIT_BUNDLES) $(TIER) unit - bash Tools/Driver/Scripts/unit-test-command.sh $(SWIFT)
 

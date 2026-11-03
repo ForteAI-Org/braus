@@ -33,6 +33,7 @@ final class SQLiteBackup {
     /// Attaches to both connections. The destination must be a database the owner opened for this
     /// copy alone; its contents are replaced by the copy.
     init(from source: SQLiteConnection, to destination: SQLiteConnection) throws {
+        try SQLiteArchiveRetirement.protectFamily(URL(fileURLWithPath: destination.path))
         let destinationHandle = try destination.openHandle()
         guard let handle = sqlite3_backup_init(destinationHandle, "main", try source.openHandle(), "main") else {
             throw SQLiteConnection.Failure(

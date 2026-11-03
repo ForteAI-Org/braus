@@ -40,7 +40,10 @@ Task { @MainActor in
         source  : .app,
         streamID: "worker-" + workerID.uuidString
     )
-    let router    = MCPRouter(tools: AutomationTools.definitions) { name, arguments in
+    let router    = MCPRouter(
+        tools: AutomationTools.definitions,
+        instructions: AutomationTools.mcpInstructions(.firstLine)
+    ) { name, arguments in
         try await tools.call(name, arguments)
     }
     // The whole client is one worker turn: the seat is held between calls, never released for idling.

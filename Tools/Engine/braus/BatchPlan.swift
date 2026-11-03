@@ -91,10 +91,15 @@ enum BatchStep {
         }
     }
 
-    func accepts(_ kind: ActOutcomeKind) -> Bool {
-        if kind == .foundActed { return true }
-        // Only set_toggle's verified "already in the requested state" is a completed no-op.
-        if case .act(let action) = self, action.verb == .setToggle, kind == .actedNoop { return true }
-        return false
+    func accepts(_ outcome: Outcome) -> Bool {
+        outcome.effect == .confirmed
+    }
+
+    /// Supplies the request context available to historical no-op readers too.
+    func outcome(of result: ActOutcome) -> Outcome {
+        var noop: NoopKind?
+        if case .act(let action) = self, action.verb == .setToggle { noop = .statePresent }
+        return Outcome.converting(result.kind, check: nil, notSent: result.notSent,
+                                  noop: noop, sceneAttached: result.scene != nil)
     }
 }

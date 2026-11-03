@@ -65,12 +65,37 @@ nonisolated public enum RemoteContentActuationRefusal: Error, Sendable, Equatabl
     /// (nil), or AXOpen answered this AXError. The selection took effect.
     case selectedNotOpened(code: Int32?)
 
-    /// The control a click reached is named `found` and the caller aimed at `requested`, and nothing
-    /// of that name is near it to press instead: nothing was pressed.
-    case wrongElement(requested: String, found: String)
+    /// The control a click reached has `foundRole`, and no nearby control matches `requested`.
+    /// The found element's name and value are not carried: nothing was pressed.
+    case wrongElement(requested: String, foundRole: String)
 
     /// The click is under an `AXWebArea`, where a click stays posted: nothing was done.
     case webContent
+
+    /// A stable structural cause, without application roles, labels or error values.
+    public var code: String {
+        switch self {
+        case .gestureUnmeasured: "gesture_unmeasured"
+        case .pixelDropdown: "pixel_dropdown"
+        case .noElementAtPoint: "no_element_at_point"
+        case .outsideRemoteContent: "outside_remote_content"
+        case .unreadable: "unreadable"
+        case .fieldRequiresClick: "field_requires_click"
+        case .unsupportedRole(let role) where role == kAXRowRole: "row_not_text"
+        case .unsupportedRole(let role) where RemoteContentActuator<AXUIElement>.pressedRoles.contains(role):
+            "control_not_text"
+        case .unsupportedRole(let role) where RemoteContentActuator<AXUIElement>.textRoles.contains(role):
+            "text_field_clicks"
+        case .unsupportedRole: "nothing_clickable"
+        case .opensMenu(let role): role == kAXMenuButtonRole || role == kAXMenuRole ? "opens_menu" : "opens_list"
+        case .actionRefused(_, let code): code == AXError.actionUnsupported.rawValue ? "action_unsupported" : "action_refused"
+        case .selectionNotVerified: "selection_not_verified"
+        case .columnView: "column_view"
+        case .selectedNotOpened: "selected_not_opened"
+        case .wrongElement: "wrong_element"
+        case .webContent: "web_content"
+        }
+    }
 
     /// True for a refusal that follows an effect or may: the effect is unknown,
     /// and the caller reports it as an action, not as a refusal. Finder answered
@@ -144,9 +169,8 @@ nonisolated extension RemoteContentActuationRefusal: CustomStringConvertible, Lo
             case .columnView:
                 "That point is in a column view, where a click cannot select yet, so nothing was sent. "
                     + "Switch the view to list view (select on its view button, \"List\"), then click the row."
-            case .wrongElement(let requested, let found):
-                "The element at that point is '\(found)', not '\(requested)', and nothing of that name is "
-                    + "near it, so nothing was pressed. Observe again and name the control by its label."
+            case .wrongElement(_, let foundRole):
+                "The element at that point is another control (\(foundRole)), not the one named, so nothing was pressed."
             case .webContent:
                 "That point is web content, which is not acted on through accessibility, so nothing "
                     + "was done there."

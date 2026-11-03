@@ -52,12 +52,14 @@ public enum AccessibilityAugmentation {
     /// Roles whose accessibility answer is authoritative over a pixel guess: right state, right role,
     /// a real click target.
     public static let interactiveRoles: Set<String> = [
-        "AXCheckBox", "AXRadioButton", "AXComboBox", "AXButton", "AXMenuButton", "AXTextField", "AXTextArea", "AXPopUpButton",
-        "AXSecureTextField",
+        "AXCheckBox", "AXRadioButton", "AXComboBox", "AXButton", "AXMenuButton",
+        "AXTextField", "AXTextArea", "AXSecureTextField", "AXPopUpButton",
     ]
 
     /// Native roles that accept text. A pixel-inferred control does not establish this fact.
-    public static let textEntryRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox", "AXSecureTextField"]
+    public static let textEntryRoles: Set<String> = [
+        "AXTextField", "AXTextArea", "AXComboBox", "AXSecureTextField",
+    ]
 
     private static let tableRoles: Set<String> = ["AXTable", "AXOutline", "AXList", "AXGrid"]
     private static let clippingRoles: Set<String> = ["AXScrollArea", "AXList", "AXOutline", "AXTable", "AXGrid"]
@@ -260,16 +262,18 @@ public enum AccessibilityAugmentation {
                 let visible = frame.intersection(clip)
                 if !visible.isNull, !visible.isEmpty { covered.append(visible) }
             }
-            let nativeRole = (depth == 0 ? windowRole : reader.role(node)) ?? ""
+            let role = (depth == 0 ? windowRole : reader.role(node)) ?? ""
             let subrole: String?
             if depth == 0 {
                 subrole = windowSubrole
-            } else if textEntryRoles.contains(nativeRole) {
+            } else if textEntryRoles.contains(role) {
                 subrole = reader.subrole(node)
             } else {
                 subrole = nil
             }
-            let role = subrole == "AXSecureTextField" ? "AXSecureTextField" : nativeRole
+            let isSecure = role == "AXSecureTextField" || subrole == "AXSecureTextField"
+                || (reader.requiresValueClassification && textEntryRoles.contains(role) && subrole == nil)
+            let emittedRole = isSecure ? "AXSecureTextField" : role
             let webContent = insideWebContent || role == "AXWebArea"
             let scrollingContent = insideScrollingContent || clippingRoles.contains(role)
             var childContainer = container
@@ -346,15 +350,20 @@ public enum AccessibilityAugmentation {
                [frame.minX, frame.minY, frame.width, frame.height].allSatisfy(\.isFinite),
                frame.width > 0, frame.height > 0, !windowFrame.intersects(frame),
                let label = firstText([reader.descriptionText(node), reader.title(node), reader.identifier(node)]),
-               label.count <= 48, let value = reader.value(node, role: role, subrole: subrole), firstText([value]) != nil {
-                outOfViewFields.append(OutOfViewField(
-                    label: label, value: value, role: role,
-                    isEnabled: reader.isEnabled(node), container: container
-                ))
+               label.count <= 48 {
+                // Secure fields carry an empty structural placeholder, never a native value.
+                let value = isSecure ? "" : reader.value(node, role: role, subrole: subrole)
+                if let value, isSecure || firstText([value]) != nil {
+                    outOfViewFields.append(OutOfViewField(
+                        label: label, value: value, role: emittedRole,
+                        isEnabled: reader.isEnabled(node), container: container
+                    ))
+                }
             }
-            if role == "AXTextField" || role == "AXTextArea" || role == "AXPopUpButton"
-                || role == "AXSecureTextField", let frame = reader.frame(node) {
-                let rawValue = role == "AXSecureTextField" ? nil : reader.value(node, role: role, subrole: subrole)
+            if role == "AXTextField" || role == "AXTextArea" || role == "AXSecureTextField"
+                || role == "AXPopUpButton" || (role == "AXComboBox" && isSecure),
+               let frame = reader.frame(node) {
+                let rawValue = isSecure ? nil : reader.value(node, role: role, subrole: subrole)
                 // An unnamed empty native editor still has a measured role and frame.
                 let anonymousHandle = role == "AXTextArea" ? "Text area" : "Text field"
                 // A form names an unnamed field by the "Name:" text just before it, and its value is only
@@ -364,21 +373,21 @@ public enum AccessibilityAugmentation {
                     (reader.descriptionText(node), .description),
                     (reader.title(node), .title),
                     (formLabel, .value),
-                    (role == "AXTextArea" ? reader.identifier(node) : nil, .identifier),
+                    (role == "AXTextArea" || isSecure ? reader.identifier(node) : nil, .identifier),
                     (rawValue, .value),
                 ])
                 let handle: (String, LabelOrigin?)? = read.map { ($0.0, $0.1) }
                     ?? (textEntryRoles.contains(role) ? (anonymousHandle, nil) : nil)
                 if let (handle, origin) = handle, handle.count <= 48, column != nil || rowName != cleanLabel(handle) {
-                    emit(frame, role: role, label: handle, origin: origin, state: nil, clip: clip,
+                    emit(frame, role: emittedRole, label: handle, origin: origin, state: nil, clip: clip,
                          container: container, collectionPath: collectionPath,
                          value: role == "AXPopUpButton" ? firstText([rawValue, reader.title(node)]) : rawValue,
                          isEnabled: reader.isEnabled(node),
-                         selectedRange: textEntryRoles.contains(role)
+                         selectedRange: !isSecure && textEntryRoles.contains(role)
                             && (!webContent || reader.isFocused(node) == true) ? reader.selectedRange(node) : nil)
                 }
             }
-            if statefulRoles.contains(role), let frame = reader.frame(node) {
+            if statefulRoles.contains(role), !isSecure, let frame = reader.frame(node) {
                 let title = column.map { ($0, LabelOrigin.column) } ?? firstLabel([
                     (reader.title(node), .title),
                     (reader.descriptionText(node), .description),

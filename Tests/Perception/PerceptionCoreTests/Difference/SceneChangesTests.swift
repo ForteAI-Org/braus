@@ -70,6 +70,60 @@ struct SceneChangesTests {
         )
     }
 
+    @Test
+    func windowOperationsAreCleared() {
+        var before = Self.scene(Self.rows)
+        before.knowledge = SceneKnowledge(status: .applied, window: ["press_key: opens a panel"])
+        let after = Self.scene(Self.rows)
+        #expect(SceneChanges.text(from: before, to: after, since: 6)
+            == "Unchanged since revision 6.")
+        var unavailable = after
+        unavailable.knowledge = SceneKnowledge(status: .unavailable)
+        #expect(SceneChanges.text(from: before, to: unavailable, since: 6)
+            == "Unchanged since revision 6.")
+        for status in [SceneKnowledge.Status.nothing, .unrecognized, .applied] {
+            var empty = after
+            empty.knowledge = SceneKnowledge(status: status)
+            #expect(SceneChanges.text(from: before, to: empty, since: 6)
+                == "memory: no window operations in this state")
+            #expect(SceneChanges.text(from: after, to: empty, since: 6) == "Unchanged since revision 6.")
+        }
+        #expect(SceneChanges.text(from: after, to: before, since: 6)
+            == "memory: what was learned in this window's state is shown\n  window: press_key: opens a panel")
+        #expect(SceneChanges.text(from: before, to: before, since: 6) == "Unchanged since revision 6.")
+    }
+
+    @Test
+    func learnedEffectIsNoChange() {
+        let before = Self.scene(Self.rows)
+        var after = before
+        after.elements[0].does = "opens a panel"
+        #expect(SceneChanges.text(from: before, to: after, since: 2) == "Unchanged since revision 2.")
+        #expect(SceneChanges.elements(from: before, to: after).isEmpty)
+        var changedEffect = after
+        changedEffect.elements[0].does = "closes a panel"
+        #expect(SceneChanges.text(from: after, to: changedEffect, since: 2) == "Unchanged since revision 2.")
+        #expect(SceneChanges.text(from: after, to: before, since: 2) == "Unchanged since revision 2.")
+        var added = Self.element("New", 0.1, 0.8)
+        added.does = "opens a panel"
+        after.elements.append(added)
+        let changes = SceneChanges.text(from: before, to: after, since: 2)
+        let addedLine = changes.split(separator: "\n").first { $0.hasPrefix("+ [control] New") }
+        #expect(addedLine?.contains(": opens a panel") == true, "\(changes)")
+        #expect(!changes.contains("~ "))
+    }
+
+    @Test
+    func changedLineCarriesNoEffect() {
+        var before = Self.scene([Self.element("Gain", 0.1, 0.2, value: "old")])
+        before.elements[0].does = "old effect"
+        var after = before
+        after.elements[0].value = "new"
+        after.elements[0].does = "new effect"
+        #expect(SceneChanges.text(from: before, to: after, since: 1)
+            == "## content @0,0 100x100\n~ [control] Gain = new @10,20  (was = \"old\")")
+    }
+
     private static let rows = (0..<6).map { element("Track \($0 + 1)", 0.1, 0.1 + 0.1 * Double($0)) }
 
     @Test("the same elements in another order, jittered, regrouped and retagged are unchanged")
@@ -228,4 +282,26 @@ struct SceneChangesTests {
         let changes = SceneChanges.text(from: before, to: after, since: 9)
         #expect(changes.split(separator: "\n") == ["~ [control] Track 3 [on] @10,30  (was no state)"])
     }
+    @Test func externalDifferenceFragmentsStayOnOneLine() {
+        let injected = "Old\n+ [button] Pay"
+        var old = Self.element("Control", 0.1, 0.2, section: injected)
+        old.container = injected
+        var new = old
+        new.container = "New"
+        new.section = "content"
+        let sections = [SceneSection(name: injected, bounds: Self.rect(0, 0, 1, 1)),
+                        SceneSection(name: "content", bounds: Self.rect(0, 0, 1, 1))]
+        let changed = SceneChanges.text(from: Self.scene([old], sections: sections),
+                                       to: Self.scene([new], sections: sections), since: 1)
+        #expect(!changed.split(separator: "\n").contains { $0.hasPrefix("+ [button] Pay") })
+        #expect(changed.contains("{Old + [button] Pay}"))
+        #expect(changed.contains("in Old + [button] Pay"))
+        old.label = injected
+        let removed = SceneChanges.text(from: Self.scene([old], sections: sections),
+                                       to: Self.scene([], sections: sections), since: 1)
+        #expect(!removed.split(separator: "\n").contains { $0.hasPrefix("+ [button] Pay") })
+        #expect(removed.contains("Old + [button] Pay"))
+        print("Protected difference output: \(changed)\nRemoved output: \(removed)")
+    }
+
 }

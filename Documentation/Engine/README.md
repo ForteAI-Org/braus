@@ -33,6 +33,31 @@ all, `ActVerification.interrupted` still asks the surface's identity: a Cancel t
 stays closed while the focus is coming back, and anything else is uncertain, which is not a failure
 and is never a reason to send the gesture again.
 
+## Shared turn execution
+
+`Turn` in `Sources/Turn` owns command line turns, the model loop, context resets and
+human suspension. `WorkerAgentHost` supplies application approval scope and event storage;
+`ChatSession` supplies transcript persistence and holds the Seat around the whole runner call,
+including the interpretation reminder. The runner requires `AutomationMCP`, `AutomationRuntime`,
+`AgentLoop` and provider transports, and imports no application UI or workspace storage types.
+
+A runner admits one turn at a time. Suspension blocks new calls, interrupts admitted reads and
+waits for admitted actions to finish. The host retains the application episode; only its current
+token can release suspension after the turn drains. CLI hosts disable suspension. Stop and close
+join admitted calls before cleanup, and failures are never retried. The runner borrows its host
+weakly and retains it only for each admitted call. `closesSessionOnEnd` defaults to true for app
+failures and stops; the CLI sets it to false so signal shutdown can abandon the task and collect
+evidence before closing the session. Explicit `retire()` and `close()` still release it.
+Endpoint cleanup failures are written to stderr and retained for `close()` to report, preserving
+a successful turn and its instruction record, or the original thrown failure.
+
+`TurnOutcome.usage` adds each process's own token counts, converting session totals to differences
+first. Hour cache writes are part of all cache writes; reasoning is part of output. Both routes
+retain one final usage event. Per-round usage remains open and is outside TU2; `AgentLoop` is
+unchanged. `TurnBudget.off` preserves the existing loop ceiling while requests and calls are counted.
+Command line contract fixtures and the three original application input fixtures live in
+`Tests/Turn/Fixtures`; host tests locate them from their source paths.
+
 ## Human intervention in a background session
 
 The [interactive background control design](InteractiveBackground.md) separates temporary event
@@ -76,7 +101,7 @@ thread that touched it.
 | `HIDActuation` | the foreground `Actuating`: synthetic events at the HID system tap |
 | `AccessibilityActions` | `ControlPressing` over the live accessibility tree: open a dropdown by its own press, read a combo box's value, read a toggle under a point |
 | `WorkspaceActivation` | `ApplicationActivating` over AppKit's workspace |
-| `Memory` | what the agent remembers, pure: `AppKnowledge` (observed objects per window state, menu commands, the brain, routes), `UIBrain` with `ObjectAnchor`, `SiblingGroup`, `LearnedTransition`, `BrainMatcher`, `BrainUpdater` and `BrainRetention`, `Route`, `RouteEarning`, `Recall` with `RecallEvidence` and `SightingGraph`, `Allowlist`, `KnowledgeCoding`, the role `KnowledgeStoring` with `InMemoryKnowledgeStore`, and `BrainMemory`, which fills `EffectExpecting` and enriches scenes from the stored brain (`BrainReading`); and the contracts of the living memory, pure: the observation contract (`ObservationKind`, `CaptureSample` with `CaptureElement`, `MemoryEventRecord`, `SceneSkeleton` and `SceneStructureMatcher`, `SceneDefinition`), the brain's storage and applications (`BrainStoring`, `BrainApplicationStoring` with `BrainApplicationCommand` and `BrainApplicationKey`, `BrainKeys`, `DecayReport`, `BrainClock`, `TransitionEffectRecord`), the agent calls (`AgentCallStoring` with `AgentTool`, `AgentCallRequest`, `AgentCallRecord`, `AgentCallProgress`, `AgentCallResult`, `ObservedEffect`), the menu commands as data (`MenuCommandStoring`), the observed inputs and explicit attributions (`ObservedInputStoring`, `VerificationStoring`, `TaskAttributionStoring`), the procedures and experiences (`RouteStoring`, `StepOccurrenceStoring`, `ExperienceStoring`), since D2 the procedures built from a task (`ProcedureSegmentation` and `ProcedureCandidate`, `ProcedureInterpretation`, `ProcedureAssembly` and `ProcedureVersion`, `QualificationPolicy` and `PartQualification`, `ProcedureInspection`) and the functional Brain's relations (`BrainRelationPolicy`, `BrainRelation`, `SceneElementKey`, `BrainRelationReading`), the brain's general graph (`BrainGraphStoring`, `MemoryOverview`) and the read of traces (`MemoryTraceReading`); the store's answers (`MemoryStoreError`, `MemoryReceipt`, `MemorySchemaMismatch`, `MemoryTextFault`, `MemorySnapshotRefusal`) |
+| `Memory` | what the agent remembers, pure: `AppKnowledge` (observed objects per window state, menu commands, the brain, routes), `UIBrain` with `ObjectAnchor`, `SiblingGroup`, `LearnedTransition`, `BrainMatcher`, `BrainUpdater` and `BrainRetention`, `Route`, `Recall` with `RecallEvidence` and `SightingGraph`, `Allowlist`, `KnowledgeCoding`, the role `KnowledgeStoring` with `InMemoryKnowledgeStore`, and `BrainMemory`, which fills `EffectExpecting` and enriches scenes from the stored brain (`BrainReading`); and the contracts of the living memory, pure: the observation contract (`ObservationKind`, `CaptureSample` with `CaptureElement`, `MemoryEventRecord`, `SceneSkeleton` and `SceneStructureMatcher`, `SceneDefinition`), the brain's storage and applications (`BrainStoring`, `BrainApplicationStoring` with `BrainApplicationCommand` and `BrainApplicationKey`, `BrainKeys`, `DecayReport`, `BrainClock`, `TransitionEffectRecord`), the agent calls (`AgentCallStoring` with `AgentTool`, `AgentCallRequest`, `AgentCallRecord`, `AgentCallProgress`, `AgentCallResult`, `ObservedEffect`), the menu commands as data (`MenuCommandStoring`), the observed inputs and explicit attributions (`ObservedInputStoring`, `VerificationStoring`, `TaskAttributionStoring`), the procedures and experiences (`RouteStoring`, `StepOccurrenceStoring`, `ExperienceStoring`), since D2 the procedures built from a task (`ProcedureSegmentation` and `ProcedureCandidate`, `ProcedureInterpretation`, `ProcedureAssembly` and `ProcedureVersion`, `QualificationPolicy` and `PartQualification`, `ProcedureInspection`) and the functional Brain's relations (`BrainRelationPolicy`, `BrainRelation`, `SceneElementKey`, `BrainRelationReading`), the brain's general graph (`BrainGraphStoring`, `MemoryOverview`) and the read of traces (`MemoryTraceReading`); the store's answers (`MemoryStoreError`, `MemoryReceipt`, `MemorySchemaMismatch`, `MemoryTextFault`, `MemorySnapshotRefusal`) |
 | `FileKnowledge` | `KnowledgeStoring` over one JSON file per application: write-behind, a directory lock, daily backups, quarantine and restore; and `FileAllowlistStore`. No source imports it since the Brain moved to SQLite; `braus` still lists it as a dependency and the `BrausEngine` library vends it. The JSON files it wrote are not read at run time |
 | `SQLiteMemory` | the living memory's SQLite store, composed by `AutomationRuntime`'s `MemoryService`: `SQLiteMemoryStore` opens one file, bootstraps current schema 19 from the module's one schema text and migrates only explicitly recognized historical shapes after a verified copy; other shapes are refused, runs typed write and read transactions over a serial writer and a separate reader, checkpoints passively, copies the file through the backup API (`snapshot(to:)`) and reports the reader's `data_version`; the `SQLite*Repository` types fill the `Memory` roles above, one transaction per write. The current table inventory and historical shapes are documented in [Memory schema](MemorySchema.md); do not derive compatibility from a schema version number alone. Schemas 2 to 5 add the facts of D1 and the procedures and relations of D2 with their history of evaluations (`SQLiteProcedureRepository`, `SQLiteBrainRelationRepository`); schema 6 adds the Recall's derived index and its facts (`SQLiteRecallRepository`). See [the memory schema](MemorySchema.md), [the memory contracts](MemoryContracts.md), [the memory procedures](MemoryProcedures.md), [the memory recall](MemoryRecall.md) and [uncertain effects and refusals](MemoryContracts.md#uncertain-effects-and-persistent-refusals) |
 | `LocalEmbedding` | `TextEmbedding` over a pinned local model (`LocalEmbeddingModel`, `EmbeddingModelManifest`): safetensors by memory mapping, the XLM-RoBERTa Unigram tokenizer, a BERT-family encoder on Accelerate, pooling and normalization, every file checked against its sha256. Imports `Memory`, Foundation and Accelerate; no network. The models are installed by `Tools/Engine/Scripts/fetch-recall-model.sh` ([MemoryRecall](MemoryRecall.md#local-embedding)) |
@@ -583,13 +608,12 @@ Driver offers is not yet turned on here.
   never its reliability, and authorizes no replay; changing a published Route is a new version.
   The brain's projection owns only the transitions `LearnedTransition` represents; every other arc
   lives in the general graph, which nothing in production writes.
-- A route is a belief: only a proof (`RouteEarning.verdict` over the outcomes its own steps cover,
-  and an answer that does not hand the work back) may create one, a contradiction demotes it, and
-  demotion never erases. Steps store semantic targets, never coordinates, and never typed text.
+- Route reliability comes from the procedure's recorded checks and qualification. The old route
+  earning rule has been removed. Steps store semantic targets, never coordinates or typed text.
 - Recall answers `fire`, `hint` or `abstain`, and every slot it fills itself must name something
   concrete: an application the graph knows by a whole component or an end of one, or an entity
   sighted inside the targeted application. "Seen but not trusted" is narrated; "never seen" is silent.
-  `Route`, `RouteEarning` and `Recall` work over `AppKnowledge` and are called by tests only: no
+  `Route` and `Recall` work over `AppKnowledge` and are called by tests only: no
   production path earns a route or recalls one in this checkout.
 - `KnowledgeStoring` serializes its own mutations, and a load after a mutation returns sees what
   the mutation wrote whether or not it has reached disk. No storage type appears in a public API of
@@ -605,6 +629,10 @@ Driver offers is not yet turned on here.
   replaced. Foreign keys are enabled and verified per connection, the file is in WAL, and no
   statement outlives the call that prepared it.
 
+Recall query persistence applies `RecallQueryMasking` only to `remaining_work` and need text,
+replacing literal task values with `{name}` before credential scrubbing. Search inputs and results
+keep their existing behavior. Historical query text remains the responsibility of archive conversion.
+
 ## Evidence
 
 Unit: `ActVerificationTests` (one test per verdict), `ActOracleTests` (11: the three oracles, the exact
@@ -618,7 +646,7 @@ answers, the keyboard pick, type-ahead, and the pop-up dismissal; `CaptureSurfac
 surface classification. `MemoryTests` (162 in 19 suites, `swift test list`, 2026-10-07) covers the
 knowledge containers and their legacy JSON, the brain (anchors, groups, ordinal rescue, identity
 hygiene from measured Premiere failures, enrichment, the naming ledger, decay and the observation
-clock), routes and route earning against the real `route-corpus.json`, recall against the real
+clock), route structure, recall against the real
 `misfire-corpus.json` and its human table, the in-memory store's serialization, the `BrainMemory`
 seam over a stored Brain, structure-v4 on synthetic skeletons, the brain's two seams for its stored
 projection, and the contracts of calls, results, sample keys and content, menu commands, inputs
@@ -677,7 +705,6 @@ pending singletons, replaced by the store actor's own state.
 | `LocatorCore/MenuKnowledge.swift` (the commands and their matching) | `Memory/Knowledge/{MenuCommand,AppKnowledge+Menus}.swift` |
 | `LocatorCore/UIBrain.swift` | `Memory/Brain/*` (one type per file; `BrainUpdater.detectGroups` became `SiblingGroupDetector`) |
 | `LocatorCore/Routes.swift` | `Memory/Routes/{GoalPhrase,RouteStep,Route,RoutePolicy,AppKnowledge+Routes}.swift` |
-| `LocatorCore/RouteEarning.swift` | `Memory/Routes/RouteEarning.swift` (outcomes are `ActOutcomeKind`, not strings) |
 | `LocatorCore/Recall.swift`, `LocatorMemory.{Experience,GraphContext,hint,tokens,core}` | `Memory/Recall/*` (`SightingGraph`, `RecallEvidence`, `MemoryHint`; `core` is `LabelText.coreKey`) |
 | `LocatorCore/KnowledgeStore.swift` (+ `KnowledgeMemo`, `KnowledgePending`, `AllowlistStore`) | `Memory/Storage/KnowledgeStoring.swift` (the role), `FileKnowledge/{FileKnowledgeStore,FileAllowlistStore}.swift` |
 | `LocatorCore/DescriptorStore.make{Encoder,Decoder}` | `Memory/Knowledge/KnowledgeCoding.swift` |
@@ -691,3 +718,132 @@ manual input, window attribution and production perception. It does not feed the
 
 For external Claude and Codex clients using the running macOS app, see
 [Local MCP connections](LocalMCP.md).
+
+## SQLite connection execution
+
+`SQLiteMemoryStore` owns a writer on a dedicated serial executor at `userInitiated` QoS.
+Three reader actors own separate serial executors: reader 0 serves `critical` and
+`interactive`, reader 1 serves existing/default reads at `userInitiated`, and the bulk
+reader runs at `utility`. Read routing uses a mutex only to borrow an actor reference;
+transactions run entirely on that actor without a suspension. Lifecycle changes stop
+admission before closing each connection on its owner and releasing the archive's presence lock.
+Store-owned connections disable SQLite's implicit checkpoint on close. Final WAL maintenance
+belongs to the store's explicit close checkpoint, after every reader has closed.
+`dataVersion()` and `readVersioned` always use reader 0 because SQLite version tokens
+are comparable only on the same connection. The latter reads its token before its data
+within one transaction.
+
+Automatic WAL checkpoints are disabled. `MemoryService` requests a passive checkpoint
+after two seconds without queued or direct work, above 1,000 outstanding frames. A write
+above 16,000 outstanding frames schedules a passive checkpoint. Passive checkpoints use the
+bulk connection and executor, so the writer does not wait for their I/O. A partial or busy pause
+checkpoint is retried after another pause while frames remain above the threshold. Only writable
+openings attempt TRUNCATE at close, and a busy result is retained in `lastCloseError`.
+The writer limits retained journal allocation to 64 MiB when SQLite resets the WAL.
+Cache budgets and frame thresholds belong to store configuration. Defaults are 8 MiB
+for the writer, 4 MiB for each ordinary reader and 2 MiB for bulk. `releaseMemory()`
+runs on every owner. Diagnostics separate pages emitted by committed writes, outstanding
+WAL frames, physical WAL allocation and frames copied and time spent in checkpoints.
+Maintenance failures after a successful commit are reported in diagnostics without
+turning the committed write into an error; close checkpoint errors remain available
+as `lastCloseError`.
+
+SQLite copies use a dedicated read-only source connection through `snapshot(to:)`.
+Moving that work onto the bulk reader remains open in SK2; RA1 retains the existing
+connection ownership. Before a scheduled copy, `MemoryService` requires available
+volume capacity of at least 1.5 times the archive size. Failures wait 1, 2, 4, 8,
+16, then 24 hours; a verified snapshot resets the wait. Status exposes the reason
+and retry date. Low capacity skips the copy and delays eligibility by an hour.
+
+`SQLiteArchiveRetirement` owns closed-copy retirement independently of the runtime.
+It makes one nonblocking attempt to acquire a dedicated process lock. Contention
+or interruption returns `deferred` with a `retirementDeferred` reason before any
+family member moves. Rotation retries on a later maintenance call; other callers
+may retry the same closed family. Deferral does not change a verified snapshot's
+outcome and is neither a collision nor an incomplete move. Once locked, it inventories base/WAL/SHM/journal,
+checks all destinations, and syncs a private manifest containing relative names,
+sizes and SHA-256 digests before exclusive renames. It publishes the directory at
+`.retired/<copy-name>/` only after every member moved. Failed moves attempt exclusive
+rollback; interrupted families retain their manifest and resume only after complete
+presence and digest validation. Ambiguity requires human review. No automatic deletion
+occurs, including for partial copies and journal residues. Cleanup diagnostics stay
+separate from a snapshot's primary failure. Pending retirements exclude affected copies from
+recovery candidates until reconciled. Status measures retained bytes and directories
+and reports collisions and incomplete retirements.
+
+`MemoryCopyMaintenance` owns the runtime's copy rotation and retained-file diagnostics on
+a dedicated serial utility executor. Scheduling coalesces overlapping requests. File locks,
+directory syncs and scans do not occupy `MemoryService` or the cooperative executor, so
+accepted writes and the bounded close can proceed while copy maintenance runs.
+Maintenance touches only closed copies and may finish after the service closes; explicit
+maintenance calls and status reads await that executor for their results.
+
+Only the newest schema copy remains active. Its creation timestamp is encoded in
+its name; age of 30 days or completion of a later verified snapshot retires it.
+Archive directories use 0700; archives, sidecars, copies, manifests and presence files
+use 0600. Copies, schema copies and `.retired` are excluded from Time Machine; the
+live archive is never marked excluded by this policy.
+
+## Sensitivity classification
+
+`Memory/Privacy/Sensitivity` owns local S (secret), P (personal) and O (ordinary)
+classification and the destination table. Revision 2 rules are bundled as JSON;
+web attribute vocabularies come from the same resource for Swift and JavaScript.
+Invalid bundled rules stop initialization rather than permit unclassified values.
+Software trait policies remain empty until a registered trait source is available.
+
+An explicit `API token` label is decisive. Numeric PINs of three to eight digits
+are secret; generic `Key` and `Token` labels remain weak. Postal phrases suppress
+only the weak `code` or `codice` signal: secure roles, declarations, checksums and
+other secret signals still prevail. Optional contextual rules preserve decoding
+of earlier rule documents with their original numeric policy.
+
+`PerceptionCore.ValueGuard` carries two immutable decisions injected at composition.
+Native readers reject secure roles, unreadable editable subroles and decisive labels
+before requesting values. After a read, the classifier checks shapes and checksums
+with the collected labels, including decimal numeric values. Weak labels alone
+permit reading. Web scene controls apply the same classification before delivery.
+`ConfidentialSurfaces.isContent` remains a structural signal consumed by the classifier.
+Free text findings retain ranges into the original text for local minimization.
+The declaration alternatives share one compiled expression, with overlapping starts
+preserved. Shape detection skips inputs below its minimum length and uses ASCII
+word boundaries directly when possible; Unicode text retains the character-based
+path. Checksum scans require enough ASCII digits to form a candidate. These
+filters do not retain field values or build rule tables per message.
+
+The shared synthetic corpus is in `Tests/Engine/MemoryTests/Privacy/Fixtures/`.
+Explicit gaps record personal identity without a content surface and unrecognized
+seed phrases; these require later rules or measured evaluation of local PII detection.
+Controlled native and JavaScript tests do not establish live desktop coverage or
+production scene latency.
+
+## Typed action results
+
+`EngineCore.Outcome` separates gesture delivery, effect and recovery. `Outcome.converting` is the
+single conversion of producer evidence; an attached scene replaces an instruction to observe with
+`do_not_repeat`. Refusal causes and intentional no-op kinds travel with `ActOutcome`, including
+through copies that change the scene, message or check. Historical readers derive no-op context only
+from the stored request. The archive continues to store its existing result vocabulary.
+
+The independent `Switches` target owns process configuration from `BRAUS_SWITCHES`, read once,
+with a single installation and task-local test overrides. `outcome=v1` is the default and keeps the
+existing action response. `outcome=v2` emits a row, bounded catalogue message and observation;
+transcripts retain the three typed fields. Invalid switch values fall back and are reported in status.
+
+Menu listings with no scene retain their existing list text as the observation in the new arm.
+Standalone CLI acceptance and historical menu dry-run segmentation keep their existing rules;
+batch no-op acceptance derives its proof only from a saved `set_toggle` request.
+
+In `outcome=v2`, SeatDriving carries remote refusal codes without role or application values.
+Uncertain delivery uses `EngineCore.GestureEffectUncertain`; Engine preserves its cause and
+uncertain check without importing SeatSession. Engine and SeatDriving depend on Switches to
+select this behavior at the producer. A menu that remains open can confirm a choice when the
+after-scene reads that choice in a control; other menu receipts retain their existing meaning.
+
+ResultFormatter owns refusal memory for its session. CallDispatcher supplies the window identity
+from before delivery only when it still matches afterward. Each rendered scene updates a content
+projection that excludes capture tokens and learned annotations. Identical content preserves the
+last refusal; changed content or a sent gesture clears it for that window. The refusal key retains
+the exact tool, target, verb, typed arguments and cause in RAM, excluding request tokens and
+correlation IDs. An identical refusal yields `do_not_repeat`; uncertain delivery is never entered
+as a refusal. The default `outcome=v1` retains historical errors and checks.

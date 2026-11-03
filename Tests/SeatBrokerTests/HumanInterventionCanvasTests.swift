@@ -199,7 +199,7 @@ struct HumanInterventionCanvasTests {
     }
 
     static func click(_ title: String) -> HumanRecordedInteraction {
-        let element = InteractionElementMetadata.read(isReservedLabel: ValueMinimization.namesSecret) {
+        let element = InteractionElementMetadata.read(isReservedLabel: { SensitivityClassifier().classify($0, in: .init(labels: [$0])).sensitivity == .secret }) {
             ["AXRole": "AXButton", "AXTitle": title][$0] ?? nil
         }
         return HumanRecordedInteraction(
