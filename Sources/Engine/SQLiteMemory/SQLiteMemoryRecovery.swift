@@ -72,6 +72,7 @@ package enum SQLiteMemoryRecovery {
     /// sentence for an error or a diagnosis. Read without the lock: under a shared presence it means
     /// a recovery that stopped, since one in progress holds the lock exclusive.
     package static func pending(of archive: URL) -> String? {
+        if let exchange = SQLiteMigration22.pendingExchange(of: archive) { return exchange }
         let path = recordPath(of: archive)
         guard FileManager.default.fileExists(atPath: path) else { return nil }
         guard let data = FileManager.default.contents(atPath: path),
@@ -99,6 +100,9 @@ package enum SQLiteMemoryRecovery {
     ) throws -> Outcome {
         guard let lock = try SQLiteMemoryPresence.take(.exclusive, of: archive) else { return .inUse }
         defer { lock.release() }
+        if let pending = SQLiteMigration22.pendingExchange(of: archive) {
+            throw MemoryStoreError.unavailable(.interruptedRecovery(pending))
+        }
         let stage = stage ?? { _ in }
         let expected = try SQLiteMemoryStore.Expected()
         if FileManager.default.fileExists(atPath: recordPath(of: archive)) {

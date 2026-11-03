@@ -20,7 +20,7 @@ struct TraceIdentityTests {
 
     @Test("ids equal only under Unicode canonical equivalence are two traces, on the whole page, at a cursor inside one and on the next page")
     func byteDistinctTracesAndStraddlingCursor() async throws {
-        let memory = try await AgentCallFixtures.open()
+        let memory = try await AgentCallFixtures.open22()
         let traces = SQLiteTraceRepository(store: memory.store)
         let composed = "caf\u{e9}"
         let decomposed = "cafe\u{301}"
@@ -31,7 +31,7 @@ struct TraceIdentityTests {
         }
         let all = try await traces.traces(before: nil, limit: 10)
         let reference: [[UInt8]] = try await memory.store.read { snapshot in
-            try snapshot.query("SELECT trace_id FROM memory_events GROUP BY trace_id ORDER BY max(local_order) DESC", []) {
+            try snapshot.query("SELECT trace_id FROM memory_events GROUP BY trace_id ORDER BY max(event_id) DESC", []) {
                 Array((try $0.text(0) ?? "").utf8)
             }
         }

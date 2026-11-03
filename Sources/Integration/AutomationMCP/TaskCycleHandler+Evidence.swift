@@ -7,6 +7,13 @@ import Memory
 import PerceptionCore
 
 extension TaskCycleHandler {
+    func memoryDelivery(_ value: JSONValue, reason: RecallService.MemoryReadReason?) -> JSONValue {
+        guard reason == .profileDoesNotReadMemory, var object = value.object, var search = value["search"].object else { return value }
+        search["note"] = .string(ModelText.text(.init(rawValue: "profile.memory_not_read.v1")))
+        object["search"] = .object(search)
+        return .object(object)
+    }
+
     /// Whether a store error is a refusal of a choice's own record (a check of the archive, an identity, a lock or a wait
     /// inside the store) rather than the memory being unusable, which stays `memory_unavailable`.
     static func isChoiceRecordFault(_ error: MemoryStoreError) -> Bool {
@@ -21,15 +28,15 @@ extension TaskCycleHandler {
     func recall(_ reason: RecallReason, _ plan: MemoryTaskTool.RecallPlan, content: TaskRevisionContent, task: OpenTask,
                         producer: TaskProducer, memory: MemoryService) async -> [String: JSONValue] {
         let service = RecallService.shared(for: memory)
-        await service.schedule()
+        if access.reads { await service.schedule() }
         do {
             let (needs, notes) = try await resolved(plan.needs, service: service)
             let request = try RecallRequest(taskID: task.taskID, attemptID: task.attemptID, revision: task.revision, reason: reason,
                                             remainingWork: plan.remaining ?? content.goal, needs: needs,
                                             values: content.inputs, constraints: content.constraints, notes: notes)
-            let answer = try await service.recall(request, producer: producer)
+            let answer = try await service.recall(request, producer: producer, access: access)
             let data = try JSONEncoder().encode(answer.delivery)
-            return ["recall": try JSONDecoder().decode(JSONValue.self, from: data)]
+            return ["recall": try memoryDelivery(JSONDecoder().decode(JSONValue.self, from: data), reason: answer.reason)]
         } catch let error as TaskContextError {
             return ["recall_error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1"))
                 + "\(error)"
@@ -47,15 +54,15 @@ extension TaskCycleHandler {
     func propose(_ reason: RecallReason, _ plan: MemoryTaskTool.RecallPlan, content: TaskRevisionContent, task: OpenTask,
                          producer: TaskProducer, memory: MemoryService) async -> [String: JSONValue] {
         let service = RecallService.shared(for: memory)
-        await service.schedule()
+        if access.reads { await service.schedule() }
         do {
             let (needs, notes) = try await resolved(plan.needs, service: service)
             let request = try RecallRequest(taskID: task.taskID, attemptID: task.attemptID, revision: task.revision, reason: reason,
                                             remainingWork: plan.remaining ?? content.goal, needs: needs,
                                             values: content.inputs, constraints: content.constraints, notes: notes)
-            let answer = try await service.propose(request, producer: producer)
+            let answer = try await service.propose(request, producer: producer, access: access)
             let data = try JSONEncoder().encode(answer.delivery)
-            return ["recall_proposal": try JSONDecoder().decode(JSONValue.self, from: data)]
+            return ["recall_proposal": try memoryDelivery(JSONDecoder().decode(JSONValue.self, from: data), reason: answer.reason)]
         } catch let error as TaskContextError {
             return ["recall_error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.6"))
                 + "\(error)"
@@ -74,7 +81,7 @@ extension TaskCycleHandler {
     private func resolved(_ needs: [RecallNeed], service: RecallService) async throws -> ([RecallNeed], [String]) {
         let words = Set(needs.compactMap(\.bundleID))
         guard !words.isEmpty else { return (needs, []) }
-        let learned = await service.learnedApplications()
+        let learned = access.reads ? await service.learnedApplications() : []
         var offered: [ApplicationCandidate] = []
         for word in words.sorted() { offered += (try? await session.applications(matching: word)) ?? [] }
         let resolution = try RecallApplications.resolving(needs, among: RecallApplications.known(learned: learned, offered: offered))
@@ -422,7 +429,7 @@ extension TaskCycleHandler {
 
     /// The titles of the windows of an application the window server lists, the session's own when none is named; nil
     /// when it is not running.
-    private func windowReading(of app: String?) async -> TaskResultCheck.Reading {
+    func windowReading(of app: String?) async -> TaskResultCheck.Reading {
         guard let word = app ?? session.memoryApplication else {
             return .unread(ModelText.text(.init(rawValue: "task_cycle_handler__evidence.word.v1")))
         }
@@ -438,7 +445,7 @@ extension TaskCycleHandler {
     }
 
     /// The scene the session reads now, when it holds the application named (or any, when none is named); nil otherwise.
-    private func currentScene(of app: String?) async -> SceneSnapshot? {
+    func currentScene(of app: String?) async -> SceneSnapshot? {
         guard session.id != nil, let held = session.memoryApplication else { return nil }
         if let app, app != held {
             guard let running = try? RunningApplicationLookup.running(app), running.bundleIdentifier == held else { return nil }
@@ -593,8 +600,8 @@ extension TaskCycleHandler {
 
     /// The calls of this producer whose effect is not known and no later fact resolved (P2-06), after the sweep of the
     /// started calls whose process ended.
-    func unresolvedCalls(memory: MemoryService) async -> [UnresolvedCall] {
-        let executor = MemoryExecutor.current(for: memory.directory, source: producer.source)
+    func unresolvedCalls(memory: MemoryService) async throws -> [UnresolvedCall] {
+        let executor = try await MemoryExecutor.current(memory: memory, source: producer.source)
         if let executor { await MemoryExecutor.sweep(memory, folder: memory.directory, current: executor) }
         return (try? await memory.unresolvedCalls(source: producer.source, streamID: producer.streamID,
                                                    excludingExecutor: executor?.record.executorID)) ?? []

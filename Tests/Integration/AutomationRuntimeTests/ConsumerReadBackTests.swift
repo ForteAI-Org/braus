@@ -38,7 +38,17 @@ struct ConsumerReadBackTests {
     @Test("task, revisions, attempt, ordered calls with a batch's parent and children, admitted arguments, gaps, checks, observations and a transferred fact's source, all read back from the repositories")
     func everythingReadsBack() async throws {
         let place = try UnificationTests.place()
-        try await UnificationTests.legacyArchive(in: place.profile("A"), stream: "mcp-A", elements: [W.format])
+        let originDirectory = place.profile("A")
+        try FileManager.default.createDirectory(at: originDirectory, withIntermediateDirectories: true)
+        let originStore = SQLiteMemoryStore(
+            url: originDirectory.appendingPathComponent("memory.sqlite"), schema: .historical19
+        )
+        try await originStore.open()
+        _ = try await SQLiteCaptureRepository(store: originStore).record(MemoryEventRecord(
+            eventID: UUID().uuidString, source: .mcp, streamID: "mcp-A", kind: .observation,
+            occurredAtMS: 100
+        ))
+        await originStore.close()
         MemoryService.unify(place.shared, with: KnowledgeLocation.legacyProfiles(under: place.support))
         let session = FactSession(directory: place.shared)
         session.plans["Format"] = FactSession.Plan(outcome: ActOutcome(.honestMiss, "no Format"))
@@ -99,7 +109,7 @@ struct ConsumerReadBackTests {
         }
         #expect(try await reopened.sample(observed.sample) != nil)
 
-        let legacy = try rawRows("SELECT event_id FROM memory_events WHERE source = 'mcp' ORDER BY local_order",
+        let legacy = try rawRows("SELECT event_uuid FROM memory_events WHERE source = 'mcp' ORDER BY event_id",
                                  at: reopened.url)
         let transferred = try #require(legacy.first)
         let origin = try #require(try await reopened.origins(of: transferred).first)

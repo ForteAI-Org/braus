@@ -1,7 +1,7 @@
 import Foundation
 
 /// MCPRouter implements the stdio MCP request surface. Tool execution is injected and serialized:
-/// a concurrent caller gets a busy error rather than interleaving application effects.
+/// concurrent callers wait in arrival order rather than interleaving application effects.
 ///
 /// The tool list can be replaced while clients are connected (the host's tool set may change). A router built
 /// with `announcesToolListChanges` declares `tools.listChanged` and tells every connection when the list
@@ -17,16 +17,52 @@ public final class MCPRouter {
     private var isBusy = false
     private var activeRequestID: JSONValue?
     private var activeCall: Task<JSONValue, any Error>?
-    private var preservesActiveCall = false
-    public private(set) var isAcceptingTools = true
+    private struct QueuedCall {
+        let id: JSONValue
+        let name: String
+        let arguments: JSONValue
+        let continuation: CheckedContinuation<JSONValue?, Never>
+    }
+
+    private var queue: [QueuedCall] = []
+    private var drainWaiters: [CheckedContinuation<Void, Never>] = []
+    private let personResult: JSONValue
+
+    /// AdmissionState determines whether calls run, return without being sent for human control,
+    /// or stop. Human suspension preserves the admitted call, including against late cancellation.
+    public enum AdmissionState: Sendable, Equatable {
+        case open, suspendedForPerson, stopped
+    }
+
+    public private(set) var admission: AdmissionState = .open {
+        didSet {
+            switch admission {
+            case .open: break
+            case .suspendedForPerson: answerQueue()
+            case .stopped:
+                activeCall?.cancel()
+                answerQueue()
+            }
+        }
+    }
+
+    public var isAcceptingTools: Bool { admission == .open }
+
+    /// The ES1 outcome for a call withheld because the person took control, without model prose.
+    public static let notSentForPerson = toolResult(.object([
+        "gesture": .string("not_sent"), "effect": .string("not_applicable"),
+        "recovery": .string("do_not_repeat"), "cause": .string("human_intervention")
+    ]))
 
     public init(
         tools: [JSONValue],
         instructions: String?,
+        notSentForPerson: JSONValue = MCPRouter.notSentForPerson,
         announcesToolListChanges: Bool = false,
         call: @escaping Call
     ) {
         self.tools = tools
+        self.personResult = notSentForPerson
         self.call = call
         self.instructions = instructions
         self.announcesToolListChanges = announcesToolListChanges
@@ -54,27 +90,18 @@ public final class MCPRouter {
 
     func removeNotificationSink(_ key: UUID) { notificationSinks[key] = nil }
 
-    public func pause() {
-        isAcceptingTools = false
-        preservesActiveCall = false
-        activeCall?.cancel()
-    }
+    public func pause() { admission = .stopped }
 
     /// Suspends admission for human control without cancelling the admitted call. Late cancellation
     /// notifications from the interrupted provider cannot cut it short. An explicit pause still can.
-    public func suspendForHumanIntervention() {
-        isAcceptingTools = false
-        preservesActiveCall = true
-    }
+    public func suspendForHumanIntervention() { admission = .suspendedForPerson }
 
-    public func resume() {
-        preservesActiveCall = false
-        isAcceptingTools = true
-    }
+    public func resume() { admission = .open }
 
-    /// Waits for an in-flight call before the owner releases Seat resources.
+    /// Waits until the admitted call finishes and every queued call has been answered or cancelled.
     public func drain() async {
-        while isBusy { try? await Task.sleep(for: .milliseconds(25)) }
+        guard isBusy || !queue.isEmpty else { return }
+        await withCheckedContinuation { drainWaiters.append($0) }
     }
 
     public func handle(_ request: JSONValue) async -> JSONValue? {
@@ -83,9 +110,14 @@ public final class MCPRouter {
             return error(id, -32600, "Invalid JSON-RPC request.")
         }
         if id == .null {
-            if method == "notifications/cancelled", !preservesActiveCall,
-               request["params"]["requestId"] == activeRequestID {
-                activeCall?.cancel()
+            if method == "notifications/cancelled" {
+                let cancelledID = request["params"]["requestId"]
+                if let index = queue.firstIndex(where: { $0.id == cancelledID }) {
+                    queue.remove(at: index).continuation.resume(returning: nil)
+                    finishDrainIfIdle()
+                } else if admission != .suspendedForPerson, cancelledID == activeRequestID {
+                    activeCall?.cancel()
+                }
             }
             return nil
         }
@@ -106,26 +138,79 @@ public final class MCPRouter {
             case "ping": result = .object([:])
             case "tools/list": result = .object(["tools": .array(tools)])
             case "tools/call":
-                guard isAcceptingTools else { return error(id, -32000, "Braus is stopping. No further actions accepted.") }
-                guard !isBusy else { return error(id, -32000, "Another Braus operation is still running. Observe when it finishes.") }
+                switch admission {
+                case .suspendedForPerson: return response(id, personResult)
+                case .stopped: return stoppingError(id)
+                case .open: break
+                }
                 guard let name = request["params"]["name"].string,
                       tools.contains(where: { $0["name"].string == name }) else {
                     return error(id, -32602, "Unknown tool.")
                 }
-                isBusy = true
-                activeRequestID = id
-                defer { isBusy = false; activeCall = nil; activeRequestID = nil }
-                do {
-                    let task = Task { try await call(name, request["params"]["arguments"]) }
-                    activeCall = task
-                    result = try await task.value
-                } catch {
-                    result = Self.failureResult(error)
+                return await withCheckedContinuation { continuation in
+                    queue.append(QueuedCall(
+                        id: id, name: name, arguments: request["params"]["arguments"],
+                        continuation: continuation
+                    ))
+                    startNextCall()
                 }
             default: return error(id, -32601, "Method not found: \(method)")
             }
-            return .object(["jsonrpc": .string("2.0"), "id": id, "result": result])
+            return response(id, result)
         }
+    }
+
+    private func startNextCall() {
+        guard !isBusy, !queue.isEmpty else { return }
+        guard admission == .open else { answerQueue(); return }
+        let next = queue.removeFirst()
+        guard tools.contains(where: { $0["name"].string == next.name }) else {
+            next.continuation.resume(returning: error(next.id, -32602, "Unknown tool."))
+            startNextCall()
+            finishDrainIfIdle()
+            return
+        }
+        isBusy = true
+        activeRequestID = next.id
+        let task = Task { try await call(next.name, next.arguments) }
+        activeCall = task
+        Task {
+            let result: JSONValue
+            do { result = try await task.value }
+            catch { result = Self.failureResult(error) }
+            activeCall = nil
+            activeRequestID = nil
+            isBusy = false
+            next.continuation.resume(returning: response(next.id, result))
+            startNextCall()
+            finishDrainIfIdle()
+        }
+    }
+
+    private func answerQueue() {
+        let waiting = queue
+        queue.removeAll()
+        for entry in waiting {
+            let answer = admission == .suspendedForPerson
+                ? response(entry.id, personResult) : stoppingError(entry.id)
+            entry.continuation.resume(returning: answer)
+        }
+        finishDrainIfIdle()
+    }
+
+    private func finishDrainIfIdle() {
+        guard !isBusy, queue.isEmpty else { return }
+        let waiting = drainWaiters
+        drainWaiters.removeAll()
+        for waiter in waiting { waiter.resume() }
+    }
+
+    private func response(_ id: JSONValue, _ result: JSONValue) -> JSONValue {
+        .object(["jsonrpc": .string("2.0"), "id": id, "result": result])
+    }
+
+    private func stoppingError(_ id: JSONValue) -> JSONValue {
+        error(id, -32000, "Braus is stopping. No further actions accepted.")
     }
 
     /// A tool's value as one text item of JSON, and nothing else. No tool declares an output schema, so
@@ -143,6 +228,11 @@ public final class MCPRouter {
             "content": .array([.object(["type": .string("text"), "text": .string(text)])]),
             "isError": .bool(isError)
         ])
+    }
+
+    /// Carries an answer rendered by Braus as one text content item.
+    public static func answerResult(_ text: String, isError: Bool = false) -> JSONValue {
+        textResult(text, isError: isError)
     }
 
     /// The result a tool call that threw carries back to the model: the error in its own words, marked

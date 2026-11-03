@@ -1,5 +1,5 @@
 -- Braus memory schema, version 22. Proposed resource; DB2 owns activation and migration.
--- tables: 161
+-- tables: 163
 -- triggers: 330
 -- indexes: 91
 -- STRICT tables; integer identities; the caller owns foreign keys and transaction boundaries.
@@ -1497,9 +1497,10 @@ CREATE TABLE memory_recall_generations (
 
 CREATE TABLE memory_recall_documents (
     document_id INTEGER PRIMARY KEY,
-    text_id INTEGER NOT NULL UNIQUE REFERENCES memory_recall_texts(text_id),
+    text_id INTEGER NOT NULL REFERENCES memory_recall_texts(text_id),
     document_format TEXT NOT NULL CHECK (length(document_format) > 0),
-    recorded_at_ms INTEGER NOT NULL
+    recorded_at_ms INTEGER NOT NULL,
+    UNIQUE (text_id,document_format)
 ) STRICT;
 
 CREATE TABLE memory_recall_vectors (
@@ -1982,7 +1983,6 @@ CREATE TABLE memory_phase_families (
     has_parameter INTEGER NOT NULL CHECK (has_parameter IN (0,1)),
     length INTEGER NOT NULL CHECK (length >= 1),
     label TEXT NOT NULL,
-    labels TEXT NOT NULL,
     members INTEGER NOT NULL CHECK (members >= 0),
     procedures INTEGER NOT NULL CHECK (procedures >= 0),
     first_member_seq INTEGER NOT NULL,
@@ -1993,13 +1993,33 @@ CREATE TABLE memory_phase_families (
     CHECK (latest_route_id IS NULL OR kind = 'procedure')
 ) STRICT;
 
+CREATE TABLE memory_phase_family_labels (
+    family_id INTEGER NOT NULL REFERENCES memory_phase_families(family_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL CHECK (position >= 0),
+    label TEXT NOT NULL,
+    count INTEGER NOT NULL CHECK (count >= 1),
+    PRIMARY KEY (family_id,position),
+    UNIQUE (family_id,label)
+) STRICT;
+
 CREATE TABLE memory_phase_family_attempts (
     family_id INTEGER NOT NULL REFERENCES memory_phase_families(family_id) ON DELETE CASCADE,
     task_occurrence_id INTEGER NOT NULL REFERENCES memory_task_attempts(task_occurrence_id),
     members INTEGER NOT NULL CHECK (members >= 0),
     routes INTEGER NOT NULL CHECK (routes >= 0),
-    labels TEXT NOT NULL,
     PRIMARY KEY (family_id,task_occurrence_id)
+) STRICT;
+
+CREATE TABLE memory_phase_family_attempt_labels (
+    family_id INTEGER NOT NULL,
+    task_occurrence_id INTEGER NOT NULL,
+    position INTEGER NOT NULL CHECK (position >= 0),
+    label TEXT NOT NULL,
+    count INTEGER NOT NULL CHECK (count >= 1),
+    PRIMARY KEY (family_id,task_occurrence_id,position),
+    UNIQUE (family_id,task_occurrence_id,label),
+    FOREIGN KEY (family_id,task_occurrence_id)
+        REFERENCES memory_phase_family_attempts(family_id,task_occurrence_id) ON DELETE CASCADE
 ) STRICT;
 
 CREATE TABLE memory_recall_texts (

@@ -29,6 +29,7 @@ struct ChatTurnAuthorityTests {
     /// `release` while `holds`; `close` ends it.
     final class CountingSession: AutomationSessionOperating {
         private(set) var id: UUID?
+        var memoryDirectory: URL?
         var calls: [String] = []
         var holds = false
         private var gate: CheckedContinuation<Void, Never>?
@@ -76,10 +77,11 @@ struct ChatTurnAuthorityTests {
         let session: ChatSession
         let store: ConversationStore
         private var bridges: [BridgeProcess] = []
+        private var startupError: (any Error)?
 
         var agent: URL { root.appending(path: "claude") }
 
-        init() throws {
+        init(resuming id: UUID? = nil, once: String? = nil) throws {
             let knowledge = root.appending(path: "Knowledge", directoryHint: .isDirectory)
             let history   = root.appending(path: "History", directoryHint: .isDirectory)
             for directory in [knowledge, history, root.appending(path: "log")] {
@@ -88,8 +90,11 @@ struct ChatTurnAuthorityTests {
             try Data(Self.script(root).utf8).write(to: root.appending(path: "claude"))
             try FileManager.default.setAttributes([.posixPermissions: 0o700],
                                                   ofItemAtPath: root.appending(path: "claude").path)
-            let options = try ChatOptions(arguments: ["--knowledge", knowledge.path(percentEncoded: false),
-                                                      "--history-dir", history.path(percentEncoded: false)])
+            var arguments = ["--knowledge", knowledge.path(percentEncoded: false),
+                             "--history-dir", history.path(percentEncoded: false)]
+            if let id { arguments += ["--resume", id.uuidString] }
+            if let once { arguments += ["--once", once] }
+            let options = try ChatOptions(arguments: arguments)
             let counting = self.counting
             session = try ChatSession(options: options, history: history, executable: root.appending(path: "claude"),
                                       session: { _ in counting })
@@ -137,10 +142,25 @@ struct ChatTurnAuthorityTests {
             session.adopt(transcript)
         }
 
+        /// Retains a failed turn's error so a missing provider file reports its cause.
+        func turn(_ message: String) -> Task<Void, any Error> {
+            startupError = nil
+            return Task {
+                do { try await session.turn(message) }
+                catch {
+                    startupError = error
+                    throw error
+                }
+            }
+        }
+
         /// The connection file call `call` was given, once it started.
         func connection(of call: Int) async throws -> URL {
             let noted = root.appending(path: "connection-\(call)")
-            let started = try await BridgeProcess.eventually { FileManager.default.fileExists(atPath: noted.path) }
+            let started = try await BridgeProcess.eventually {
+                FileManager.default.fileExists(atPath: noted.path) || startupError != nil
+            }
+            if let startupError { throw startupError }
             try #require(started, "call \(call) started")
             return URL(fileURLWithPath: try String(contentsOf: noted, encoding: .utf8))
         }
@@ -219,7 +239,7 @@ struct ChatTurnAuthorityTests {
         let chat = try Chat()
         try await chat.running {
             try chat.adoptNew()
-            let first = Task { try await chat.session.turn("one") }
+            let first = chat.turn("one")
             let old = try await chat.connection(of: 0)
             let held = try chat.client(old)
             let oldID = try #require(Self.sessionID(await Self.call(held, "open_session", Self.open)))
@@ -237,7 +257,7 @@ struct ChatTurnAuthorityTests {
             #expect(!Self.admitted(await Self.call(try chat.client(old), "status")), "nor after a new conversation")
             #expect(chat.counting.calls.count == 2)
 
-            let second = Task { try await chat.session.turn("two") }
+            let second = chat.turn("two")
             let new = try await chat.connection(of: 1)
             #expect(new != old, "the turn has a connection of its own")
             #expect(!Self.admitted(await Self.call(held, "act", Self.act(oldID))), "the held client, in the next turn")
@@ -263,9 +283,10 @@ struct ChatTurnAuthorityTests {
             try chat.adoptNew()
             chat.counting.holds = true
             let ended = Flag()
+            let running = chat.turn("one")
             let turn = Task {
                 defer { ended.isSet = true }
-                try await chat.session.turn("one")
+                try await running.value
             }
             let connection = try await chat.connection(of: 0)
             let client = try chat.client(connection)

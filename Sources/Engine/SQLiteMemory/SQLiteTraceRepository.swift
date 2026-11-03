@@ -34,7 +34,7 @@ public struct SQLiteTraceRepository: MemoryTraceReading {
             var position = cursor
             walk: while chosen.count < limit {
                 let rows = try snapshot.query(
-                    "SELECT local_order, trace_id FROM memory_events WHERE local_order < ? AND trace_id IS NOT NULL ORDER BY local_order DESC LIMIT ?",
+                    "SELECT \(try DB2BEventSQL.order(snapshot)), trace_id FROM memory_events WHERE \(try DB2BEventSQL.order(snapshot)) < ? AND trace_id IS NOT NULL ORDER BY \(try DB2BEventSQL.order(snapshot)) DESC LIMIT ?",
                     [.integer(position), .integer(Self.walkChunk)]
                 ) { (order: $0.integer(0) ?? 0, trace: try $0.text(1) ?? "") }
                 if rows.isEmpty { break }
@@ -44,7 +44,7 @@ public struct SQLiteTraceRepository: MemoryTraceReading {
                     // Walking down from the cursor, a trace is first met at its last event below it; it
                     // belongs here only when it has none at or above the cursor.
                     let straddles = try !snapshot.query(
-                        "SELECT 1 FROM memory_events WHERE trace_id = ? AND local_order >= ? LIMIT 1",
+                        "SELECT 1 FROM memory_events WHERE trace_id = ? AND \(try DB2BEventSQL.order(snapshot)) >= ? LIMIT 1",
                         [.text(row.trace), .integer(cursor)]
                     ) { _ in true }.isEmpty
                     if straddles { continue }
@@ -64,7 +64,7 @@ public struct SQLiteTraceRepository: MemoryTraceReading {
         let counts = try snapshot.query(
             """
             SELECT count(*), sum(CASE WHEN a.event_id IS NULL THEN 0 ELSE 1 END),
-                   min(e.local_order), max(e.local_order), min(e.occurred_at_ms), max(e.occurred_at_ms)
+                   min(\(try DB2BEventSQL.order(snapshot, alias: "e"))), max(\(try DB2BEventSQL.order(snapshot, alias: "e"))), min(e.occurred_at_ms), max(e.occurred_at_ms)
             FROM memory_events e LEFT JOIN memory_agent_actions a ON a.event_id = e.event_id
             WHERE e.trace_id = ?
             """,
@@ -74,7 +74,7 @@ public struct SQLiteTraceRepository: MemoryTraceReading {
              lastOrder: row.integer(3) ?? 0, firstMS: row.integer(4) ?? 0, lastMS: row.integer(5) ?? 0)
         }[0]
         let first = try snapshot.query(
-            "SELECT source, source_stream_id FROM memory_events WHERE trace_id = ? ORDER BY local_order LIMIT 1",
+            "SELECT source, source_stream_id FROM memory_events WHERE trace_id = ? ORDER BY \(try DB2BEventSQL.order(snapshot)) LIMIT 1",
             [.text(traceID)]
         ) { (code: try $0.text(0) ?? "", stream: try $0.text(1) ?? "") }[0]
         guard let source = MemoryEventSource(rawValue: first.code) else {
@@ -93,7 +93,7 @@ public struct SQLiteTraceRepository: MemoryTraceReading {
         guard limit > 0 else { return [] }
         return try await store.read { snapshot in
             let rows = try snapshot.query(
-                "SELECT event_id, local_order FROM memory_events WHERE trace_id = ? AND local_order > ? ORDER BY local_order LIMIT ?",
+                "SELECT \(try DB2BEventSQL.uuid(snapshot)), \(try DB2BEventSQL.order(snapshot)) FROM memory_events WHERE trace_id = ? AND \(try DB2BEventSQL.order(snapshot)) > ? ORDER BY \(try DB2BEventSQL.order(snapshot)) LIMIT ?",
                 [.text(traceID), .integer(localOrder ?? 0), .integer(Int64(limit))]
             ) { (id: try $0.text(0) ?? "", order: $0.integer(1) ?? 0) }
             return try rows.compactMap { row in
@@ -106,7 +106,7 @@ public struct SQLiteTraceRepository: MemoryTraceReading {
     public func observations(originatedBy eventID: String) async throws -> [MemoryEventRecord] {
         try await store.read { snapshot in
             let ids = try snapshot.query(
-                "SELECT event_id FROM memory_events WHERE origin_event_id = ? ORDER BY local_order", [.text(eventID)]
+                "SELECT \(try DB2BEventSQL.uuid(snapshot)) FROM memory_events WHERE origin_event_id = ? ORDER BY \(try DB2BEventSQL.order(snapshot))", [try SQLiteRowIdentity(snapshot).key(.event, eventID)]
             ) { try $0.text(0) ?? "" }
             return try ids.compactMap { try SQLiteEventRows.read(snapshot, eventID: $0) }
         }

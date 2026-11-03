@@ -54,8 +54,8 @@ enum ChatScript {
     /// of every `memory_task` answer (`← memory_task {…}`), which `begin` opens and every later operation repeats.
     static func taskIDs(in entries: [Conversation.Entry]) -> [String] {
         var ids: [String] = []
-        let prefix = "← memory_task "
-        for entry in entries where entry.kind == .tool && entry.text.hasPrefix(prefix) {
+        for entry in entries where entry.kind == .tool {
+            guard let prefix = ["← memory_task ", "← plan "].first(where: { entry.text.hasPrefix($0) }) else { continue }
             let json = String(entry.text.dropFirst(prefix.count))
             guard let value = try? JSONDecoder().decode(JSONValue.self, from: Data(json.utf8)),
                   let id = value["task"].string, !id.isEmpty, !ids.contains(id) else { continue }

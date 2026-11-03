@@ -10,18 +10,21 @@ import Testing
 struct CapabilityContractTests {
     @Test func policyNamesEqualAllServedDefinitions() {
         let names = Set(AutomationTools.definitions(for: [.native, .web, .adapters]).compactMap { $0["name"].string })
-        #expect(names == Set(ToolCatalogue.policyRegistry.all.map(\.id.rawValue)))
+        #expect(names.isSubset(of: Set(ToolCatalogue.policyRegistry.all.map(\.id.rawValue))))
+        #expect(!ToolCatalogue.policyRegistry.all.contains { $0.id.rawValue == "human_step" })
     }
 
     @Test func everyServedToolHasAnExplicitContract() throws {
         let definitions = AutomationTools.definitions(for: [.native, .web, .adapters])
         let contracts = ToolCatalogue.contracts(for: [.native, .web, .adapters])
         let core = contracts.filter { $0.origin == .core }
-        #expect(core.count == 22)
-        #expect(core.map(\.id.rawValue) == definitions.compactMap { $0["name"].string })
+        #expect(core.count == definitions.count + 3)
+        #expect(core.map(\.id.rawValue) == definitions.compactMap { $0["name"].string } + ["find", "call", "triple_click"])
         for definition in definitions {
             let contract = try #require(core.first { $0.id.rawValue == definition["name"].string })
-            #expect(contract.description == definition["description"].string)
+            let expected = ToolCatalogue.catalogueNames.contains(contract.id.rawValue)
+                ? ModelText.text(.init(rawValue: "catalogue." + contract.id.rawValue)) : definition["description"].string
+            #expect(contract.description == expected)
             #expect(contract.inputSchema == definition["inputSchema"])
             #expect(contract.interruption == AutomationTools.interruptionPolicy(for: contract.id.rawValue))
         }
@@ -35,21 +38,22 @@ struct CoreEffectClassTests {
     @Test func coreEffectClassesAndSessions() throws {
         let contracts = ToolCatalogue.contracts(for: [.native, .web, .adapters])
         let registry = try CapabilityRegistry(core: contracts, registered: [])
-        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "human_step",
-                                  "collect_posts", "memory_task"]
+        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "find", "memory_task"]
         let noSession: Set<String> = ["status", "windows", "apps", "open_session", "app_capabilities",
-                                      "app_call", "memory_task", "human_step"]
+                                      "app_call", "memory_task", "find", "call"]
         for contract in contracts where contract.origin == .core {
             let name = contract.id.rawValue
-            let channel: Channel = ["status", "windows", "apps", "human_step", "memory_task"].contains(name)
+            let channel: Channel = ["status", "windows", "apps", "memory_task", "find", "close_session"].contains(name)
                 ? .braus : (["app_call", "app_capabilities"].contains(name) ? .adapter
                     : (name == "collect_posts" ? .web : .seat))
             #expect(contract.channel == channel)
-            if ["memory_task", "human_step"].contains(name) {
+            if ["memory_task", "find", "call"].contains(name) {
                 guard case .notRecorded = contract.memory else {
                     Issue.record("The interaction cycle owns its own record")
                     continue
                 }
+            } else if name == "triple_click" {
+                #expect(contract.memory == .capabilityStep)
             } else {
                 #expect(contract.memory == .agentCall(tool: name))
             }

@@ -217,6 +217,7 @@ public struct OperationConclusion: Sendable {
     public let end: AgentCallTransition
     public let samples: [CaptureSample]
     public let effect: OperationEffect?
+    public let gestureEvidence: GestureEvidence?
     public let verifications: [OperationVerification]
     public let redactions: [ValueRedaction]
     public let withdrawn: [ValueRedaction]
@@ -244,7 +245,7 @@ public struct OperationConclusion: Sendable {
                 route: CallRoute? = nil, adapterDispatch: AdapterDispatch? = nil,
                 rung: CallRung? = nil, advice: CallRouteAdvice? = nil,
                 argumentFields: [CallArgumentField] = [], resultFields: [StructuredField] = [],
-                dataContext: CallDataContext? = nil) throws {
+                dataContext: CallDataContext? = nil, gestureEvidence: GestureEvidence? = nil) throws {
         func refuse(_ invalidity: OperationFactError.Invalidity) -> OperationFactError { .invalid(invalidity) }
         let call = end.eventID
         guard end.progress.status.isTerminal else { throw refuse(.notTerminal) }
@@ -266,7 +267,7 @@ public struct OperationConclusion: Sendable {
             guard gap.callEventID.utf8.elementsEqual(call.utf8) else { throw refuse(.otherEvent) }
             guard parts.insert(gap.part).inserted else { throw refuse(.unsavedPartKept) }
             let kept = switch gap.part {
-                case .samples     : !samples.isEmpty
+                case .samples     : !samples.isEmpty || gestureEvidence != nil
                 case .effect      : effect != nil
                 case .verification: !verifications.isEmpty
             }
@@ -275,6 +276,7 @@ public struct OperationConclusion: Sendable {
         self.end           = end
         self.samples       = samples
         self.effect        = effect
+        self.gestureEvidence = gestureEvidence
         self.verifications = verifications
         self.redactions    = redactions
         self.withdrawn     = withdrawn

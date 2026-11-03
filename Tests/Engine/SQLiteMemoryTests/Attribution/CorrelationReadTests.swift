@@ -21,12 +21,12 @@ struct CorrelationReadTests {
 
     @Test("a correlation between two different known applications, written by hand, is refused by the reader of the input and by the reader of the call", arguments: [false, true])
     func knownAppsDisagree(listing: Bool) async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         _ = try await memory.inputs.record(try ObservedInputRecord(event: F.watcherEvent("w-cross"), input: try F.click()))
         _ = try await memory.calls.record(try F.agentCall("a-other", app: AppContextIdentity(bundleID: "test.other")))
         let correlation = try ActionCorrelation(watcherEventID: "w-cross", agentEventID: "a-other", basis: .assigned)
         #expect(await factError { _ = try await memory.inputs.record(correlation) } == .appMismatch(watcherEventID: "w-cross", agentEventID: "a-other"))
-        try await memory.plant([("INSERT INTO memory_action_correlations (watcher_event_id, agent_event_id, basis_kind) VALUES ('w-cross', 'a-other', 'assigned')", [])])
+        try await memory.plant([("INSERT INTO memory_action_correlations (watcher_event_id, agent_event_id, basis_kind) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid='w-cross'), (SELECT event_id FROM memory_events WHERE event_uuid='a-other'), 'assigned')", [])])
         #expect(try await memory.count("SELECT count(*) FROM memory_action_correlations") == 1, "the schema admits the row")
         let error = await factError {
             if listing { _ = try await memory.inputs.correlations(ofAgentEvent: "a-other") } else { _ = try await memory.inputs.correlation(ofWatcherEvent: "w-cross") }
@@ -39,7 +39,7 @@ struct CorrelationReadTests {
 
     @Test("an unknown application is no contradiction for either reader")
     func unknownApp() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         _ = try await memory.inputs.record(try ObservedInputRecord(event: F.watcherEvent("w-known"), input: try F.click()))
         _ = try await memory.calls.record(try F.agentCall("a-unknown", app: nil))
         let correlation = try ActionCorrelation(watcherEventID: "w-known", agentEventID: "a-unknown", basis: .assigned)

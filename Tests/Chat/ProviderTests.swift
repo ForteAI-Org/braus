@@ -65,8 +65,8 @@ struct ProviderTests {
         #expect(claude[flag + 1] == "high")
         #expect(!(try ProviderInvocation(turn(.claude, model: "claude-opus-5", effort: nil)).arguments
                   .contains("--effort")))
-        #expect(!(try ProviderInvocation(turn(.claude, model: "claude-haiku-4-5", effort: "high")).arguments
-                  .contains("--effort")))
+        #expect(try ProviderInvocation(turn(.claude, model: "claude-haiku-4-5", effort: "high")).arguments
+                  .contains("--effort"))
         let codex = try ProviderInvocation(turn(.codex, model: "gpt-5.6-luna", effort: "xhigh")).arguments
         #expect(codex.contains("model_reasoning_effort=\"xhigh\""))
         #expect(codex.last == "-")

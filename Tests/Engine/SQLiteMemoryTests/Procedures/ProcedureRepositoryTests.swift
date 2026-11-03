@@ -21,8 +21,8 @@ import Testing
 struct ProcedureRepositoryTests {
 
     /// An archive holding a task with one concluded, verified call, written through D1's repositories.
-    static func populated() async throws -> TaskFixtures.Memory {
-        let memory = try await TaskFixtures.open()
+    static func populated(schema: SQLiteMemoryStore.Schema = .historical19) async throws -> TaskFixtures.Memory {
+        let memory = try await TaskFixtures.open(schema: schema)
         try await TaskFixtures.begin(memory)
         let attribution = try TaskCallAttribution(taskID: "task-1", attemptID: "attempt-1", revision: 1)
         _ = try await memory.facts.open(try OperationOpening(call: try OperationFactRepositoryTests.click("c1"),
@@ -46,7 +46,7 @@ struct ProcedureRepositoryTests {
                 try raw.execute("PRAGMA user_version = \(version)")
                 _ = try raw.query("PRAGMA wal_checkpoint(TRUNCATE)") { $0.integer(0) }
             }
-            let tables = try Self.tables(of: SQLiteMemorySchema.version)
+            let tables = try Self.tables(of: SQLiteMemorySchema.historical19Version)
             let before = try SchemaMigrationTests.counts(tables, at: memory.url)
             let refusal = MemorySchemaMismatch.unsupported(found: version, supported: SQLiteMemorySchema.version)
             #expect(SQLiteMemoryInspection.inspect(memory.url).shape == .refused(refusal))
@@ -137,7 +137,8 @@ struct ProcedureRepositoryTests {
         let memory = try await Self.populated()
         _ = try await memory.tasks.checkpoint(try TaskCheckpointDraft(kind: .end, declared: .completed), attempt: "attempt-1",
                                               at: TaskFixtures.t0 + 90, by: TaskFixtures.producer)
-        let other = try await SQLiteMemoryStore.open(at: memory.url)
+        let other = SQLiteMemoryStore(url: memory.url, schema: .historical19)
+        try await other.open()
         let one = SQLiteProcedureRepository(store: memory.store), two = SQLiteProcedureRepository(store: other)
         async let a = one.buildCandidate(attemptID: "attempt-1", for: TaskFixtures.producer, at: TaskFixtures.t0 + 100)
         async let b = two.buildCandidate(attemptID: "attempt-1", for: TaskFixtures.producer, at: TaskFixtures.t0 + 101)
@@ -169,7 +170,8 @@ struct ProcedureRepositoryTests {
 
     @Test("a templated argument is stored as its segments and read back exactly, in its place among the operation's arguments")
     func templateRoundTrip() async throws {
-        let store = try await SQLiteMemoryStore.open(at: try temporaryDatabase())
+        let store = SQLiteMemoryStore(url: try temporaryDatabase(), schema: .historical19)
+        try await store.open()
         let routes = SQLiteRouteRepository(store: store)
         let parameters = [RouteParameter(parameterID: "p-name", name: "name", direction: .input, valueType: .text, isRequired: true),
                           RouteParameter(parameterID: "p-ext", name: "extension", direction: .input, valueType: .text, isRequired: true)]

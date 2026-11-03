@@ -69,7 +69,7 @@ The answer (`RecallDelivery`) separates how far the search went from what it cov
 
 | Field | Meaning |
 |---|---|
-| `index.status` | `ready`, `building` (no complete generation yet), `empty` (nothing learned, so no index is needed: a completed search), `off` (a measure's control, `BRAUS_MEASURE_ABLATION=recall`), `unavailable` (learned parts but nothing to search) or `failed` |
+| `index.status` | `ready`, `building` (no complete generation yet), `empty` (nothing learned, so no index is needed: a completed search), `off` (the session profile does not read memory), `unavailable` (learned parts but nothing to search) or `failed` |
 | `search.status` | `completed` within its perimeter, `limited` (a backlog, a channel unavailable while another answered, the candidate limit reached, index work pending), `unavailable` or `failed`; with a note when not completed |
 | `coverage` | `complete` within its conditions, `partial` (gaps), `ambiguous` (alternatives, an input missing or ambiguous, a value the task still lacks about a choice the method fixes), `absent` (with reason `excluded` when the relevant steps were excluded with a certain reason rather than not found), or `unknown` when the search could not answer |
 | `needs[].selection` | the version, the steps in order with tool and arguments (`fixed`, `parameter`, `element`), the parameters bound (by name, role, a file's derived value, or the output that fed them in the source), missing or ambiguous with the task value's name, the conditions (entry state or observed state, application switch, steps of the block done before, unknown entry state, prerequisite out of the catalogue, input produced by an included part, output already held, compatibility unknown, unbound task input, constraint not checked), and the evidence and its reach |
@@ -303,14 +303,23 @@ Material only proposed, or a plan refused, delivers nothing and credits nothing.
   archive's index (see [the index](#the-index)).
 - `memory_task` `operation: status` names what the answering process resolved: `archive` (the store file it opened)
   and `recall` (`channel`, `model` with its revision, `models_folder`, `format`, `owns_index`, `model_state`), and
-  `measure_ablation` when a measure turned knowledge off. A live run's preflight reads it from the process, not from a
+  `profile` (including its memory permissions) and `switches.brain_enrichment`. A live run's preflight reads it from the process, not from a
   shell's variables; the unified log repeats the first two (`memory open: <path>`, `recall of <path>: channel …`,
   subsystem `dev.forte.Braus`).
-- `BRAUS_MEASURE_ABLATION=recall|brain|recall,brain` (`MeasureAblation`) is the control of a measure, never a mode of
-  the product: with `recall` every search answers that nothing fits and records why; with `brain` scenes are shown
-  without the Brain's enrichment. Everything is still recorded and learned.
+- Session profiles choose memory access per session: `learn` records and learns without Recall, `read` uses Recall
+  without derived learning, `off` records facts without Recall, learning or scene enrichment, and `readLearn` does both.
+  `switches.brain_enrichment=off` disables scene enrichment alone. Model-visible profile status contains only booleans
+  and resource counts, excluding local paths, app identifiers, profile names and credential sources. Delayed learning jobs must capture their producer's `MemoryAccess` (SK3/SK4), never read shared permissions.
 - `BRAUS_SQLITE_PROFILE=<file>` appends every statement's duration in nanoseconds and its text, never its bound
   values, for a measure of the store's cost (`SQLiteStatementProfile`).
+
+`SessionProfile` is immutable for the session. Hosts resolve profile files and credential sources at composition;
+`AutomationTools` retains the profile and uses the dispatcher's definitions, with the v2 core fixed at composition. Profile files start from `app`, `cli`, or
+`mcp-client`, reject unknown keys, and resolve paths relative to the file. The command line accepts only attendance
+`none`. Credential configuration names a Keychain service or environment variable; status exposes only its presence.
+Recall receives `MemoryAccess` per request, and each call recorder captures the same permissions. Skipping a read
+never marks the shared index off. Scene associations are derived Brain writes and follow `teachesBrain`, alongside
+observations and relations.
 
 ## The comparison
 
@@ -927,3 +936,30 @@ source attempt is delivered as that parameter. Bindings from other attempts are 
 parameters are unresolved. Other retained fields remain constants; this does not infer arbitrary nested mappings or
 content transformations. Missing or ambiguous bindings remain explicit prerequisites. The binding is derived from
 authoritative facts when reading the source; the unused operation-field table is not treated as authoritative data.
+
+## Plan delivery
+
+`recall=v1` keeps the existing plan proposal. The optional `v2` arm uses
+`RecallRendering` in AutomationRuntime for guide heads, notices and complete chosen parts,
+offers in rounds across rows, then guide sections. Its default character budget stays compatible;
+PlanMemory supplies an encoded UTF-8 byte cost and reserves the JSON envelope once for its response budget.
+Mandatory heads and notices remain present, and a part chosen alone retains the channel-limit exception.
+ModelText supplies its language from AutomationMCP. PlanMemory converts displayed
+part keys to archive identities and records only the offers surviving that budget.
+Searches use groups of eight needs; separate row proposals retain independent choices.
+Each plan call owns its offer snapshot, tentative choices and notices across suspension points.
+Plan commits are serialized per handler, while Stop invalidates active and queued calls.
+Each call checks task ownership and pending interruption before adopting a revision or publishing delivery state.
+A failed choice record retains the rendered preview and an explicit retry notice. Guides are delivered once
+per app while its task has open rows; forgetting the delivered context makes them eligible again.
+
+RecallService caches version admissibility by index generation and revision and applies application,
+channel, family and failed-attempt filters before candidate limits. MemoryAccess is
+passed per request, never retained by that shared service. Hosts supply guides and
+available channel contracts through the facade.
+
+Schema 19 still refuses todo writes and has no calibration table. Under schema 22,
+the writer records the search underlying a calibrated proposal in the same transaction,
+without a choice or selected steps. Its query and proposal share an archive-assigned
+identity returned to PlanMemory. A later choice retains its own query identity; use
+accounting joins through the recorded choice, including adapted declarations.

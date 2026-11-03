@@ -163,8 +163,11 @@ def string_literals(text):
 
 def scan_tree(root):
     paths = git(root, "ls-files", "-z", "--", *WORD_ROOTS).split("\0")
+    deleted = set(git(root, "ls-files", "--deleted", "-z", "--", *WORD_ROOTS).split("\0"))
     findings = []
     for path in filter(None, paths):
+        if path in deleted:
+            continue
         for match in WORDS.finditer(path):
             findings.append(Finding("words", path, 1, match[0]))
         target = root / path

@@ -4,9 +4,82 @@ import Foundation
 import LocalMCP
 import Memory
 import PerceptionCore
+import Switches
 
 /// ToolArguments decodes a complete call before any effects begin.
-enum ToolArguments {
+public enum ToolArguments {
+    public enum ExpectationError: Error, Sendable, Equatable { case invalidShape }
+    private static var invalidExpectation: AutomationFailure {
+        AutomationFailure(ModelText.text(.init(rawValue: "expect.invalidShape")), cause: "invalid_arguments")
+    }
+    enum ExpectArm: String, Sendable { case off, on }
+
+    /// Decodes a screen predicate independently of the single-gesture schema switch.
+    /// Batch steps and command-line callers use this same decoder with JSON-compatible input.
+    public static func expectation(from value: Any?) throws -> ScreenExpectation? {
+        guard let value else { return nil }
+        let json: JSONValue
+        if let supplied = value as? JSONValue { json = supplied }
+        else {
+            guard JSONSerialization.isValidJSONObject(value) else { throw invalidExpectation }
+            do { json = try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: value)) }
+            catch { throw invalidExpectation }
+        }
+        if json == .null { return nil }
+        guard let fields = json.object else { throw invalidExpectation }
+        if let title = json["window"].string, !title.isEmpty {
+            guard Set(fields.keys).isSubset(of: ["window", "open"]),
+                  fields["open"] == nil || json["open"].bool != nil else { throw invalidExpectation }
+            return .window(title: title, open: json["open"].bool ?? true)
+        }
+        if let label = json["element"].string, !label.isEmpty {
+            guard Set(fields.keys).isSubset(of: ["element", "value", "state", "present"]),
+                  ["value", "state", "present"].filter({ fields[$0] != nil }).count <= 1 else {
+                throw invalidExpectation
+            }
+            let expected: ElementExpectation
+            if fields["value"] != nil {
+                guard let value = json["value"].string else { throw invalidExpectation }
+                expected = .value(value)
+            } else if fields["state"] != nil {
+                guard let word = json["state"].string, let state = ControlState(rawValue: word), state != .unknown else {
+                    throw invalidExpectation
+                }
+                expected = .state(state)
+            } else {
+                guard fields["present"] == nil || json["present"].bool != nil else { throw invalidExpectation }
+                expected = json["present"].bool == false ? .absent : .present
+            }
+            return .element(label: label, expect: expected)
+        }
+        throw invalidExpectation
+    }
+
+    static func gestureExpectation(in arguments: JSONValue) throws -> ScreenExpectation? {
+        guard arguments.object?["expect"] != nil else { return nil }
+        guard SwitchBoard.current.arm("expect", default: ExpectArm.off) == .on else {
+            throw invalidExpectation
+        }
+        return try expectation(from: arguments["expect"])
+    }
+
+    /// Removes only the legacy session argument before validation, classification and recording.
+    static func admitted(_ arguments: JSONValue, surface: ToolSurface) -> JSONValue {
+        guard surface == .v2, case .object(var fields) = arguments else { return arguments }
+        fields.removeValue(forKey: "session")
+        return .object(fields)
+    }
+
+    static func step(in arguments: JSONValue) throws -> TodoRowID? {
+        guard let value = try optionalString(arguments, "step") else { return nil }
+        let suffix = value.dropFirst()
+        guard value.first == "r", suffix.first != "0", !suffix.isEmpty,
+              suffix.allSatisfy({ $0.isASCII && $0.isNumber }) else {
+            throw invalid(ModelText.text(.init(rawValue: "task_cycle.step_id.v2")))
+        }
+        return TodoRowID(rawValue: value)
+    }
+
     private static func invalid(_ message: String) -> AutomationFailure {
         AutomationFailure(message, cause: "invalid_arguments")
     }
@@ -121,6 +194,7 @@ enum ToolArguments {
         case act(String, ActionVerb, String?, ControlState?)
         case select(String, String)
         case input(InputRequest.Input, section: String?)
+        case menu(path: String)
 
         var isToggle: Bool {
             if case .act(_, .setToggle, _, _) = self { true } else { false }
@@ -143,24 +217,31 @@ enum ToolArguments {
                     .act(target: target, verb: verb, value: state, section: section)
                 case .select(let control, let item):
                     .select(control: control, item: item)
+                case .menu(let path): .menu(path: path)
                 case .input(let input, let section):
                     .input(input, section: section)
             }
         }
 
-        init(_ name: String, _ args: JSONValue) throws {
-            guard (["act", "select"] + inputTools).contains(name),
-                  let definition = AutomationTools.definitions.first(where: { $0["name"].string == name }) else {
+        init(_ name: String, _ args: JSONValue, inBatch: Bool = false) throws {
+            let available = ToolCatalogue.availableDefinitions(for: [], surface: ToolCatalogue.currentSurface)
+            guard (["act", "select"] + inputTools + (inBatch && BatchMode.isEnabled ? ["menu"] : [])).contains(name),
+                  let definition = available.first(where: { $0["name"].string == name }) else {
                 throw ToolArguments.invalid("batch supports act, select, type_text, insert_text, press_key, scroll, drag and "
                                         + "context_menu only.")
             }
             let permitted = Set(definition["inputSchema"]["properties"].object?.keys.map { $0 } ?? [])
                 .union(["operation"])
+                .union(inBatch && BatchMode.isEnabled ? ["expect"] : [])
+                .subtracting(inBatch ? ["then"] : [])
             guard let object = args.object, Set(object.keys).isSubset(of: permitted) else {
                 throw ToolArguments.invalid("Unknown step argument.")
             }
+            if inBatch && BatchMode.isEnabled { _ = try expectation(from: args.object?["expect"]) }
+            else { _ = try gestureExpectation(in: args) }
             let section = try optionalString(args, "section")
             switch name {
+            case "menu": self = .menu(path: try requiredString(args, "path"))
             case "type_text":
                 guard let text = args["text"].string, !text.isEmpty else {
                     throw ToolArguments.invalid("text must be a nonempty string.")
@@ -234,6 +315,43 @@ enum ToolArguments {
                 self = .act(try reference(args, "target"), verb, section, state)
             }
         }
+        func facts(expectation: ScreenExpectation?) -> BatchPolicy.StepFacts {
+            switch self {
+            case .act(let target, let verb, let section, _):
+                return .init(kind: .act, target: target, section: section, verb: verb.rawValue, expectation: expectation)
+            case .select(let control, let item):
+                return .init(kind: .select, target: control, item: item, expectation: expectation)
+            case .menu(let path): return .init(kind: .menu, item: path, expectation: expectation)
+            case .input(let input, let section):
+                switch input {
+                case .typeText(_, let target, _): return .init(kind: .typeText, target: target, section: section, expectation: expectation)
+                case .insertText: return .init(kind: .insertText, expectation: expectation)
+                case .pressKey(let chord, _): return .init(kind: .pressKey, chord: chord, expectation: expectation)
+                case .scroll(_, let target): return .init(kind: .scroll, target: target, section: section, expectation: expectation)
+                case .drag(let from, _): return .init(kind: .drag, target: from, section: section, expectation: expectation)
+                case .contextMenu(let target, let item):
+                    return .init(kind: .contextMenu, target: target, section: section, item: item, expectation: expectation)
+                }
+            }
+        }
+
+        func addressed(to element: SceneElement) -> Step {
+            let section = element.container ?? element.section
+            switch self {
+            case .act(_, let verb, _, let state): return .act(element.label, verb, section, state)
+            case .select(_, let item): return .select(element.label, item)
+            case .menu: return self
+            case .input(let input, _):
+                switch input {
+                case .typeText(let text, _, let replace): return .input(.typeText(text, into: element.label, replacing: replace), section: section)
+                case .scroll(let lines, _): return .input(.scroll(lines: lines, over: element.label), section: section)
+                case .drag(_, let to): return .input(.drag(from: element.label, to: to), section: section)
+                case .contextMenu(_, let item): return .input(.contextMenu(on: element.label, item: item), section: section)
+                default: return self
+                }
+            }
+        }
+
     }
 
 }

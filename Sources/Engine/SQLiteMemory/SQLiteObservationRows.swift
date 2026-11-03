@@ -76,17 +76,18 @@ enum SQLiteIdentityRows {
 enum SQLiteEventRows {
 
     static func read(_ handle: some SQLiteQuerying, eventID: String) throws -> MemoryEventRecord? {
-        try handle.query(
+        let ids = try SQLiteRowIdentity(handle)
+        return try handle.query(
             """
-            SELECT e.event_id, e.source, e.source_stream_id, e.source_key, e.trace_id, e.session_id,
-                   e.parent_event_id, e.parent_position, e.event_kind, a.bundle_id, c.app_version, c.app_locale,
-                   e.occurred_at_ms, e.monotonic_ns, e.capture_status, e.origin_event_id
+            SELECT \(ids.publicReference(.event, column: "e.event_id")), e.source, e.source_stream_id, e.source_key, e.trace_id, e.session_id,
+                   \(ids.publicReference(.event, column: "e.parent_event_id")), e.parent_position, e.event_kind, a.bundle_id, c.app_version, c.app_locale,
+                   e.occurred_at_ms, e.monotonic_ns, e.capture_status, \(ids.publicReference(.event, column: "e.origin_event_id"))
             FROM memory_events e
             LEFT JOIN brain_apps a ON a.app_id = e.app_id
             LEFT JOIN brain_app_contexts c ON c.context_id = e.context_id
             WHERE e.event_id = ?
             """,
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row in
             let sourceCode = try row.text(1) ?? ""
             guard let source = MemoryEventSource(rawValue: sourceCode) else {
@@ -146,7 +147,7 @@ enum SQLiteEventRows {
         }
         if let key = event.sourceKey {
             let holder = try transaction.query(
-                "SELECT event_id FROM memory_events WHERE source = ? AND source_stream_id = ? AND source_key = ?",
+                "SELECT \(try SQLiteRowIdentity(transaction).publicReference(.event, column: "memory_events.event_id")) FROM memory_events WHERE source = ? AND source_stream_id = ? AND source_key = ?",
                 [.text(event.source.rawValue), .text(event.streamID), .text(key)]
             ) { try $0.text(0) ?? "" }.first
             if let holder {
@@ -170,26 +171,32 @@ enum SQLiteEventRows {
     /// The application id of an event: nil when the event is unknown, `.some(nil)` when it names
     /// no application.
     static func appID(_ handle: some SQLiteQuerying, eventID: String) throws -> Int64?? {
-        try handle.query("SELECT app_id FROM memory_events WHERE event_id = ?", [.text(eventID)]) { $0.integer(0) }
+        try handle.query("SELECT app_id FROM memory_events WHERE event_id = ?", [try SQLiteRowIdentity(handle).key(.event, eventID)]) { $0.integer(0) }
             .first
     }
 
     static func insert(_ transaction: SQLiteTransaction, _ event: MemoryEventRecord, appID: Int64?, contextID: Int64?) throws {
+        let ids = try SQLiteRowIdentity(transaction)
+        for reference in [event.parentEventID, event.originEventID].compactMap({ $0 }) where ids.usesIntegerKeys {
+            guard try read(transaction, eventID: reference) != nil else {
+                throw EventFactError.missingEvent(eventID: reference)
+            }
+        }
         try transaction.execute(
             """
             INSERT INTO memory_events
-                (event_id, source, source_stream_id, source_key, trace_id, session_id, parent_event_id, parent_position,
+                (\(ids.usesIntegerKeys ? "event_uuid" : "event_id"), source, source_stream_id, source_key, trace_id, session_id, parent_event_id, parent_position,
                  event_kind, app_id, context_id, occurred_at_ms, monotonic_ns, capture_status, origin_event_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(event.eventID), .text(event.source.rawValue), .text(event.streamID),
                 event.sourceKey.map(SQLiteValue.text) ?? .null, event.traceID.map(SQLiteValue.text) ?? .null,
-                event.sessionID.map(SQLiteValue.text) ?? .null, event.parentEventID.map(SQLiteValue.text) ?? .null,
+                event.sessionID.map(SQLiteValue.text) ?? .null, try ids.key(.event, event.parentEventID),
                 event.parentPosition.map { .integer(Int64($0)) } ?? .null, .text(event.kind.rawValue),
                 appID.map(SQLiteValue.integer) ?? .null, contextID.map(SQLiteValue.integer) ?? .null,
                 .integer(event.occurredAtMS), event.monotonicNS.map(SQLiteValue.integer) ?? .null,
-                .text(event.captureStatus.rawValue), event.originEventID.map(SQLiteValue.text) ?? .null,
+                .text(event.captureStatus.rawValue), try ids.key(.event, event.originEventID),
             ]
         )
     }
@@ -198,7 +205,7 @@ enum SQLiteEventRows {
     static func refreshCaptureStatus(_ transaction: SQLiteTransaction, eventID: String) throws {
         let statuses = try transaction.query(
             "SELECT status FROM memory_event_observations WHERE event_id = ? AND observation_kind = 'capture'",
-            [.text(eventID)]
+            [try SQLiteRowIdentity(transaction).key(.event, eventID)]
         ) { try $0.text(0) ?? "" }
         let completenesses = try statuses.map { code -> CaptureQuality.Completeness in
             guard let completeness = CaptureQuality.Completeness(rawValue: code) else {
@@ -209,7 +216,7 @@ enum SQLiteEventRows {
         let summary = EventCaptureStatus.summary(of: completenesses)
         try transaction.execute(
             "UPDATE memory_events SET capture_status = ? WHERE event_id = ? AND capture_status <> ?",
-            [.text(summary.rawValue), .text(eventID), .text(summary.rawValue)]
+            [.text(summary.rawValue), try SQLiteRowIdentity(transaction).key(.event, eventID), .text(summary.rawValue)]
         )
     }
 }
@@ -317,13 +324,16 @@ enum SQLiteObservationRows {
 
     /// Every row stored under a sample key, the capture first, in insertion order.
     static func rows(_ handle: some SQLiteQuerying, key: CaptureSampleKey) throws -> [StoredRow] {
-        try handle.query(
+        let ids = try SQLiteRowIdentity(handle)
+        let selected = columns.replacingOccurrences(of: "observation_id, event_id,", with:
+            "observation_id, " + ids.publicReference(.event, column: "memory_event_observations.event_id") + ",")
+        return try handle.query(
             """
-            SELECT \(columns) FROM memory_event_observations
+            SELECT \(selected) FROM memory_event_observations
             WHERE event_id = ? AND phase = ? AND sample_ordinal = ?
             ORDER BY parent_observation_id IS NOT NULL, observation_id
             """,
-            [.text(key.eventID), .text(key.phase.rawValue), .integer(Int64(key.ordinal))],
+            [try ids.key(.event, key.eventID), .text(key.phase.rawValue), .integer(Int64(key.ordinal))],
             stored
         )
     }
@@ -537,19 +547,27 @@ enum SQLiteObservationRows {
     /// all under the caller's transaction. Elements inside a collection share one group number per
     /// collection path, numbered in order of first appearance.
     static func insert(_ transaction: SQLiteTransaction, _ sample: CaptureSample) throws {
+        let identities = try SQLiteRowIdentity(transaction)
+        let content: [SQLiteValue]
+        if identities.usesIntegerKeys {
+            let set = try DB2BElementSets.record(transaction, sample)
+            let reason: SQLiteValue = sample.quality.completeness != .complete ? .text("incomplete")
+                : [.unknown, .popupUnion].contains(sample.surface) ? .text("uncertain_surface") : .null
+            content = [.integer(set), sample.quality.windowSubrole.map(SQLiteValue.text) ?? .null, reason]
+        } else { content = [] }
         try transaction.execute(
             """
             INSERT INTO memory_event_observations
                 (event_id, phase, sample_ordinal, observation_kind, observation_contract_version,
-                 status, surface_kind, window_title, session_revision)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 status, surface_kind, window_title, session_revision\(identities.usesIntegerKeys ? ", set_id, window_subrole, reject_reason" : ""))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?\(identities.usesIntegerKeys ? ", ?, ?, ?" : ""))
             """,
             [
-                .text(sample.key.eventID), .text(sample.key.phase.rawValue), .integer(Int64(sample.key.ordinal)),
+                try SQLiteRowIdentity(transaction).key(.event, sample.key.eventID), .text(sample.key.phase.rawValue), .integer(Int64(sample.key.ordinal)),
                 .text(ObservationKind.capture.rawValue), .integer(Int64(ObservationKind.contractVersion)),
                 .text(sample.quality.completeness.rawValue), .text(sample.surface.rawValue),
                 sample.windowTitle.map(SQLiteValue.text) ?? .null, sample.sessionRevision.map(SQLiteValue.integer) ?? .null,
-            ]
+            ] + content
         )
         let captureID = try SQLiteIdentityRows.lastInsertedRow(transaction)
         for (field, value) in sample.fields {
@@ -569,7 +587,7 @@ enum SQLiteObservationRows {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    .text(sample.key.eventID), .text(sample.key.phase.rawValue), .integer(Int64(sample.key.ordinal)),
+                    try SQLiteRowIdentity(transaction).key(.event, sample.key.eventID), .text(sample.key.phase.rawValue), .integer(Int64(sample.key.ordinal)),
                     .text(ObservationKind.captureField.rawValue), .integer(Int64(ObservationKind.contractVersion)),
                     .integer(captureID), .text(field.rawValue), text, integer, boolean, .text(status.rawValue),
                 ]
@@ -592,7 +610,7 @@ enum SQLiteObservationRows {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    .text(sample.key.eventID), .text(sample.key.phase.rawValue), .integer(Int64(sample.key.ordinal)),
+                    try SQLiteRowIdentity(transaction).key(.event, sample.key.eventID), .text(sample.key.phase.rawValue), .integer(Int64(sample.key.ordinal)),
                     .text(ObservationKind.element.rawValue), .integer(Int64(ObservationKind.contractVersion)),
                     .integer(captureID), .text(ObservationStatus.observed.rawValue), group,
                     .text(element.label), element.labelOrigin.map { .text($0.rawValue) } ?? .null,
@@ -602,5 +620,7 @@ enum SQLiteObservationRows {
                 ]
             )
         }
+
+
     }
 }

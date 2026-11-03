@@ -179,7 +179,7 @@ struct WorkerAgentHostTests {
             bridgeExecutable: standIn,
             session         : { DesktopUnavailableSession() },
             agents          : { _ in (.codex, standIn) },
-            seatLine        : { seat }
+            seatLine        : { SeatFacts(legacyText: seat) }
         )
         let selection = ModelSelection(provider: .codex, model: "", effort: .medium)
         var events    = [WorkerAgentEvent]()
@@ -376,5 +376,14 @@ struct WorkerAgentHostTests {
     /// under the system temporary directory.
     private func remove(_ url: URL) {
         do { try FileManager.default.removeItem(at: url) } catch {}
+    }
+}
+
+extension WorkerAgentHostTests {
+    @Test func appProfileKeepsTheExistingCatalogueAndPrompt() {
+        let tools = AutomationTools(session: SyntheticMCPDesktop(), profile: .app)
+        #expect(tools.toolDefinitions == AutomationTools.definitions)
+        #expect(WorkerAgentHost.instructions(role: nil, tools: tools.instructions)
+            == AutomationTools.instructions + "\n" + Self.appLine)
     }
 }

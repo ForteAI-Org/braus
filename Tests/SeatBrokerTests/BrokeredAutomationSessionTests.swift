@@ -39,6 +39,20 @@ struct BrokeredAutomationSessionTests {
 
     private struct Opened: Error {}
 
+    @Test func seatLinePermissionProbeIsLazy() {
+        let desktop = BrokeredAutomationSession(
+            broker: SeatBroker(),
+            workerID: UUID(),
+            knowledgeDirectory: Scratch.directory("braus-seat-line")
+        )
+        var probes = 0
+        let probe = { probes += 1; return ["Accessibility"] }
+        #expect(desktop.turnStatus(seatLine: .v1, permissionProbe: probe).missingPermissions.isEmpty)
+        #expect(probes == 0)
+        #expect(desktop.turnStatus(seatLine: .v2, permissionProbe: probe).missingPermissions == ["Accessibility"])
+        #expect(probes == 1)
+    }
+
     @Test func a5KeepsLegacyScreenViewAvailableAcrossWindowInventoryChanges() async throws {
         let scene = SceneSnapshot(bundleID: "test.process", appName: "Test", windowTitle: "Test",
                                   viewportPixelSize: ViewportPixelSize(width: 10, height: 10), elements: [])
@@ -881,12 +895,18 @@ struct BrokeredAutomationSessionTests {
         let broker  = SeatBroker()
         let idle    = IdleClock()
         let desktop = try Self.seated(broker, idle: idle)
-        #expect(desktop.turnStatus == "Braus seat: no session is open.")
+        #expect(desktop.turnStatus.legacyText == "Braus seat: no session is open.")
 
         try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
         let id   = try #require(desktop.id)
         var live = ""
-        try await desktop.turn { live = desktop.turnStatus }
+        try await desktop.turn {
+            let facts = desktop.turnStatus
+            live = facts.legacyText
+            #expect(facts.session)
+            #expect(facts.application == SeatFacts.Application(name: "Test", bundleID: "test.process"))
+            #expect(facts.missingPermissions.isEmpty)
+        }
         #expect(live == "Braus seat: session \(id.uuidString) is open on Test (test.process), window \"Test\". "
             + "Observe it with this session ID before acting.")
 
@@ -895,7 +915,7 @@ struct BrokeredAutomationSessionTests {
         await idle.elapseOldest()
         await Self.until { !desktop.holdsComputer }
         #expect(desktop.id == nil)
-        #expect(desktop.turnStatus == "Braus seat: no session is open. "
+        #expect(desktop.turnStatus.legacyText == "Braus seat: no session is open. "
             + "The last one was on Test (test.process), window \"Test\".")
     }
 
@@ -961,10 +981,13 @@ struct BrokeredAutomationSessionTests {
           .timeLimit(.minutes(1)))
     func anIdleHolderReleasesWhenTheIdleWindowElapses() async throws {
         let broker  = SeatBroker()
-        let desktop = try Self.seated(broker, idleWindow: .milliseconds(50))
+        let idle = IdleClock()
+        let desktop = Self.sessionWithIdleClock(broker, idleWindow: .seconds(7), idle: idle)
         try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
         #expect(desktop.activity == "Using Test")
-
+        await Self.until { idle.pendingCount == 1 }
+        #expect(idle.waits == [.seconds(7)])
+        await idle.elapseOldest()
         await Self.until { !desktop.holdsComputer }
 
         #expect(!desktop.holdsComputer)
@@ -979,7 +1002,7 @@ struct BrokeredAutomationSessionTests {
         let broker  = SeatBroker()
         let idle    = IdleClock()
         var opens   = 0
-        let desktop = try Self.seated(broker, idleWindow: .milliseconds(50), idle: idle, opens: { opens += 1 })
+        let desktop = Self.sessionWithIdleClock(broker, idleWindow: .milliseconds(50), idle: idle, opens: { opens += 1 })
         try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
         let session = desktop.id
         await Self.until { idle.pendingCount == 1 }
@@ -1226,5 +1249,34 @@ struct BrokeredAutomationSessionTests {
         await #expect(throws: AutomationFailure.self) {
             _ = try await session.deliver(input, section: nil, dispatch: .bound(binding))
         }
+    }
+}
+
+extension BrokeredAutomationSessionTests {
+    private static func sessionWithIdleClock(
+        _ broker: SeatBroker,
+        idleWindow: Duration,
+        idle: IdleClock,
+        opens: @escaping @MainActor () -> Void = {}
+    ) -> BrokeredAutomationSession {
+        let scene = SceneSnapshot(bundleID: "test.process", appName: "Test", windowTitle: "Test",
+            viewportPixelSize: ViewportPixelSize(width: 10, height: 10), elements: [])
+        return session(broker, perceiving: { _, _ in scene }, running: { _ in RunningFixture() },
+            idleWindow: idleWindow, waitIdle: { await idle.wait($0) }) { _, _, _ in
+                opens()
+                return (TargetApp(pid: ProcessInfo.processInfo.processIdentifier, bundleID: "test.process",
+                    name: "Test", bundleURL: nil, windows: []), SeatTarget())
+            }
+    }
+
+    @Test func publicIdleWindowIsForwarded() {
+        let broker = SeatBroker()
+        let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
+        let standard = BrokeredAutomationSession(broker: broker, workerID: UUID(), knowledgeDirectory: directory)
+        let custom = BrokeredAutomationSession(broker: broker, workerID: UUID(), knowledgeDirectory: directory,
+            idleWindow: .seconds(7))
+        #expect(standard.configuredIdleWindow == .seconds(30))
+        #expect(standard.configuredIdleWindow == BrokeredAutomationSession.idleWindow)
+        #expect(custom.configuredIdleWindow == .seconds(7))
     }
 }

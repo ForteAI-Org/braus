@@ -5,7 +5,9 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 28/10/2026.
 //
 
+import AutomationRuntime
 import Foundation
+import LocalEmbedding
 import Memory
 import InteractionListener
 import InteractionObservation
@@ -28,12 +30,14 @@ struct HumanInterventionEmbeddingTests {
         let delay: TimeInterval
         let invalid: Bool
 
-        init(delay: TimeInterval = 0, invalid: Bool = false) {
+        init(delay: TimeInterval = 0, invalid: Bool = false, space: EmbeddingSpace = Stub.fixtureSpace) {
             self.delay = delay
             self.invalid = invalid
+            self.space = space
         }
 
-        let space = EmbeddingSpace(
+        let space: EmbeddingSpace
+        static let fixtureSpace = EmbeddingSpace(
             modelID: "fixture",
             modelRevision: "1",
             weightsDigest: "fixture",
@@ -51,10 +55,49 @@ struct HumanInterventionEmbeddingTests {
                     $0.append(Call(text: text, role: role, isMainThread: Thread.isMainThread))
                 }
                 if delay > 0 { Thread.sleep(forTimeInterval: delay) }
-                let vector: [Float] = invalid ? [.nan, 0] : text.contains("colour") ? [1, 0] : [0, 1]
+                var vector: [Float] = invalid ? [.nan, 0] : text.contains("colour") ? [1, 0] : [0, 1]
+                vector += Array(repeating: 0, count: max(0, space.dimensions - vector.count))
                 return EmbeddedText(vector: vector, tokenCount: 1, isTruncated: false)
             }
         }
+    }
+
+    @Test
+    func sameVectorsThroughService() async throws {
+        struct Reference: Decodable, Sendable {
+            struct Model: Decodable, Sendable { let query: [[Float]]; let document: [[Float]] }
+            let texts: [String]
+            let models: [String: Model]
+        }
+        struct FixtureModel: TextEmbedding {
+            let reference: Reference
+            let space = EmbeddingModelManifest.graniteEmbedding107MMultilingual.space
+            func embed(_ texts: [String], as role: EmbeddingRole) throws -> [EmbeddedText] {
+                let entry = try #require(reference.models["granite-embedding-107m-multilingual"])
+                return try texts.map { text in
+                    let index = try #require(reference.texts.firstIndex(of: text))
+                    return EmbeddedText(vector: role == .query ? entry.query[index] : entry.document[index],
+                                        tokenCount: 1, isTruncated: false)
+                }
+            }
+        }
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../Engine/LocalEmbeddingTests/Fixtures/recall-embedding-reference.json")
+        let reference = try JSONDecoder().decode(Reference.self, from: Data(contentsOf: url))
+        let model = FixtureModel(reference: reference)
+        let source = EmbeddingService.Source(manifest: .graniteEmbedding107MMultilingual, directory: url)
+        let service = EmbeddingService(loader: { _ in model })
+        let actions = Array(reference.texts.prefix(2))
+        let effects = Array(reference.texts.suffix(2))
+        let before = await HumanInterventionEmbeddings { model }.vectors(actions: actions, effects: effects)
+        let after = await HumanInterventionEmbeddings {
+            guard await service.ready(source) == nil else { return nil }
+            return service.embedding(for: source.space)
+        }.vectors(actions: actions, effects: effects)
+        #expect(before.mode == "embedding" && after.mode == "embedding")
+        #expect(before.model == after.model)
+        #expect(before.actionVectors.map { $0.map(\.bitPattern) } == after.actionVectors.map { $0.map(\.bitPattern) })
+        #expect(before.effectVectors.map { $0.map(\.bitPattern) } == after.effectVectors.map { $0.map(\.bitPattern) })
     }
 
     @Test
@@ -189,13 +232,17 @@ struct HumanInterventionEmbeddingTests {
     @Test
     func lateModelLoadIsSharedWithLaterEpisodesWithoutOverlappingLoads() async throws {
         let loads = Mutex(0)
-        let stub = Stub()
-        let model = HumanInterventionEmbeddings.ModelCache {
+        let source = EmbeddingService.Source(manifest: .graniteEmbedding107MMultilingual,
+                                             directory: URL(fileURLWithPath: "/unused"))
+        let model = EmbeddingService { source in
             loads.withLock { $0 += 1 }
-            Thread.sleep(forTimeInterval: 0.1)
-            return stub
+            try await Task.sleep(for: .milliseconds(100))
+            return Stub(space: source.space)
         }
-        let cold = HumanInterventionEmbeddings { await model.model() }
+        let cold = HumanInterventionEmbeddings {
+            guard await model.ready(source) == nil else { return nil }
+            return model.embedding(for: source.space)
+        }
         let first = await cold.vectors(
             actions: ["Track"],
             effects: ["track added"],
@@ -203,7 +250,10 @@ struct HumanInterventionEmbeddingTests {
         )
         #expect(first.mode == "deterministic" && first.reason == "deadline")
 
-        let overlapping = HumanInterventionEmbeddings { await model.model() }
+        let overlapping = HumanInterventionEmbeddings {
+            guard await model.ready(source) == nil else { return nil }
+            return model.embedding(for: source.space)
+        }
         let second = await overlapping.vectors(actions: ["Track"], effects: ["track added"])
         #expect(second.mode == "embedding")
         #expect(loads.withLock { $0 } == 1)
@@ -212,14 +262,19 @@ struct HumanInterventionEmbeddingTests {
     @Test
     func preparedModelIsReadyBeforeTheEpisodeNeedsIt() async throws {
         let loads = Mutex(0)
-        let model = HumanInterventionEmbeddings.ModelCache {
+        let source = EmbeddingService.Source(manifest: .graniteEmbedding107MMultilingual,
+                                             directory: URL(fileURLWithPath: "/unused"))
+        let model = EmbeddingService { source in
             loads.withLock { $0 += 1 }
-            Thread.sleep(forTimeInterval: 0.1)
-            return Stub()
+            try await Task.sleep(for: .milliseconds(100))
+            return Stub(space: source.space)
         }
-        model.prepare()
-        _ = await model.model()
-        let warm = HumanInterventionEmbeddings { await model.model() }
+        model.prepare(.eager, source: source)
+        #expect(await model.ready(source) == nil)
+        let warm = HumanInterventionEmbeddings {
+            guard await model.ready(source) == nil else { return nil }
+            return model.embedding(for: source.space)
+        }
         let result = await warm.vectors(actions: ["Track"], effects: ["track added"], timeout: .milliseconds(50))
         #expect(result.mode == "embedding")
         #expect(loads.withLock { $0 } == 1)
@@ -228,7 +283,13 @@ struct HumanInterventionEmbeddingTests {
     @Test
     func installedModelReportsItsModeAndTiming() async throws {
         HumanInterventionEmbeddings.prepareLocal()
-        try await Task.sleep(for: .seconds(3))
+        if let directory = RecallConfiguration.resolved().modelsDirectory {
+            let manifest = HumanInterventionEmbeddings.manifest
+            _ = await EmbeddingService.shared.ready(.init(
+                manifest: manifest,
+                directory: directory.appendingPathComponent(manifest.directoryName)
+            ))
+        }
         let result = await HumanInterventionEmbeddings.local().vectors(
             actions: ["AXMenuBarItem Track Edit: Session", "Colour palette Vivid Violet Edit: Session"],
             effects: ["Audio 25 Stereo track added", "Draft 15 Colour Vivid Violet"]

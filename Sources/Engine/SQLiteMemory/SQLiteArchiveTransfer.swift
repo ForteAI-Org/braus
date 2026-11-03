@@ -58,6 +58,7 @@ package enum SQLiteArchiveTransfer {
         package let applicationsDuplicate: Int
         package let brainsImported: Int
         package let detail: String?
+        package var frozenTables: [String] = []
     }
 
     /// The tables of facts this transfer does not carry: a source with rows in any of them is refused. The Recall's
@@ -245,7 +246,7 @@ package enum SQLiteArchiveTransfer {
             try owned(transaction, origin, attempt: attempt)
             try transaction.execute(
                 "UPDATE memory_archive_origins SET status = ?, updated_at_ms = ?, detail = ? WHERE origin_id = ?",
-                [.text(status), .integer(nowMS), detail.map(SQLiteValue.text) ?? .null, .text(origin)]
+                [.text(status), .integer(nowMS), detail.map(SQLiteValue.text) ?? .null, try DB2CIdentity.key(transaction, "memory_archive_origins", origin)]
             )
         }
     }
@@ -254,7 +255,7 @@ package enum SQLiteArchiveTransfer {
     private static func owned(_ transaction: SQLiteTransaction, _ origin: String, attempt: String) throws {
         let row = try transaction.query(
             "SELECT status, detail FROM memory_archive_origins WHERE origin_id = ?",
-            [.text(origin)]
+            [try DB2CIdentity.key(transaction, "memory_archive_origins", origin)]
         ) { (status: try $0.text(0) ?? "", detail: try $0.text(1)) }.first
         guard let row, row.status == "in_progress", row.detail == "attempt \(attempt)" else {
             throw TransferError.superseded(origin: origin)
@@ -282,7 +283,7 @@ package enum SQLiteArchiveTransfer {
             var counts = Counts()
             let admission = try await admission(of: store)
             let events = try await store.read { snapshot in
-                try snapshot.query("SELECT event_id, local_order FROM memory_events ORDER BY local_order") {
+                try snapshot.query("SELECT \(try DB2CIdentity.publicReference(snapshot, "memory_events", "memory_events.event_id")), \(try SQLiteRowIdentity(snapshot).usesIntegerKeys ? "event_id" : "local_order") FROM memory_events ORDER BY \(try SQLiteRowIdentity(snapshot).usesIntegerKeys ? "event_id" : "local_order")") {
                     (id: try $0.text(0) ?? "", order: $0.integer(1) ?? 0)
                 }
             }
@@ -307,7 +308,8 @@ package enum SQLiteArchiveTransfer {
             try await stage(.baseImported)
             let applications = SQLiteBrainApplicationRepository(store: destination)
             let sourceApplications = SQLiteBrainApplicationRepository(store: store)
-            let keys = try await applicationKeys(store)
+            let frozen = try await destination.read { try SQLiteRowIdentity($0).usesIntegerKeys }
+            let keys = frozen ? [] : try await applicationKeys(store)
             for (index, key) in keys.enumerated() {
                 guard let stored = try await sourceApplications.application(key) else { continue }
                 let moved = try remapped(stored.command, mapping)
@@ -356,13 +358,13 @@ package enum SQLiteArchiveTransfer {
                     [.integer(nowMS), .integer(version), .integer(last), .integer(Int64(final.eventsAdded)),
                      .integer(Int64(final.eventsDuplicate)), .integer(Int64(final.eventsRenamed)),
                      .integer(Int64(final.applicationsAdded)), .integer(Int64(final.applicationsDuplicate)),
-                     .text(originID)]
+                     try DB2CIdentity.key(transaction, "memory_archive_origins", originID)]
                 )
                 if empty {
                     // An origin that held nothing is complete; the detail tells it from a copy that was lost.
                     try transaction.execute(
                         "UPDATE memory_archive_origins SET detail = ? WHERE origin_id = ? AND detail IS NULL",
-                        [.text("the origin's archive held no facts"), .text(originID)]
+                        [.text("the origin's archive held no facts"), try DB2CIdentity.key(transaction, "memory_archive_origins", originID)]
                     )
                 }
             }
@@ -409,7 +411,15 @@ package enum SQLiteArchiveTransfer {
     private static func openCopy(_ copy: URL, token: Int32) async throws -> SQLiteMemoryStore {
         let store: SQLiteMemoryStore
         do {
-            store = try await SQLiteMemoryStore.open(at: copy, opening: .existingCopy)
+            let schema: SQLiteMemoryStore.Schema = try {
+                let reader = try SQLiteConnection(path: copy.path, readOnly: true, mayCreate: false)
+                defer { reader.close() }
+                try reader.disableAutomaticCloseCheckpoint()
+                let version = try reader.query("PRAGMA user_version") { $0.integer(0) ?? 0 }.first ?? 0
+                return version >= 22 ? .version22 : .historical19
+            }()
+            store = SQLiteMemoryStore(url: copy, schema: schema)
+            try await store.open(.existingCopy)
         } catch {
             guard stagedToken(at: copy) == token else {
                 throw TransferError.stagingLost("the copy is missing, empty or another file (\(error))")
@@ -474,13 +484,13 @@ package enum SQLiteArchiveTransfer {
     package static func recordAdoption(_ destination: SQLiteMemoryStore, origin: String, location: String, nowMS: Int64,
                                        sourceVersion: Int64?) async throws {
         _ = try await destination.write { transaction in
-            let high = try transaction.query("SELECT max(local_order) FROM memory_events") { $0.integer(0) }.first ?? nil
+            let high = try transaction.query("SELECT max(\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? "event_id" : "local_order")) FROM memory_events") { $0.integer(0) }.first ?? nil
             try transaction.execute(
                 """
-                INSERT INTO memory_archive_origins (origin_id, origin_kind, location, status, first_seen_at_ms, updated_at_ms,
+                INSERT INTO memory_archive_origins (\(try DB2CIdentity.column(transaction, "memory_archive_origins")), origin_kind, location, status, first_seen_at_ms, updated_at_ms,
                                                     source_schema_version, high_local_order, detail)
                 VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?)
-                ON CONFLICT(origin_id) DO NOTHING
+                ON CONFLICT(\(try DB2CIdentity.column(transaction, "memory_archive_origins"))) DO NOTHING
                 """,
                 [.text(origin), .text(Self.kind(of: origin)), .text(location), .integer(nowMS), .integer(nowMS),
                  sourceVersion.map(SQLiteValue.integer) ?? .null, high.map(SQLiteValue.integer) ?? .null,
@@ -554,8 +564,8 @@ package enum SQLiteArchiveTransfer {
             var steps: [AgentCall] = []
             if call?.request.tool == .batch {
                 let ids = try snapshot.query(
-                    "SELECT event_id FROM memory_events WHERE parent_event_id = ? ORDER BY parent_position",
-                    [.text(id)]
+                    "SELECT \(try DB2CIdentity.publicReference(snapshot, "memory_events", "memory_events.event_id")) FROM memory_events WHERE parent_event_id = ? ORDER BY parent_position",
+                    [try DB2CIdentity.key(snapshot, "memory_events", id)]
                 ) { try $0.text(0) ?? "" }
                 steps = try ids.compactMap { try SQLiteAgentCallRows.call(snapshot, eventID: $0) }
             }
@@ -668,7 +678,7 @@ package enum SQLiteArchiveTransfer {
                     INSERT OR IGNORE INTO memory_origin_events (origin_id, source_event_id, event_id, disposition)
                     VALUES (?, ?, ?, ?)
                     """,
-                    [.text(origin), .text(entry.source), .text(entry.target), .text(entry.disposition)]
+                    [try DB2CIdentity.key(transaction, "memory_archive_origins", origin), .text(entry.source), try DB2CIdentity.key(transaction, "memory_events", entry.target), .text(entry.disposition)]
                 )
             }
             return decided
@@ -717,7 +727,7 @@ package enum SQLiteArchiveTransfer {
     /// arguments, wherever else it appears in the origin, as a live producer withholds them.
     private static func admission(of store: SQLiteMemoryStore) async throws -> ValueMinimization {
         let requests = try await store.read { snapshot in
-            let ids = try snapshot.query("SELECT event_id FROM memory_agent_actions ORDER BY event_id") {
+            let ids = try snapshot.query("SELECT \(try DB2CIdentity.publicReference(snapshot, "memory_events", "memory_agent_actions.event_id")) FROM memory_agent_actions ORDER BY event_id") {
                 try $0.text(0) ?? ""
             }
             return try ids.compactMap { try SQLiteAgentCallRows.call(snapshot, eventID: $0)?.request }
@@ -752,7 +762,7 @@ package enum SQLiteArchiveTransfer {
                     (origin_id, bundle_id, element_kind, element_key, disposition, withheld)
                 VALUES (?, ?, 'application', ?, ?, 1)
                 """,
-                [.text(origin), .text(command.bundleID), .text(key), .text(disposition.rawValue)]
+                [try DB2CIdentity.key(transaction, "memory_archive_origins", origin), .text(command.bundleID), .text(key), .text(disposition.rawValue)]
             )
         }
     }
@@ -825,7 +835,7 @@ package enum SQLiteArchiveTransfer {
                 calls: [String: Call],
                 samples: [CaptureSampleKey: Int]
             ) in
-            let events = try snapshot.query("SELECT event_id, parent_event_id FROM memory_events") {
+            let events = try snapshot.query("SELECT \(try DB2CIdentity.publicReference(snapshot, "memory_events", "memory_events.event_id")), \(try DB2CIdentity.publicReference(snapshot, "memory_events", "memory_events.parent_event_id")) FROM memory_events") {
                 (id: try $0.text(0) ?? "", parent: try $0.text(1))
             }
             var calls: [String: Call] = [:]
@@ -842,7 +852,8 @@ package enum SQLiteArchiveTransfer {
         }
         let sourceApplications = SQLiteBrainApplicationRepository(store: store)
         var applications: [(key: BrainApplicationKey, bundleID: String)] = []
-        for key in try await applicationKeys(store) {
+        let frozen = try await destination.read { try SQLiteRowIdentity($0).usesIntegerKeys }
+        for key in frozen ? [] : try await applicationKeys(store) {
             guard let stored = try await sourceApplications.application(key) else { continue }
             applications.append((remapped(key, mapping), stored.command.bundleID))
         }
@@ -852,7 +863,7 @@ package enum SQLiteArchiveTransfer {
                 SELECT element_key FROM memory_origin_brain_contributions
                 WHERE origin_id = ? AND element_kind = 'application' AND disposition = 'excluded'
                 """,
-                [.text(origin)]
+                [try DB2CIdentity.key(snapshot, "memory_archive_origins", origin)]
             ) { try $0.text(0) ?? "" }
         })
         var problems = try await destination.read { snapshot -> [String] in
@@ -862,7 +873,7 @@ package enum SQLiteArchiveTransfer {
                     problems.append("event \(event.id) is not mapped")
                     continue
                 }
-                guard let stored = try SQLiteEventRows.read(snapshot, eventID: target) else {
+                guard let stored = try SQLiteEventRows.read(try DB2CReadRows(snapshot), eventID: target) else {
                     problems.append("event \(target) is missing")
                     continue
                 }
@@ -870,18 +881,18 @@ package enum SQLiteArchiveTransfer {
                     problems.append("event \(target) has another parent")
                 }
                 guard let call = source.calls[event.id] else { continue }
-                guard let held = try SQLiteAgentCallRows.call(snapshot, eventID: target) else {
+                guard let held = try DB2CProcedureCallRows.read(snapshot, eventID: target) else {
                     problems.append("call \(target) is missing")
                     continue
                 }
-                if held.request.tool != call.tool || (call.status.isTerminal && held.progress.status != call.status) {
+                if held.request.tool != call.tool || (call.status.isTerminal && held.status != call.status) {
                     problems.append("call \(target) is not the snapshot's")
                 }
             }
             for (key, elements) in source.samples {
                 let moved = CaptureSampleKey(eventID: mapping[key.eventID] ?? key.eventID, phase: key.phase,
                                              ordinal: key.ordinal)
-                if try SQLiteObservationRows.sample(snapshot, key: moved)?.elements.count != elements {
+                if try SQLiteObservationRows.sample(try DB2CReadRows(snapshot), key: moved)?.elements.count != elements {
                     problems.append("sample \(moved.eventID)/\(moved.phase.rawValue) is missing")
                 }
             }
@@ -902,8 +913,8 @@ package enum SQLiteArchiveTransfer {
     private static func mappings(_ destination: SQLiteMemoryStore, _ origin: String) async throws -> [String: String] {
         let rows = try await destination.read { snapshot in
             try snapshot.query(
-                "SELECT source_event_id, event_id FROM memory_origin_events WHERE origin_id = ?",
-                [.text(origin)]
+                "SELECT source_event_id, \(try DB2CIdentity.publicReference(snapshot, "memory_events", "memory_origin_events.event_id")) FROM memory_origin_events WHERE origin_id = ?",
+                [try DB2CIdentity.key(snapshot, "memory_archive_origins", origin)]
             ) {
                 (try $0.text(0) ?? "", try $0.text(1) ?? "")
             }
@@ -919,7 +930,7 @@ package enum SQLiteArchiveTransfer {
             SELECT phase, sample_ordinal FROM memory_event_observations
             WHERE event_id = ? AND observation_kind = 'capture' ORDER BY observation_id
             """,
-            [.text(eventID)]
+            [try DB2CIdentity.key(handle, "memory_events", eventID)]
         ) { row in
             guard let phase = CapturePhase(rawValue: try row.text(0) ?? "") else {
                 throw MemoryStoreError.contract(.init(
@@ -936,7 +947,7 @@ package enum SQLiteArchiveTransfer {
         try await store.read { snapshot in
             let owners = try snapshot.query(
                 """
-                SELECT DISTINCT event_id FROM memory_event_observations
+                SELECT DISTINCT \(try DB2CIdentity.publicReference(snapshot, "memory_events", "memory_event_observations.event_id")) FROM memory_event_observations
                 WHERE observation_kind = 'capture' ORDER BY event_id
                 """
             ) { try $0.text(0) ?? "" }
@@ -947,7 +958,7 @@ package enum SQLiteArchiveTransfer {
     private static func applicationKeys(_ store: SQLiteMemoryStore) async throws -> [BrainApplicationKey] {
         try await store.read { snapshot in
             try snapshot.query(
-                "SELECT event_id, operation, phase, sample_ordinal FROM brain_applications ORDER BY application_id"
+                "SELECT \(try DB2CIdentity.publicReference(snapshot, "memory_events", "brain_applications.event_id")), operation, phase, sample_ordinal FROM brain_applications ORDER BY application_id"
             ) { row -> BrainApplicationKey in
                 let event = try row.text(0) ?? "", operation = try row.text(1) ?? ""
                 switch operation {
@@ -992,10 +1003,10 @@ package enum SQLiteArchiveTransfer {
         _ = try await destination.write { transaction in
             try transaction.execute(
                 """
-                INSERT INTO memory_archive_origins (origin_id, origin_kind, location, status, first_seen_at_ms,
+                INSERT INTO memory_archive_origins (\(try DB2CIdentity.column(transaction, "memory_archive_origins")), origin_kind, location, status, first_seen_at_ms,
                                                     updated_at_ms, source_schema_version, detail)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(origin_id) DO UPDATE SET status = excluded.status, updated_at_ms = excluded.updated_at_ms,
+                ON CONFLICT(\(try DB2CIdentity.column(transaction, "memory_archive_origins"))) DO UPDATE SET status = excluded.status, updated_at_ms = excluded.updated_at_ms,
                     source_schema_version = ifnull(excluded.source_schema_version, source_schema_version),
                     detail = excluded.detail
                 """,
@@ -1011,11 +1022,11 @@ package enum SQLiteArchiveTransfer {
         try await destination.read { snapshot in
             try snapshot.query(
                 """
-                SELECT e.origin_id, o.location, e.source_event_id, e.disposition
+                SELECT o.\(try DB2CIdentity.column(snapshot, "memory_archive_origins")), o.location, e.source_event_id, e.disposition
                 FROM memory_origin_events e JOIN memory_archive_origins o ON o.origin_id = e.origin_id
-                WHERE e.event_id = ? ORDER BY e.origin_id
+                WHERE e.event_id = ? ORDER BY o.\(try DB2CIdentity.column(snapshot, "memory_archive_origins"))
                 """,
-                [.text(eventID)]
+                [try DB2CIdentity.key(snapshot, "memory_events", eventID)]
             ) { row in
                 guard let disposition = EventOrigin.Disposition(rawValue: try row.text(3) ?? "") else {
                     throw MemoryStoreError.contract(.init(code: .init(primary: 0, extended: 0), phase: .statement,
@@ -1029,13 +1040,13 @@ package enum SQLiteArchiveTransfer {
 
     package static func report(_ destination: SQLiteMemoryStore, _ origin: String) async throws -> Report {
         try await destination.read { snapshot in
-            try snapshot.query(
+            var report = try snapshot.query(
                 """
                 SELECT status, events_added, events_duplicate, events_renamed, applications_added,
                        applications_duplicate, brains_imported, detail
                 FROM memory_archive_origins WHERE origin_id = ?
                 """,
-                [.text(origin)]
+                [try DB2CIdentity.key(snapshot, "memory_archive_origins", origin)]
             ) { row in
                 Report(originID: origin, status: try row.text(0) ?? "", eventsAdded: Int(row.integer(1) ?? 0),
                        eventsDuplicate: Int(row.integer(2) ?? 0), eventsRenamed: Int(row.integer(3) ?? 0),
@@ -1043,6 +1054,9 @@ package enum SQLiteArchiveTransfer {
                        brainsImported: Int(row.integer(6) ?? 0), detail: try row.text(7))
             }.first ?? Report(originID: origin, status: "unknown", eventsAdded: 0, eventsDuplicate: 0, eventsRenamed: 0,
                               applicationsAdded: 0, applicationsDuplicate: 0, brainsImported: 0, detail: nil)
+            if try SQLiteRowIdentity(snapshot).usesIntegerKeys { report.frozenTables = DB2CFrozenProjection.tables }
+            return report
+
         }
     }
 
@@ -1054,7 +1068,7 @@ package enum SQLiteArchiveTransfer {
         let recorded = try? await destination.read { snapshot in
             try snapshot.query(
                 "SELECT status, high_local_order, detail FROM memory_archive_origins WHERE origin_id = ?",
-                [.text(origin)]
+                [try DB2CIdentity.key(snapshot, "memory_archive_origins", origin)]
             ) {
                 (status: try $0.text(0) ?? "", high: $0.integer(1), detail: try $0.text(2))
             }
@@ -1066,12 +1080,12 @@ package enum SQLiteArchiveTransfer {
         // An adopted origin holds, as this archive's own, every event up to its last one at the adoption: only later
         // ones are offered again.
         if journaled.detail == adoptedDetail {
-            let later = try? reader.query("SELECT count(*) FROM memory_events WHERE local_order > ?", [.integer(journaled.high ?? 0)]) {
+            let later = try? reader.query("SELECT count(*) FROM memory_events WHERE \(try SQLiteRowIdentity(reader).usesIntegerKeys ? "event_id" : "local_order") > ?", [.integer(journaled.high ?? 0)]) {
                 $0.integer(0) ?? 0
             }
             return (later?.first ?? 0) > 0
         }
-        guard let events = try? reader.query("SELECT event_id FROM memory_events", [], { try $0.text(0) ?? "" }),
+        guard let events = try? reader.query("SELECT \(try DB2CIdentity.publicReference(reader, "memory_events", "memory_events.event_id")) FROM memory_events", [], { try $0.text(0) ?? "" }),
               let mapped = try? await mappings(destination, origin) else {
             return true
         }
@@ -1092,7 +1106,7 @@ package enum SQLiteArchiveTransfer {
         _ = try await destination.write { transaction in
             try transaction.execute(
                 "UPDATE memory_archive_origins SET updated_at_ms = ?, \(concluding) WHERE origin_id = ?",
-                [.integer(nowMS), .text(origin)]
+                [.integer(nowMS), try DB2CIdentity.key(transaction, "memory_archive_origins", origin)]
             )
         }
         return try await report(destination, origin)
@@ -1101,7 +1115,7 @@ package enum SQLiteArchiveTransfer {
     /// The origins the archive journaled and where each stands.
     package static func origins(_ destination: SQLiteMemoryStore) async throws -> [String: String] {
         try await destination.read { snapshot in
-            Dictionary(try snapshot.query("SELECT origin_id, status FROM memory_archive_origins") {
+            Dictionary(try snapshot.query("SELECT \(try DB2CIdentity.column(snapshot, "memory_archive_origins")), status FROM memory_archive_origins") {
                 (try $0.text(0) ?? "", try $0.text(1) ?? "")
             }, uniquingKeysWith: { first, _ in first })
         }

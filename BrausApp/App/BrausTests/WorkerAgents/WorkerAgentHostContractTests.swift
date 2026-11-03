@@ -34,7 +34,7 @@ struct WorkerAgentHostContractTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
         let host = WorkerAgentHost(workingDirectory: root.appending(path: "work"), bridgeExecutable: script,
             session: { DesktopUnavailableSession() }, agents: { _ in (.claude, script) },
-            seatLine: { "Braus seat: no session is open." })
+            seatLine: { SeatFacts(legacyText: "Braus seat: no session is open.") })
         var replies = ""
         var usage: TurnUsage?
         var calls = 0
@@ -67,7 +67,7 @@ struct WorkerAgentHostContractTests {
         let transport = ContractLoopTransport()
         let host = WorkerAgentHost(workingDirectory: root, bridgeExecutable: URL(filePath: "/bin/cat"),
             session: { DesktopUnavailableSession() }, agents: { _ in (.claude, URL(filePath: "/bin/cat")) },
-            transports: { _ in transport }, seatLine: { "Braus seat: no session is open." })
+            transports: { _ in transport }, seatLine: { SeatFacts(legacyText: "Braus seat: no session is open.") })
         var replies = ""
         var usage: TurnUsage?
         var calls = 0

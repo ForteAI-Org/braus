@@ -110,7 +110,7 @@ struct ReconciliationTests {
         let archive = try SQLiteConnection(path: memory.url.path, readOnly: true)
         defer { archive.close() }
         return try archive.query(
-            "SELECT a.event_id FROM memory_agent_actions a JOIN memory_call_adapter_dispatches d ON d.event_id = a.event_id WHERE d.verb = ? ORDER BY a.started_at_ms DESC LIMIT 1",
+            "SELECT e.event_uuid FROM memory_agent_actions a JOIN memory_events e ON e.event_id=a.event_id JOIN memory_call_adapter_dispatches d ON d.event_id = a.event_id WHERE d.verb = ? ORDER BY a.started_at_ms DESC, a.event_id DESC LIMIT 1",
             [.text(verb)]) { try $0.text(0) }.first ?? nil
     }
 
@@ -119,24 +119,30 @@ struct ReconciliationTests {
         let knowledge = CallDispatchRecordTests.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let memory = MemoryService.shared(for: knowledge)
-        let current = try #require(MemoryExecutor.current(for: knowledge, source: .app))
+        let current = try #require(try await MemoryExecutor.current(memory: memory, source: .app))
         // Two earlier processes: one ended (its lock file free), one whose lock this test holds.
         let folder = MemoryExecutor.lockFolder(of: knowledge)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: folder.appending(path: "ended-1.lock").path, contents: Data())
-        guard case .success(let held) = AppClaims.lock("alive-1", in: folder) else { Issue.record("no lock"); return }
+        let endedRecord = try await memory.perform {
+            try await $0.facts.allocateExecutor(source: "app", processID: 1, startedAtMS: 1)
+        }
+        let aliveRecord = try await memory.perform {
+            try await $0.facts.allocateExecutor(source: "app", processID: 2, startedAtMS: 1)
+        }
+        FileManager.default.createFile(atPath: folder.appending(path: AppClaims.fileName(of: endedRecord.executorID)).path, contents: Data())
+        guard case .success(let held) = AppClaims.lock(aliveRecord.executorID, in: folder) else { Issue.record("no lock"); return }
         defer { close(held) }
-        let recorder = { (executor: String, id: String) async throws in
+        let recorder = { (executor: ExecutorRecord, id: String) async throws in
             let context = ActionContext(source: .app, streamID: "sweep", traceID: "sweep")
             let call = try AgentCallRecord(event: context.event(app: nil, occurredAtMS: 1, monotonicNS: 1),
                                            request: .appCall(app: "Reminders", verb: "complete_reminder", arguments: "{\"id\":\"\(id)\"}"))
             var opening = try OperationOpening(call: call, startedAtMS: 1)
-            opening.executor = ExecutorRecord(executorID: executor, source: "app", processID: 1, startedAtMS: 1)
+            opening.executor = executor
             let opened = opening
             _ = try await memory.perform { try await $0.facts.open(opened) }
             return call.event.eventID
         }
-        let ended = try await recorder("ended-1", "a"), alive = try await recorder("alive-1", "b")
+        let ended = try await recorder(endedRecord, "a"), alive = try await recorder(aliveRecord, "b")
         // The sweep of this process runs once per folder; a fresh flag for this folder makes it run here.
         let reconciled = await MemoryExecutor.sweep(memory, folder: knowledge, current: current)
         #expect(reconciled == [ended], "\(reconciled)")
@@ -170,7 +176,7 @@ struct ReconciliationTests {
         let insertion = try legacy.prepare("""
             INSERT INTO memory_call_reconciliations
             (event_id, sequence, kind, finding, evidence_event_id, declared_by, recorded_at_ms)
-            VALUES (?, 1, 'observed', 'not_happened', ?, 'agent', 1)
+            VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 1, 'observed', 'not_happened', (SELECT event_id FROM memory_events WHERE event_uuid=?), 'agent', 1)
             """)
         try insertion.bind([.text(uncertain.eventID), .text(status.event.eventID)])
         _ = try insertion.step()

@@ -67,7 +67,10 @@ struct MCPRouterToolChangesTests {
             "params": .object(["requestId": .number(1)])
         ]))
         let refused = try #require(await router.handle(request("tools/call", id: 2)))
-        #expect(refused["error"] != .null)
+        #expect(refused["result"] == MCPRouter.toolResult(.object([
+            "gesture": .string("not_sent"), "effect": .string("not_applicable"),
+            "recovery": .string("do_not_repeat"), "cause": .string("human_intervention")
+        ])))
         finish.resume()
         #expect(await first.value?["result"] == .string("finished"))
         await router.drain()

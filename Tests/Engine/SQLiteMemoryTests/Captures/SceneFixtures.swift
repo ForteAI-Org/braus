@@ -11,7 +11,7 @@ import Foundation
 import Memory
 import Perception
 import PerceptionCore
-import SQLiteMemory
+@testable import SQLiteMemory
 
 /// SceneFixtures builds the fake windows of the structure-v3 fixtures (F1 to F15) and takes them
 /// through the real producer: `AccessibilityAugmentation.harvest` on the fake tree, the pure
@@ -139,7 +139,8 @@ enum SceneFixtures {
 
     static func open(at url: URL? = nil, ids: SceneIDs = SceneIDs()) async throws -> Memory {
         let url   = try url ?? temporaryDatabase()
-        let store = try await SQLiteMemoryStore.open(at: url)
+        let store = SQLiteMemoryStore(url: url, schema: .historical19)
+        try await store.open()
         return Memory(
             url     : url,
             store   : store,

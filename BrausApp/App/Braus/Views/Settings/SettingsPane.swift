@@ -5,6 +5,7 @@
 //  Created by Eliomar Alejandro Rodriguez Ferrer on 24/09/2026.
 //
 
+import Foundation
 import ModelTransports
 
 /// SettingsPane is one page of Settings, as its sidebar lists them: the app's
@@ -43,7 +44,7 @@ enum SettingsPane: Hashable, Identifiable {
         case .computer           : "This Mac"
         case .chromeProfiles     : "Chrome Profiles"
         case .virtualDisplay     : "Virtual Display"
-        case .brain              : "Brain"
+        case .brain              : String(localized: "Brain")
         case .provider(let model): model.title
         }
     }

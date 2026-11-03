@@ -29,8 +29,9 @@ struct ProcedureInspectionTests {
     static func archive(_ session: LearningSession) -> URL { session.directory.appendingPathComponent("memory.sqlite") }
 
     static func inspection(_ taskID: String, _ session: LearningSession) throws -> ProcedureInspection {
-        guard case .found(let inspection) = SQLiteMemoryInspection.task(taskID, in: archive(session)) else {
-            Issue.record("the task was not read")
+        let reading = SQLiteMemoryInspection.task(taskID, in: archive(session))
+        guard case .found(let inspection) = reading else {
+            Issue.record("the task was not read: \(reading)")
             throw AutomationFailure("not read")
         }
         return inspection
@@ -82,7 +83,7 @@ struct ProcedureInspectionTests {
         MemoryService.forget(session.directory)
 
         let inspection = try Self.inspection(taskID, session)
-        let attempt = try #require(Learning.rows("SELECT task_occurrence_id FROM memory_task_attempts WHERE task_id = '\(taskID)'",
+        let attempt = try #require(Learning.rows("SELECT task_occurrence_id FROM memory_task_attempts WHERE task_id = (SELECT task_id FROM memory_tasks WHERE task_uuid = '\(taskID)')",
                                                  in: session).first)
         let versions = "SELECT route_id FROM memory_procedure_versions WHERE task_occurrence_id = '\(attempt)'"
         let calls = "SELECT event_id FROM memory_task_events WHERE task_occurrence_id = '\(attempt)' AND role IN ('action', 'context')"
@@ -119,7 +120,7 @@ struct ProcedureInspectionTests {
             """, session) == 0)
         // The text names the same objects by id, and none of the bound values.
         let text = inspection.text.joined(separator: "\n")
-        for id in try Learning.rows("SELECT part_id FROM memory_procedure_parts WHERE route_id IN (\(versions))", in: session) {
+        for id in try Learning.rows("SELECT part_uuid FROM memory_procedure_parts WHERE route_id IN (\(versions))", in: session) {
             #expect(text.contains("[\(id)]"), "part \(id) missing from the text")
         }
         #expect(!text.contains("foto_web") && !text.contains("JPEG\""), "the values stay in the bindings: \(text)")

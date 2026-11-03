@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Memory
 import SQLiteAmalgamation
 
 /// SQLiteConnection is one `sqlite3*` handle with one owner, used from one isolation domain at a
@@ -47,15 +48,22 @@ final class SQLiteConnection {
     let path: String
 
     private var handle: OpaquePointer?
+    private var readControl: BrainReadControl?
 
     /// Opens the database at the path, creating the file unless `readOnly` or `mayCreate` is false.
     /// A directory that does not exist or cannot be written, and a missing file that may not be
     /// created, answer `SQLITE_CANTOPEN` here; a file that is not a database answers `SQLITE_NOTADB`
     /// at its first statement, not here.
-    init(path: String, readOnly: Bool = false, mayCreate: Bool = true) throws {
+    init(
+        path: String,
+        readOnly: Bool = false,
+        mayCreate: Bool = true,
+        uri: Bool = false
+    ) throws {
         var handle: OpaquePointer?
-        let flags  = readOnly ? SQLITE_OPEN_READONLY
+        let access = readOnly ? SQLITE_OPEN_READONLY
             : (mayCreate ? SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE : SQLITE_OPEN_READWRITE)
+        let flags = access | (uri ? SQLITE_OPEN_URI : 0)
         let status = sqlite3_open_v2(path, &handle, flags, nil)
         guard status == SQLITE_OK, let opened = handle else {
             let failure = Failure(
@@ -162,6 +170,51 @@ final class SQLiteConnection {
             results.append(try row(statement.row))
         }
         return results
+    }
+
+    /// Runs a query on a borrowed reader only. The handler cannot escape into another read or cleanup.
+    func readQuery<T>(
+        _ sql: String,
+        _ bindings: [SQLiteValue],
+        _ row: (SQLiteStatement.Row) throws -> T
+    ) throws -> [T] {
+        guard let control = BrainReadControl.current else { return try query(sql, bindings, row) }
+        try control.check()
+        let handle = try openHandle()
+        let previous = readControl
+        readControl = control
+        Self.installReadProgress(control, on: handle)
+        defer {
+            readControl = previous
+            Self.installReadProgress(previous, on: handle)
+        }
+        do {
+            let result = try query(sql, bindings) { value in
+                try control.check()
+                return try row(value)
+            }
+            try control.check()
+            return result
+        } catch {
+            // Preserve ordinary errors; translate only an interruption requested for this read.
+            if let failure = error as? Failure, failure.primary == SQLITE_INTERRUPT {
+                try control.check()
+            }
+            throw error
+        }
+    }
+
+    /// Restores an enclosing query's handler when a row decoder performed a nested read.
+    private static func installReadProgress(_ control: BrainReadControl?, on handle: OpaquePointer) {
+        guard let control else {
+            sqlite3_progress_handler(handle, 0, nil, nil)
+            return
+        }
+        sqlite3_progress_handler(handle, 256, { context in
+            guard let context else { return 0 }
+            let control = Unmanaged<BrainReadControl>.fromOpaque(context).takeUnretainedValue()
+            return control.isStopped || Task.isCancelled ? 1 : 0
+        }, Unmanaged.passUnretained(control).toOpaque())
     }
 
     /// Runs WAL maintenance outside a transaction. The default PASSIVE mode copies available frames

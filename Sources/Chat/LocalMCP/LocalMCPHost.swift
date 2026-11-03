@@ -11,6 +11,7 @@ public final class LocalMCPHost {
     private let token = UUID().uuidString + UUID().uuidString
     private var listener: NWListener?
     private var channels: [UUID: MCPChannel] = [:]
+    private var peers: [UUID: MCPPeer] = [:]
     private var tasks: [UUID: Task<Void, Never>] = [:]
     public var onConnectionCount: (@MainActor (Int) -> Void)?
     private var authenticated = Set<UUID>()
@@ -70,9 +71,26 @@ public final class LocalMCPHost {
         for channel in channels.values { channel.close() }
     }
 
-    public func stopAndDrain() async {
-        stop()
-        for task in tasks.values { await task.value }
+    /// Stops admission and flushes responses before joining cleanup, without waiting for client EOF.
+    /// The flush deadline or cancellation closes sockets immediately so a non-reading peer cannot hold writes.
+    public func stopAndDrain(flushTimeout: Duration = .seconds(2)) async {
+        listener?.cancel()
+        listener = nil
+        let draining = Array(peers.values)
+        for peer in draining { peer.beginShutdown() }
+        let deadline = Task { [weak self] in
+            do { try await Task.sleep(for: flushTimeout) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.stop()
+        }
+        defer { deadline.cancel() }
+        await withTaskCancellationHandler {
+            for peer in draining { await peer.drainResponses() }
+            stop()
+            for task in Array(tasks.values) { await task.value }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.stop() }
+        }
     }
 
     private func accept(_ connection: NWConnection) {
@@ -95,6 +113,7 @@ public final class LocalMCPHost {
         defer {
             authenticationDeadline.cancel()
             authenticated.remove(id)
+            peers.removeValue(forKey: id)
             channels.removeValue(forKey: id)
             channel.close()
             onConnectionCount?(authenticated.count)
@@ -104,7 +123,10 @@ public final class LocalMCPHost {
             while let envelope = try await channel.read() {
                 guard envelope["token"].string == token else { break }
                 if peer == nil {
-                    peer = MCPPeer(channel: channel, session: makeSession())
+                    guard listener != nil else { break }
+                    let connected = MCPPeer(channel: channel, session: makeSession())
+                    peer = connected
+                    peers[id] = connected
                     authenticated.insert(id)
                     authenticationDeadline.cancel()
                     onConnectionCount?(authenticated.count)

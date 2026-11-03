@@ -16,8 +16,8 @@ import Testing
 @Suite
 @MainActor
 struct HumanStepToolTests {
-    @Test func catalogIncludesLazyHumanDetails() {
-        #expect(AutomationTools.definitions.contains { $0["name"].string == "human_step" })
+    @Test func catalogExcludesLazyHumanDetails() {
+        #expect(!AutomationTools.definitions.contains { $0["name"].string == "human_step" })
     }
 
     @Test func parsesStepsWindowsAndPictures() throws {
@@ -56,17 +56,16 @@ struct HumanStepToolTests {
         let listed = try #require(await router.handle(.object([
             "jsonrpc": .string("2.0"), "id": .number(1), "method": .string("tools/list")
         ])))
-        #expect(listed["result"]["tools"].array?.contains { $0["name"].string == "human_step" } == true)
+        #expect(listed["result"]["tools"].array?.contains { $0["name"].string == "human_step" } == false)
         let response = try #require(await router.handle(request(["steps": .string("3-5")])))
-        #expect(response["result"]["content"].array?.first?["text"].string == session.answer.text)
-        #expect(session.requests == [.steps(3...5)])
+        #expect(response["error"]["code"] == .number(-32602))
+        #expect(session.requests.isEmpty)
         #expect(records.isEmpty)
     }
 
     @Test func refusesOutsideTheResumedTurn() async throws {
         let session = HumanStepSession()
-        let tools = AutomationTools(session: session)
-        let result = try await tools.call("human_step", .object(["steps": .string("1")]))
+        let result = HumanStepTool.result(await session.humanStep(.steps(1...1)), withholding: { $0 })
         #expect(result["isError"] == .bool(true))
         #expect(result["content"].array?.first?["text"].string == HumanStepResult.unavailable.text)
     }
@@ -78,7 +77,10 @@ struct HumanStepToolTests {
         let tools = AutomationTools(session: session)
         let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil, call: tools.call)
         let response = try #require(await router.handle(request(["picture": .number(3)])))
-        let blocks = try #require(response["result"]["content"].array)
+        #expect(response["error"]["code"] == .number(-32602))
+        #expect(session.requests.isEmpty)
+        let direct = HumanStepTool.result(session.answer, withholding: { $0 })
+        let blocks = try #require(direct["content"].array)
         #expect(blocks.count == 2)
         #expect(blocks[0]["text"].string?.contains("Picture attached (HEIC).") == true)
         #expect(blocks[1]["type"] == .string("image"))
@@ -100,7 +102,7 @@ struct HumanStepToolTests {
         let tools = AutomationTools(session: session)
         let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil, call: tools.call)
         let response = try #require(await router.handle(request(["steps": .string("1-1000")])))
-        #expect(response["result"]["isError"] == .bool(true))
+        #expect(response["error"]["code"] == .number(-32602))
         #expect(session.requests.isEmpty)
     }
 

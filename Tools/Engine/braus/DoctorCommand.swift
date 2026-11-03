@@ -5,6 +5,7 @@
 //  Created by Tommaso Mazzarini on 13/10/2026.
 //
 
+import Capabilities
 import AppKit
 import AutomationRuntime
 import Foundation
@@ -13,8 +14,8 @@ import SeatCore
 import SQLiteMemory
 
 /// DoctorCommand checks, before a run, every component a live test needs on this Mac, and says of each
-/// whether it is ready: the knowledge folder and its archive, the SQLite linked in, the Recall's index and model, what
-/// a measure turned off, the permissions of the terminal that launches `braus`, the provider CLIs installed, the Braus
+/// whether it is ready: the knowledge folder and its archive, the SQLite linked in, the Recall's index and model, the
+/// session profile, the permissions of the terminal that launches `braus`, the provider CLIs installed, the Braus
 /// app and the MCP bridge registered in the clients, and the disk. It reads and runs nothing of the person's: the
 /// archive is read as `braus memory --status` reads it, the provider CLIs are asked their version and their MCP
 /// registrations, nothing is opened, migrated, signed in or sent. The exit status is non zero when a check fails.
@@ -134,9 +135,8 @@ enum DoctorCommand {
         var checks = [Check(name: "recall model", state: identity.modelReady ? .ok : .fail,
                             detail: "channel \(identity.channel), model \(identity.model ?? "none"), format \(identity.format), owns the index: \(identity.ownsIndex)"
                                 + (identity.modelsFolder.map { "; models folder \($0.path); files \(identity.modelFilesSentence)" } ?? ""))]
-        checks.append(Check(name: "measure ablation", state: identity.ablation.isEmpty ? .ok : .warn,
-                            detail: identity.ablation.isEmpty ? "none: the Recall and the Brain are on"
-                                : identity.ablation.joined(separator: ", ") + " turned off by \(MeasureAblation.variable): a measure's control, not a test of the product"))
+        checks.append(Check(name: "session profile", state: .ok,
+                            detail: "\(identity.profile.name): memory \(identity.profile.memory.rawValue), attendance \(identity.profile.attendance.rawValue)"))
         return checks
     }
 

@@ -4,6 +4,7 @@ import LocalMCP
 import Foundation
 import ModelTransports
 import Testing
+import Switches
 import Turn
 
 @MainActor
@@ -95,5 +96,55 @@ extension TurnHostContractTests {
             URL(filePath: #filePath).deletingLastPathComponent().appending(path: "Fixtures/contract-loop.json")))
         #expect(snapshot == expected)
         try await runner.close()
+    }
+}
+
+extension TurnHostContractTests {
+    @Test func seatLineV2HasTheSamePromptInBothHosts() async throws {
+        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["seat_line": "v2", "tool_surface": "v2"])) {
+            let root = try testTurnRoot()
+            defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+            let source = URL(filePath: #filePath).deletingLastPathComponent()
+            let script = root.appending(path: "provider.py")
+            try FileManager.default.copyItem(at: source.appending(path: "Fixtures/provider.py"), to: script)
+            try FileManager.default.copyItem(at: source.deletingLastPathComponent()
+                .appending(path: "Chat/Fixtures/claude-turn1.jsonl"), to: root.appending(path: "reply.jsonl"))
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+            let host = TestTurnHost()
+            let app = testTurnRunner(host: host, root: root.appending(path: "app"))
+            let transport = TurnTestTransport([[.delta("ok"), .completed(.init(inputTokens: 1,
+                outputTokens: 1, duration: .zero))]])
+            _ = try await app.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
+                contextWindow: nil), reviewingHumanIntervention: true)) { _ in }
+            let cli = testTurnRunner(host: host, root: root.appending(path: "cli"), allowsSuspension: false)
+            _ = try await cli.run(.init(prompt: "Hello", route: .commandLine(provider: .claude,
+                executable: script, model: nil, effort: nil, environment: [:], allowsWebSearch: false),
+                reviewingHumanIntervention: true)) { _ in }
+            let received = try JSONDecoder().decode(JSONValue.self,
+                from: Data(contentsOf: root.appending(path: "received.json")))
+            #expect(received["standardInput"].string == transport.messages.first?.last?.text)
+            try await app.close()
+            try await cli.close()
+        }
+    }
+}
+
+extension TurnHostContractTests {
+    @Test func directNameOutsideProfileIsRefusedByRunner() async throws {
+        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2", "task_cycle": "v2"])) {
+            let root = try testTurnRoot()
+            defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+            let host = TestTurnHost()
+            let runner = testTurnRunner(host: host, root: root)
+            let transport = TurnTestTransport([
+                [.toolCall(.init(id: "one", name: "status", arguments: Data("{}".utf8))),
+                 .completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))],
+                [.delta("done"), .completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))]
+            ])
+            _ = try await runner.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
+                contextWindow: nil))) { _ in }
+            #expect(transport.messages.dropFirst().flatMap { $0 }.contains { $0.text.contains("Unknown tool.") })
+            try await runner.close()
+        }
     }
 }

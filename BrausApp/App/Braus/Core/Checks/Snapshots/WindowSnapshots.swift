@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import AutomationRuntime
 import Memory
 import ModelTransports
 import SeatBroker
@@ -318,13 +319,16 @@ enum WindowSnapshots {
             // The Brain, from a knowledge directory the run names, since the snapshot store learns nothing.
             if let knowledge = ProcessInfo.processInfo.environment["BRAUS_SNAPSHOT_KNOWLEDGE_DIR"],
                case .loaded(let known) = await BrainLibrary.apps(in: URL(filePath: knowledge, directoryHint: .isDirectory)),
-               let app = known.first {
+               let app = known.first,
+               let brain = try await MemoryService.shared(
+                   for: URL(filePath: knowledge, directoryHint: .isDirectory)
+               ).brain(of: app.bundleID) {
                 let brains: [(name: String, page: AnyView)] = [
                     ("brain-apps", AnyView(BrainSettings(directory: URL(filePath: knowledge, directoryHint: .isDirectory)))),
-                    ("brain-graph", AnyView(BrainGraphView(simulation: BrainSimulation(graph: BrainGraph(brain: app.brain))))),
+                    ("brain-graph", AnyView(BrainGraphView(simulation: BrainSimulation(graph: BrainGraph(brain: brain))))),
                     ("brain-list", AnyView(BrainListView(
-                        brain: app.brain,
-                        opens: Set(app.brain.groups.prefix(2).map(\.id))
+                        brain: brain,
+                        opens: Set(brain.groups.prefix(2).map(\.id))
                     ))),
                 ]
                 for brain in brains {

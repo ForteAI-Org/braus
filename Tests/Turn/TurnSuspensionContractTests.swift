@@ -1,9 +1,11 @@
 import ChatCore
+import EngineCore
 import LocalMCP
 import Foundation
 import ModelTransports
 import Testing
 import Turn
+import Synchronization
 
 @MainActor
 @Suite("TurnTests suspension")
@@ -54,7 +56,12 @@ extension TurnSuspensionContractTests {
         host.scope = {
             entered = true
             if name == "observe" { try await Task.sleep(for: .seconds(30)) }
-            else { await withCheckedContinuation { release = $0 } }
+            else {
+                #expect(InterruptibleWait.current != nil)
+                await withCheckedContinuation { release = $0 }
+                #expect(InterruptibleWait.current?.stopRequested == true)
+                #expect(!Task.isCancelled)
+            }
             finished = true
         }
         let runner = testTurnRunner(host: host, root: root)
@@ -101,6 +108,50 @@ extension TurnSuspensionContractTests {
             contextWindow: nil))) { _ in }
         #expect(outcome.duration <= started.duration(to: .now))
         #expect(outcome.rounds == 1)
+        try await runner.close()
+    }
+}
+
+extension TurnSuspensionContractTests {
+    @Test func takeoverCancelsActionReadingWithoutCancellingCall() async throws {
+        let root = try testTurnRoot()
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let host = TestTurnHost()
+        let entered = Synchronization.Mutex(false)
+        var finished = false
+        host.scope = {
+            let wait = try #require(InterruptibleWait.current)
+            wait.open()
+            let value = await wait.reading {
+                entered.withLock { $0 = true }
+                do { try await Task.sleep(for: .seconds(30)) }
+                catch is CancellationError { return nil as Int? }
+                catch { Issue.record(error); return nil }
+                return 1
+            }
+            #expect(value == nil)
+            #expect(!Task.isCancelled)
+            wait.close()
+            finished = true
+        }
+        let runner = testTurnRunner(host: host, root: root)
+        let transport = TurnTestTransport([[
+            .toolCall(.init(id: "one", name: "act", arguments: Data("{}".utf8))),
+            .completed(.init(inputTokens: 10, outputTokens: 2, duration: .zero))
+        ]])
+        let run = Task {
+            try await runner.run(.init(prompt: "Check", route: .modelLoop(transport: transport, contextWindow: nil))) { _ in }
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !entered.withLock({ $0 }) {
+            try #require(ContinuousClock.now < deadline)
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        let token = try runner.suspend()
+        await #expect(throws: TurnSuspended.self) { try await run.value }
+        #expect(await runner.waitForCallsToDrain(within: .seconds(1)))
+        #expect(finished)
+        try runner.end(token)
         try await runner.close()
     }
 }

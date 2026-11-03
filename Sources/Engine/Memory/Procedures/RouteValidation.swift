@@ -144,7 +144,7 @@ extension RouteDefinition {
             .invalidDefinition(.argument(operationID: operation.operationID, problem: problem))
         }
         if nested {
-            guard operation.tool.isBatchStep, operation.children.isEmpty else {
+            guard operation.tool.maySitInBatch, operation.children.isEmpty else {
                 throw RouteError.invalidDefinition(.batchChildren(operationID: operation.operationID))
             }
         } else if operation.tool != .batch, !operation.children.isEmpty {

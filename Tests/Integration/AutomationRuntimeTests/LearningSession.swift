@@ -63,6 +63,9 @@ final class LearningSession: AutomationSessionOperating {
     private(set) var gestures: [String] = []
     /// The applications installed or running, as the `apps` tool offers them; none unless a test names some.
     var offered: [ApplicationCandidate] = []
+    /// A synthetic lookup failure, with a count proving the failing path was reached.
+    var applicationLookupFailure: (any Error)?
+    private(set) var failedApplicationLookups = 0
 
     init(directory: URL) { self.directory = directory }
 
@@ -304,6 +307,10 @@ final class LearningSession: AutomationSessionOperating {
 
     /// The offered applications whose name or bundle ID contains the query, ignoring case, as the default session's do.
     func applications(matching query: String?) async throws -> [ApplicationCandidate] {
+        if let applicationLookupFailure {
+            failedApplicationLookups += 1
+            throw applicationLookupFailure
+        }
         guard let query, !query.isEmpty else { return offered }
         return offered.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.bundleID.localizedCaseInsensitiveContains(query) }
     }

@@ -38,9 +38,19 @@ struct SQLiteRecoveryInterruptionTests {
         try await memory.event("e1")
         let sample = try await memory.sample("e1")
         _ = try await memory.applications.apply(try A.observe(sample, A.controls(["Send", "Draft", "Discard"]), at: A.t0))
-        let copy = "\(memory.url.lastPathComponent).backup-2026-10-07T000000.000Z"
-        if withCopy { _ = try await memory.store.snapshot(to: memory.url.deletingLastPathComponent().appendingPathComponent(copy)) }
         await memory.store.close()
+        let store = try await SQLiteMemoryStore.$migrationAvailableSpace.withValue({ _ in Int64.max }) {
+            try await SQLiteMemoryStore.open(at: memory.url)
+        }
+        let sourceCopy = try #require(try await store.diagnostics().migration?.copyName)
+        let copy = "\(memory.url.lastPathComponent).backup-2026-10-07T000000.000Z"
+        if withCopy { _ = try await store.snapshot(to: memory.url.deletingLastPathComponent().appendingPathComponent(copy)) }
+        await store.close()
+        let retirement = try SQLiteArchiveRetirement.retire(
+            memory.url.deletingLastPathComponent().appendingPathComponent(sourceCopy),
+            into: memory.url.deletingLastPathComponent().appendingPathComponent(".retired")
+        )
+        #expect(retirement.state == .retired)
         for suffix in ["-wal", "-shm"] { try? FileManager.default.removeItem(atPath: memory.url.path + suffix) }
         let fixture = Fixture(url: memory.url, copy: copy,
                               copyBytes: withCopy ? try Data(contentsOf: memory.url.deletingLastPathComponent().appendingPathComponent(copy)) : Data())
@@ -64,8 +74,11 @@ struct SQLiteRecoveryInterruptionTests {
         let store = try await SQLiteMemoryStore.open(at: url)
         defer { Task { await store.close() } }
         #expect(!(try await store.diagnostics().bootstrappedNow))
-        #expect(try await count("SELECT count(*) FROM memory_events WHERE event_id = 'e1'", in: store) == 1)
-        #expect(try await count("SELECT count(*) FROM memory_event_observations WHERE observation_kind = 'capture' AND event_id = 'e1'", in: store) == 1)
+        #expect(try await count("SELECT count(*) FROM memory_events WHERE event_uuid = 'e1'", in: store) == 1)
+        #expect(try await count("""
+            SELECT count(*) FROM memory_event_observations WHERE observation_kind = 'capture'
+              AND event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'e1')
+            """, in: store) == 1)
         #expect(try await count("SELECT count(*) FROM brain_applications", in: store) == 1)
         #expect(try await SQLiteBrainRepository(store: store).brain(of: A.bundle)?.objects.count == 3)
     }

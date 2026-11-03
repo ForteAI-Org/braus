@@ -22,6 +22,7 @@ import SeatSession
 import SeatInput
 import AccessibilityFacts
 import VisionText
+import Switches
 
 /// BrokeredAutomationSession is one worker's application session over the seat SeatBroker's queue
 /// grants, so a worker's tools reach the desktop only through the broker (§22.3).
@@ -152,13 +153,15 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// `knowledgeDirectory` is the Brain's, the command line's own, so what either learns applies
     /// to both. The broker is retained for the life of this session. `grantee` is who the person
     /// grants a missing permission to: the command line passes its terminal.
+    /// `idleWindow` is how long the session stays ready between turns, 30 seconds by default.
     public convenience init(
         broker            : SeatBroker,
         workerID          : UUID,
         knowledgeDirectory: URL,
         allowsDestructive : Bool = false,
         grantee           : String = "Braus",
-        claims            : AppClaims = .shared
+        claims            : AppClaims = .shared,
+        idleWindow        : Duration = .seconds(30)
     ) {
         self.init(
             broker            : broker,
@@ -171,7 +174,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             missingGrant      : { Permissions.firstMissing(of: [.screenRecording, .accessibility, .postEvent]) },
             requestGrants     : { _ = broker.requestMissingPermissions() },
             seating           : Self.seatedByTheBroker,
-            perceiving        : Self.perceivedThroughTheEngine
+            perceiving        : Self.perceivedThroughTheEngine,
+            idleWindow        : idleWindow
         )
     }
 
@@ -199,6 +203,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         let scene = await recorder(runtime, sessionID: nil).observe(perceived)
         BrokeredAutomationSession.log.info("scene read: memory observation finished in \(recording.duration(to: .now).description, privacy: .public)")
         try Task.checkCancellation()
+        if InterruptibleWait.current?.stopRequested == true { throw CancellationError() }
         return scene
     }
 
@@ -278,6 +283,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         self.stoppedForGood     = stoppedForGood
         self.switching          = switching
     }
+
+    var configuredIdleWindow: Duration { idleWindow }
 
     /// What the worker's row says about the computer, and nil while this session neither waits
     /// for a seat nor holds one. The position is read from `SeatQueue.entries`, never inferred.
@@ -382,12 +389,27 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         return lease.session.windowFrame
     }
 
-    /// The seat as a worker's turn begins, which Braus puts ahead of the turn's prompt so the agent
-    /// needs no status call: the live session to observe by its ID, or the application the last one had.
+    /// The seat as a worker's turn begins, with Braus's own facts and the original text for legacy turns.
     ///
     /// Read inside `turn`, so no idle release is pending and a close already under way reads as no
     /// session. Nothing waits in the queue then: an `open` waits only inside a turn's tool call.
-    public var turnStatus: String {
+    public var turnStatus: SeatFacts {
+        turnStatus(seatLine: SwitchBoard.current.arm("seat_line", default: SeatLineArm.v1)) {
+            broker.desktopGrants().filter { !$0.isGranted }.map(\.name)
+        }
+    }
+
+    /// Probes desktop permissions only for the structured seat line.
+    func turnStatus(seatLine arm: SeatLineArm, permissionProbe: () -> [String]) -> SeatFacts {
+        SeatFacts(
+            session: id != nil,
+            application: lastOpened.map { .init(name: $0.name, bundleID: $0.bundleID) },
+            missingPermissions: arm == .v2 ? permissionProbe() : [],
+            legacyText: legacyTurnStatus
+        )
+    }
+
+    private var legacyTurnStatus: String {
         let last = lastOpened.map { app in
             "\(app.name) (\(app.bundleID))" + (app.window.isEmpty ? "" : ", window \"\(app.window)\"")
         }
@@ -1320,7 +1342,12 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The engine already recorded the transition, so the scene is not observed again.
     private func enriched(_ outcome: ActOutcome, by runtime: EngineRuntime) async -> ActOutcome {
         guard let scene = outcome.scene else { return outcome }
-        return outcome.with(scene: await Self.recorder(runtime, sessionID: id).enrich(scene))
+        let enriched = await Self.recorder(runtime, sessionID: id).enrich(scene)
+        guard !Task.isCancelled, BatchStepBoundary.sceneReadWait?.stopRequested != true,
+              AutomationCallInterruption.current?.wasInterrupted != true else {
+            return outcome.with(scene: nil)
+        }
+        return outcome.with(scene: enriched)
     }
 
     private func current() throws -> (NSRunningApplication, EngineRuntime, SeatTarget) {

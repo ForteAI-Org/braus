@@ -35,6 +35,41 @@ enum W {
         MemoryService(directory: try directory(), configuration: configuration)
     }
 
+    static func legacyBrain(_ elements: [SceneElement]) -> UIBrain {
+        var brain = UIBrain()
+        _ = BrainUpdater.ingest(elements.map(BrainDetection.init), into: &brain,
+                                now: Date(timeIntervalSince1970: 1_790_000_000), window: "document")
+        return brain
+    }
+
+    /// Seeds historical projection rows without asking a frozen writer to learn them.
+    static func seedAnchors(_ labels: [String], in service: MemoryService) async throws {
+        _ = try await service.ready()
+        await service.enqueue("historical projection fixture") { repositories in
+            try await repositories.store.releaseMemory()
+            try await repositories.store.write { transaction in
+                let triggers = try transaction.query(
+                    "SELECT name, sql FROM sqlite_schema WHERE type = 'trigger' AND tbl_name = 'brain_anchors'"
+                ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }
+                for trigger in triggers { try transaction.execute("DROP TRIGGER \(trigger.0)") }
+                try transaction.execute("INSERT OR IGNORE INTO brain_apps(bundle_id) VALUES (?)", [.text(bundle)])
+                for label in labels {
+                    try transaction.execute("""
+                        INSERT INTO brain_anchors(app_id,insertion_order,kind,label,first_seen_ms,last_seen_ms,
+                                                  typical_x,typical_y,typical_width,typical_height)
+                        VALUES ((SELECT app_id FROM brain_apps WHERE bundle_id = ?),
+                            (SELECT count(*) FROM brain_anchors
+                             WHERE app_id = (SELECT app_id FROM brain_apps WHERE bundle_id = ?)),
+                            'control',?,1790000000000,1790000000000,0.1,0.1,0.08,0.04)
+                        """, [.text(bundle), .text(bundle), .text(label)])
+                }
+                for trigger in triggers { try transaction.execute(trigger.1) }
+            }
+        }
+        #expect(await service.flush(within: .seconds(10)))
+        #expect(await service.status().failed == 0)
+    }
+
     static func brain(_ service: MemoryService) -> BrainMemory {
         BrainMemory(brains: service, applications: service, relations: service, clock: { service.clock.brainNow() })
     }
@@ -69,6 +104,32 @@ enum W {
 
 @Suite("The living memory wired to the tools: the queue, the recorder, the calls and what an action waits for")
 struct MemoryWiringTests {
+
+    @Test func brainApplicationsDoesNotReadBrainContents() async throws {
+        let directory = try W.directory()
+        defer { do { try FileManager.default.removeItem(at: directory) } catch { Issue.record(error) } }
+        let service = MemoryService(directory: directory)
+        do {
+            #expect(try await service.brainApplications().isEmpty)
+            try await W.seedAnchors(["Open"], in: service)
+            _ = await W.recorder(service).observe(W.window([W.open]))
+            #expect(await service.flush(within: .seconds(10)))
+            #expect(await service.status().failed == 0)
+            try rawEdit(service.url) { db in
+                try db.execute("PRAGMA ignore_check_constraints=ON")
+                try db.execute("UPDATE brain_anchors SET kind='invalid_test_kind'")
+            }
+            // A full projection now fails. The application list must still be readable.
+            await #expect(throws: BrainProjectionError.unknownElementKind("invalid_test_kind")) {
+                _ = try await service.brain(of: W.bundle)
+            }
+            #expect(try await service.brainApplications() == [W.bundle])
+        } catch {
+            await service.close()
+            throw error
+        }
+        await service.close()
+    }
 
     // MARK: The queue
 
@@ -150,6 +211,7 @@ struct MemoryWiringTests {
     @Test("a corrupt archive is moved aside with its date, never deleted, and the newest copy takes its place")
     func corruptRestoredFromCopy() async throws {
         let service = try W.service()
+        try await W.seedAnchors(["Open", "Save"], in: service)
         await service.setBackupEnvironment(now: { Date() }, capacity: { _ in Int64.max })
         _ = await W.recorder(service, session: nil).observe(W.window([W.open, W.save]))
         #expect(await service.flush(within: .seconds(10)))
@@ -289,7 +351,7 @@ struct MemoryWiringTests {
         #expect(try await service.sample(CaptureSampleKey(eventID: recorder.eventID, phase: .after)) != nil)
 
         let brain = try #require(try await service.brain(of: W.bundle))
-        #expect(brain.transitions.contains { $0.effect == opened.encoded }, "the projection learned the verified menu")
+        #expect(brain.transitions.isEmpty, "verified effects teach relations without growing historical transitions")
         let expected = await W.brain(service).expectedEffect(of: .click, on: W.format, in: W.window([W.open, W.format, W.save]))
         #expect(expected == .menuOpened(labels: []),
                 "the engine's next click on Format in that state expects a menu, from the relation read back from SQLite")
@@ -311,7 +373,7 @@ struct MemoryWiringTests {
         #expect(sample.eventID != recorder.eventID)
         let event = try #require(try await service.event(sample.eventID))
         #expect(event.kind == .observation && event.app?.bundleID == W.bundle && event.originEventID == recorder.eventID)
-        #expect(try await service.brain(of: W.bundle)?.objects.count == 3, "the scene was ingested into the Brain")
+        #expect(try await service.brain(of: W.bundle)?.objects.isEmpty == true, "the historical projection is frozen")
         let call = try #require(try await service.call(recorder.eventID))
         #expect(call.progress.status == .completed && call.event.app == nil)
         await service.close()
@@ -327,7 +389,7 @@ struct MemoryWiringTests {
         #expect(await service.status().failed == 0)
         let event = try #require(try await service.event(recorder.eventID))
         #expect(event.source == .cli && event.app?.bundleID == W.bundle)
-        #expect(try await service.brain(of: W.bundle)?.objects.count == 2)
+        #expect(try await service.brain(of: W.bundle)?.objects.isEmpty == true)
         await service.close()
     }
 
@@ -359,14 +421,28 @@ struct MemoryWiringTests {
         await service.close()
     }
 
+    @Test("the production Brain reader forwards indexed snapshot reuse to the store")
+    func indexedProjectionUsesStoreCache() async throws {
+        let service = try W.service()
+        try await W.seedAnchors(["Open", "Save"], in: service)
+        let first = try #require(try await service.indexedProjection(of: W.bundle, for: [BrainDetection(W.open)]))
+        let second = try #require(try await service.indexedProjection(of: W.bundle, for: [BrainDetection(W.save)]))
+        #expect(first === second)
+        let slice = try #require(try await service.projection(of: W.bundle, for: [BrainDetection(W.save)]))
+        #expect(first.enrich([W.save]) == slice.enrich([W.save], affordances: false))
+        await service.close()
+    }
+
     @Test("a Brain read is kept while the archive is unchanged and read again once a write changes it")
     func brainCache() async throws {
         let service  = try W.service()
+        try await W.seedAnchors(["Open"], in: service)
         let recorder = W.recorder(service, session: nil)
         _ = await recorder.observe(W.window([W.open]))
         #expect(await service.flush(within: .seconds(10)))
         #expect(try await service.brain(of: W.bundle)?.objects.count == 1)
         #expect(try await service.brain(of: W.bundle)?.objects.count == 1)
+        try await W.seedAnchors(["Save"], in: service)
         let later = W.recorder(service, session: nil)
         _ = await later.observe(W.window([W.open, W.save]))
         #expect(await service.flush(within: .seconds(10)))
@@ -389,24 +465,24 @@ struct MemoryWiringTests {
         let menu = ActionRecord(bundleID: W.bundle, element: W.format, verb: .click,
                                 effect: .menuOpened(labels: ["Bold", "Italic"]), windowTitleAfter: nil)
         let first = try await service.apply(try .record(menu, eventID: recorder.eventID, requestedAt: at))
-        #expect(first.receipt == .committed)
+        if case .frozen = first.projectionWrite {} else { Issue.record("expected frozen projection") }
         let retry = try await service.apply(try .record(menu, eventID: recorder.eventID, requestedAt: at))
         #expect(retry.receipt == .alreadyApplied && retry.applicationID == first.applicationID)
         let other = ActionRecord(bundleID: W.bundle, element: W.format, verb: .click,
                                  effect: .windowTitleChanged(title: "Format"), windowTitleAfter: nil)
-        await #expect(throws: (any Error).self, "another payload under the same key is refused") {
-            _ = try await service.apply(try .record(other, eventID: recorder.eventID, requestedAt: at))
-        }
-        let evidence = try #require(try await service.brain(of: W.bundle)?.transitions.first?.evidence)
+        let refused = try await service.apply(try .record(other, eventID: recorder.eventID, requestedAt: at))
+        if case .frozen = refused.projectionWrite {} else { Issue.record("expected frozen projection") }
+        #expect(try await service.brain(of: W.bundle)?.transitions.isEmpty == true)
         let again = W.recorder(service)
         try await again.begin(
             .act(target: "Format", verb: .click, value: nil, section: nil),
             app: AppContextIdentity(bundleID: W.bundle)
         )
         #expect(await service.flush(within: .seconds(10)))
-        #expect(try await service.apply(try .record(menu, eventID: again.eventID, requestedAt: at)).receipt == .committed)
-        #expect(try await service.brain(of: W.bundle)?.transitions.first?.evidence == evidence + 1,
-                "a new action is new evidence; the retry was not")
+        let next = try await service.apply(try .record(menu, eventID: again.eventID, requestedAt: at))
+        if case .frozen = next.projectionWrite {} else { Issue.record("expected frozen projection") }
+        #expect(try rawRows("SELECT count(*) FROM brain_applications", at: service.url) == ["0"])
+        #expect(try await service.brain(of: W.bundle)?.transitions.isEmpty == true)
         await service.close()
     }
 
@@ -502,7 +578,7 @@ struct MemoryWiringTests {
             #expect(producers == ["\(place.producer.source.rawValue)/\(place.producer.streamID)"],
                     "only its own producer in \(service.url.lastPathComponent) of \(place.directory.lastPathComponent): \(producers)")
             let labels = try await service.brain(of: W.bundle)?.objects.map(\.label) ?? []
-            #expect(labels == [place.learns.label], "only what it learned itself: \(labels)")
+            #expect(labels.isEmpty, "the historical projection is frozen: \(labels)")
             #expect(await service.status().failed == 0)
             await service.close()
         }

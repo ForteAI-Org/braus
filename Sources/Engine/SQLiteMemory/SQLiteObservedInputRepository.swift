@@ -23,7 +23,7 @@ public struct SQLiteObservedInputRepository: ObservedInputStoring {
     }
 
     public func record(_ input: ObservedInputRecord) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             _ = try SQLiteEventRows.record(transaction, input.event)
             let eventID = input.event.eventID
             if let stored = try SQLiteInputRows.detail(transaction, eventID: eventID) {
@@ -50,7 +50,7 @@ public struct SQLiteObservedInputRepository: ObservedInputStoring {
     }
 
     public func record(_ correlation: ActionCorrelation) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             let watcher = correlation.watcherEventID, agent = correlation.agentEventID
             let watcherApp = try SQLiteFactRows.event(transaction, watcher, sources: [.watcher], kind: .input, expected: "a watcher input")
             let agentApp = try SQLiteFactRows.event(transaction, agent, sources: [.app, .cli], kind: .action, expected: "an app or cli action")
@@ -65,7 +65,7 @@ public struct SQLiteObservedInputRepository: ObservedInputStoring {
             }
             try transaction.execute(
                 "INSERT INTO memory_action_correlations (watcher_event_id, agent_event_id, basis_kind, time_offset_ms, explanation) VALUES (?, ?, ?, ?, ?)",
-                [.text(watcher), .text(agent), .text(correlation.basis.rawValue), correlation.timeOffsetMS.map(SQLiteValue.real) ?? .null,
+                [try SQLiteRowIdentity(transaction).key(.event, watcher), try SQLiteRowIdentity(transaction).key(.event, agent), .text(correlation.basis.rawValue), correlation.timeOffsetMS.map(SQLiteValue.real) ?? .null,
                  correlation.explanation.map(SQLiteValue.text) ?? .null]
             )
             return .committed
@@ -80,10 +80,10 @@ public struct SQLiteObservedInputRepository: ObservedInputStoring {
         try await store.read { snapshot in
             let ids = try snapshot.query(
                 """
-                SELECT c.watcher_event_id FROM memory_action_correlations c JOIN memory_events e ON e.event_id = c.watcher_event_id
-                WHERE c.agent_event_id = ? ORDER BY e.local_order
+                SELECT \(try SQLiteRowIdentity(snapshot).publicReference(.event, column: "c.watcher_event_id")) FROM memory_action_correlations c JOIN memory_events e ON e.event_id = c.watcher_event_id
+                WHERE c.agent_event_id = ? ORDER BY \(try DB2BEventSQL.order(snapshot, alias: "e"))
                 """,
-                [.text(eventID)]
+                [try SQLiteRowIdentity(snapshot).key(.event, eventID)]
             ) { try $0.text(0) ?? "" }
             return try ids.compactMap { try SQLiteInputRows.correlation(snapshot, watcherEventID: $0) }
         }
@@ -105,7 +105,7 @@ enum SQLiteInputRows {
         func text(_ value: String?) -> SQLiteValue { value.map(SQLiteValue.text) ?? .null }
         try transaction.execute(
             "INSERT INTO memory_input_events (event_id, \(columns)) VALUES (\(Array(repeating: "?", count: 26).joined(separator: ", ")))",
-            [.text(eventID), .text(input.kind.rawValue), integer(input.sequenceNumber), integer(input.targetPID), integer(input.sourcePID),
+            [try SQLiteRowIdentity(transaction).key(.event, eventID), .text(input.kind.rawValue), integer(input.sequenceNumber), integer(input.targetPID), integer(input.sourcePID),
              integer(input.windowNumber), text(input.windowTitle), real(input.windowFrame?.x), real(input.windowFrame?.y),
              real(input.windowFrame?.width), real(input.windowFrame?.height), real(input.point?.x), real(input.point?.y),
              real(input.scrollDelta?.dx), real(input.scrollDelta?.dy), integer(input.startedAtNS), integer(input.endedAtNS),
@@ -121,7 +121,7 @@ enum SQLiteInputRows {
         func refuse(_ malformation: EventFactError.Malformation) -> EventFactError {
             .malformedRow(table: "memory_input_events", id: eventID, malformation: malformation)
         }
-        return try handle.query("SELECT \(columns) FROM memory_input_events WHERE event_id = ?", [.text(eventID)]) { row in
+        return try handle.query("SELECT \(columns) FROM memory_input_events WHERE event_id = ?", [try SQLiteRowIdentity(handle).key(.event, eventID)]) { row in
             func code<T: RawRepresentable>(_ index: Int, _ column: String, _ type: T.Type) throws -> T? where T.RawValue == String {
                 guard let raw = try row.text(index) else { return nil }
                 guard let value = T(rawValue: raw), value.rawValue.utf8.elementsEqual(raw.utf8) else {
@@ -172,8 +172,8 @@ enum SQLiteInputRows {
             .malformedRow(table: "memory_action_correlations", id: watcherEventID, malformation: malformation)
         }
         return try handle.query(
-            "SELECT watcher_event_id, agent_event_id, basis_kind, time_offset_ms, explanation FROM memory_action_correlations WHERE watcher_event_id = ?",
-            [.text(watcherEventID)]
+            "SELECT \(try SQLiteRowIdentity(handle).publicReference(.event, column: "watcher_event_id")), \(try SQLiteRowIdentity(handle).publicReference(.event, column: "agent_event_id")), basis_kind, time_offset_ms, explanation FROM memory_action_correlations WHERE watcher_event_id = ?",
+            [try SQLiteRowIdentity(handle).key(.event, watcherEventID)]
         ) { row in
             let code = try row.text(2) ?? ""
             guard let basis = CorrelationBasis(rawValue: code), basis.rawValue.utf8.elementsEqual(code.utf8) else {
@@ -211,7 +211,7 @@ enum SQLiteFactRows {
     static func event(_ handle: some SQLiteQuerying, _ eventID: String, sources: [MemoryEventSource], kind: MemoryEventKind,
                       expected: String) throws -> Int64? {
         guard let row = try handle.query(
-            "SELECT source, event_kind, app_id FROM memory_events WHERE event_id = ?", [.text(eventID)],
+            "SELECT source, event_kind, app_id FROM memory_events WHERE event_id = ?", [try SQLiteRowIdentity(handle).key(.event, eventID)],
             { (source: try $0.text(0) ?? "", kind: try $0.text(1) ?? "", app: $0.integer(2)) }
         ).first else {
             throw EventFactError.missingEvent(eventID: eventID)
@@ -223,7 +223,7 @@ enum SQLiteFactRows {
     }
 
     static func exists(_ handle: some SQLiteQuerying, _ sql: String, _ id: String) throws -> Bool {
-        try handle.query(sql, [.text(id)]) { $0.integer(0) ?? 0 }.first.map { $0 > 0 } ?? false
+        try handle.query(sql, [sql.contains("FROM memory_events") ? SQLiteRowIdentity(handle).key(.event, id) : .text(id)]) { $0.integer(0) ?? 0 }.first.map { $0 > 0 } ?? false
     }
 
     static func conflict(_ identity: String, stored: String, offered: String) -> MemoryStoreError {

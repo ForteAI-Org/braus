@@ -21,6 +21,20 @@ struct BrainApplicationTests {
 
     private typealias A = BrainApplicationFixtures
 
+    @Test
+    func noTransitionsOrGroupsWritten() async throws {
+        let memory = try await A.open()
+        try await memory.event("freeze")
+        let sample = try await memory.sample("freeze")
+        _ = try await memory.applications.apply(try A.observe(sample, A.controls(["Send", "Draft", "Discard"])))
+        #expect(try await memory.count("SELECT count(*) FROM brain_groups") == 0)
+        let element = SceneElement(id: "send", kind: .control, label: "Send",
+                                   bounds: NormalizedRect(x: 0.1, y: 0.1, width: 0.03, height: 0.02))
+        _ = try await memory.applications.apply(try A.record("freeze", element, effect: .elementsAppeared(labels: ["Done"])))
+        #expect(try await memory.count("SELECT count(*) FROM brain_transitions") == 0)
+        await memory.store.close()
+    }
+
     @Test("the same key applied twice, after reopening and from a second store answers the first outcome and moves nothing again")
     func sameKeyOnce() async throws {
         let memory = try await A.open()
@@ -34,8 +48,8 @@ struct BrainApplicationTests {
                                                 requestedAtMS: first.requestedAtMS, effectiveAtMS: first.effectiveAtMS))
         let brain = try #require(try await memory.brain())
         #expect(brain.objects.map(\.seenCount) == [1, 1, 1] && brain.ingestEpoch == 1)
-        // Three anchors seen and the column they form: four targets, one support each.
-        #expect(try await memory.count("SELECT count(*) FROM brain_evidence") == 4)
+        // Each of the three anchors has one support; historical groups receive none.
+        #expect(try await memory.count("SELECT count(*) FROM brain_evidence") == 3)
         await memory.store.close()
 
         let reopened = try await A.open(at: memory.url)
@@ -45,7 +59,7 @@ struct BrainApplicationTests {
         #expect(try await second.applications.apply(command).receipt == .alreadyApplied)
         #expect(try await reopened.brain() == brain)
         #expect(try await reopened.count("SELECT count(*) FROM brain_applications") == 1)
-        #expect(try await reopened.count("SELECT count(*) FROM brain_evidence") == 4)
+        #expect(try await reopened.count("SELECT count(*) FROM brain_evidence") == 3)
         let stored = try #require(try await reopened.applications.application(.observe(sample)))
         #expect(stored.command.hasSameInput(as: command) && stored.outcome == first.outcome)
         #expect(stored.contractVersion == 1 && stored.algorithmVersion == BrainApplicationContract.algorithmVersion)
@@ -66,7 +80,7 @@ struct BrainApplicationTests {
         #expect(results.map(\.receipt).sorted { $0 == .committed && $1 != .committed } == [.committed, .alreadyApplied])
         #expect(Set(results.map(\.applicationID)).count == 1 && results[0].outcome == results[1].outcome)
         #expect(try await one.brain()?.objects.map(\.seenCount) == [1, 1, 1])
-        #expect(try await one.count("SELECT count(*) FROM brain_evidence") == 4)
+        #expect(try await one.count("SELECT count(*) FROM brain_evidence") == 3)
         await one.store.close()
         await two.store.close()
     }
@@ -86,8 +100,8 @@ struct BrainApplicationTests {
                                            .observed(created: 0, updated: 3, skippedAmbiguous: 0)])
         #expect(try await memory.brain()?.objects.map(\.seenCount) == [3, 3, 3], "the algorithm counts each sample")
         #expect(try await memory.count("SELECT count(*) FROM brain_applications WHERE event_id = 'e1'") == 3)
-        #expect(try await memory.count("SELECT count(*) FROM brain_evidence WHERE event_id = 'e1'") == 4,
-                "three samples of one event are not three proofs: one support per anchor and for the column")
+        #expect(try await memory.count("SELECT count(*) FROM brain_evidence WHERE event_id = 'e1'") == 3,
+                "three samples of one event are not three proofs: one support per anchor")
         await memory.store.close()
     }
 
@@ -162,6 +176,28 @@ struct BrainApplicationTests {
         #expect(applied.receipt == .committed && applied.outcome == .observed(created: 300, updated: 0, skippedAmbiguous: 0))
         #expect(try await memory.applications.apply(command).receipt == .alreadyApplied)
         #expect(try await memory.count("SELECT count(*) FROM brain_anchors") == 300)
+        await memory.store.close()
+    }
+
+    @Test
+    func historicalProjectionRemainsReadable() async throws {
+        let memory = try await A.open()
+        let detections = A.controls(["Send", "Draft", "Discard"])
+        _ = try await memory.raw.ingest(detections, into: A.bundle, now: A.t0, window: nil)
+        _ = try await memory.raw.record(ActionRecord(
+            bundleID: A.bundle, element: A.element("Send", index: 0), verb: .click,
+            effect: .elementsAppeared(labels: ["Done"]), windowTitleAfter: nil
+        ), now: A.t0)
+        let before = try #require(try await memory.brain())
+        #expect(!before.groups.isEmpty && !before.transitions.isEmpty)
+        try await memory.event("later")
+        let sample = try await memory.sample("later")
+        _ = try await memory.applications.apply(try A.observe(sample, detections, at: A.t0.addingTimeInterval(600)))
+        _ = try await memory.applications.apply(try A.record("later", A.element("Send", index: 0),
+                                                          effect: .elementsAppeared(labels: ["Done"])))
+        let after = try #require(try await memory.brain())
+        #expect(before.groups == after.groups)
+        #expect(before.transitions == after.transitions)
         await memory.store.close()
     }
 

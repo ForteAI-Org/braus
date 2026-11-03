@@ -40,7 +40,8 @@ enum AgentCallFixtures {
 
     static func open(at url: URL? = nil) async throws -> Memory {
         let url   = try url ?? temporaryDatabase()
-        let store = try await SQLiteMemoryStore.open(at: url)
+        let store = SQLiteMemoryStore(url: url, schema: .historical19)
+        try await store.open()
         return Memory(url: url, store: store, calls: SQLiteAgentCallRepository(store: store), captures: SQLiteCaptureRepository(store: store))
     }
 

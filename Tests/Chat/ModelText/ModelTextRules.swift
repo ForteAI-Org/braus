@@ -6,7 +6,7 @@ import Testing
 
 struct RuleContext {
     var toolNames: Set<String> = ["observe", "open_session", "act", "status", "windows"]
-    var visibleNames: Set<String> = ["expected_value", "set_toggle"]
+    var visibleNames: Set<String> = ["expected_value", "set_toggle", "braus_state"]
     var channels: AutomationChannels = []
     var toolDefinitions: [JSONValue] = []
     var recovery = "observe"
@@ -84,9 +84,12 @@ func validate(_ entries: [ModelText.Entry], context: RuleContext) -> [Violation]
         for token in tokens where token.contains("_") {
             if !context.toolNames.contains(token), !context.visibleNames.contains(token) { add(entry, .name) }
         }
-        for phrase in matches("(?i)\\b(?:the )?(?:call|use) [a-z][a-z_0-9]*", text)
-            where !phrase.lowercased().hasPrefix("the ") {
-            let name = String(phrase.split(separator: " ").last!)
+        for match in matches("(?i)(?:^|\\s)(?:the )?(?:call|use) [a-z][a-z_0-9]*", text) {
+            let phrase = match.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !phrase.lowercased().hasPrefix("the ") else { continue }
+            guard let word = phrase.split(separator: " ").last else { continue }
+            let name = String(word)
+            guard !["a", "an", "the"].contains(name.lowercased()) else { continue }
             if !context.toolNames.contains(name) { add(entry, .name); add(entry, .contradiction) }
         }
         for phrase in matches("\\b[a-z][a-z_0-9]* then [a-z][a-z_0-9]*\\b", text) {
@@ -120,7 +123,9 @@ func validate(_ entries: [ModelText.Entry], context: RuleContext) -> [Violation]
             || lower.range(of: "\\bp2-[0-9]+\\b|\\br-[a-z]-[0-9]+\\b", options: .regularExpression) != nil {
             add(entry, .style)
         }
-        if lowerTokens.contains("seat"), entry.delivery != .seatLine { add(entry, .style) }
+        // SeatLine retains the general v1 wording except for the two removed opening instructions.
+        let retainsSeatWording = entry.key.rawValue == "seat_line.general.v2"
+        if lowerTokens.contains("seat"), entry.delivery != .seatLine, !retainsSeatWording { add(entry, .style) }
         let allowed = Set("·⇒…⟦⟧".unicodeScalars)
         if text.unicodeScalars.contains(where: { !$0.isASCII && !allowed.contains($0) }) { add(entry, .style) }
     }

@@ -1,11 +1,19 @@
 import AutomationRuntime
+import Capabilities
 import ChatCore
 import CLIProviders
 import Foundation
+import ModelTransports
 
 /// ChatOptions parses only the chat surface; quoted prompts are preserved as a single value.
 struct ChatOptions {
+    private(set) var sessionProfile: SessionProfile = .cli
+    var profileFile: String?
+    var effort: ReasoningEffort?
     var provider: ChatProvider?
+    var modelProvider: ModelProvider?
+    var anthropicHost = "https://api.anthropic.com"
+    var pauseBetweenRequests = false
     var credential: ChildEnvironment.Credential = .none
     var model: String?
     var hasModelOption = false
@@ -56,8 +64,9 @@ struct ChatOptions {
             case "--allow-unvalidated-build": allowUnvalidated = true
             case "--allow-destructive": allowDestructive = true
             case "--continue": continueOnError = true
+            case "--pause-between-requests": pauseBetweenRequests = true
             case "--provider", "--model", "--resume", "--history-dir", "--knowledge", "--script", "--evidence", "--preflight",
-                 "--channels", "--chrome", "--provider-key-service", "--pass-env":
+                 "--channels", "--chrome", "--provider-key-service", "--pass-env", "--model-provider", "--anthropic-host", "--profile", "--effort":
                 index += 1
                 guard index < arguments.count, !arguments[index].hasPrefix("--"), !arguments[index].isEmpty else {
                     throw invalid("Missing value for \(word).")
@@ -69,6 +78,19 @@ struct ChatOptions {
                         throw invalid("--provider must be claude or codex.")
                     }
                     provider = selected
+                case "--model-provider":
+                    guard let selected = ModelProvider(rawValue: value),
+                          [.anthropic, .gemini, .ollama].contains(selected) else {
+                        throw invalid("--model-provider must be anthropic, gemini or ollama.")
+                    }
+                    modelProvider = selected
+                case "--profile": profileFile = value
+                case "--effort":
+                    guard let selected = ReasoningEffort(rawValue: value) else {
+                        throw invalid("--effort must be low, medium, high, xhigh, max or ultra.")
+                    }
+                    effort = selected
+                case "--anthropic-host": anthropicHost = value
                 case "--model":
                     model = value == "default" ? nil : value
                     hasModelOption = true
@@ -95,12 +117,62 @@ struct ChatOptions {
             }
             index += 1
         }
+        do {
+            var profile = try profileFile.map { try SessionProfileFile.load(URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)) } ?? .cli
+            guard profile.attendance == .none else { throw SessionProfileFile.ProfileError.attendedCommandLine }
+            var settings = profile.options
+            if let effort {
+                if profileFile != nil, let existing = settings.effort, existing != effort.rawValue {
+                    throw SessionProfileFile.ProfileError.invalidValue(key: "effort")
+                }
+                settings.effort = effort.rawValue
+            }
+            let configured: SessionProfile.ProviderCredential
+            switch credential {
+            case .none: configured = settings.providerCredential
+            case .keychain(let key): configured = .keychainService(key.service)
+            case .namedVariable(let name): configured = .namedVariable(name)
+            }
+            if credential != .none, settings.providerCredential != .none, configured != settings.providerCredential {
+                throw SessionProfileFile.ProfileError.invalidValue(key: "providerCredential")
+            }
+            settings.providerCredential = configured
+            switch configured {
+            case .none: credential = .none
+            case .keychainService(let name): credential = .keychain(ProviderKeychainKey(service: name))
+            case .namedVariable(let name): credential = .namedVariable(name)
+            }
+            if let knowledgeDirectory {
+                let archive = URL(fileURLWithPath: (knowledgeDirectory as NSString).expandingTildeInPath).standardizedFileURL
+                if let existing = profile.archive, existing != archive {
+                    throw SessionProfileFile.ProfileError.invalidValue(key: "archive")
+                }
+                profile = profile.replacing(archive: archive)
+            }
+            if let raw = settings.effort {
+                guard let selected = ReasoningEffort(rawValue: raw) else {
+                    throw SessionProfileFile.ProfileError.invalidValue(key: "effort")
+                }
+                effort = selected
+            }
+            sessionProfile = profile.replacing(options: settings)
+        } catch { throw invalid("Invalid session profile: \(error)") }
         if once && prompt == nil { throw invalid("--once requires a quoted prompt.") }
         if list && (prompt != nil || resume != nil) { throw invalid("--list cannot send or resume a conversation.") }
         if script != nil && (prompt != nil || once || resume != nil || list) {
             throw invalid("--script runs the file's requests: no prompt, --once, --resume or --list with it.")
         }
-        if script != nil && provider == nil { throw invalid("--script needs --provider claude|codex.") }
+        if provider != nil && modelProvider != nil { throw invalid("--provider and --model-provider are mutually exclusive.") }
+        if seen.contains("--anthropic-host"), modelProvider != .anthropic {
+            throw invalid("--anthropic-host requires --model-provider anthropic.")
+        }
+        if modelProvider != nil, case .namedVariable = credential {
+            throw invalid("--model-provider reads credentials only from --provider-key-service.")
+        }
+        if script != nil && provider == nil && modelProvider == nil {
+            throw invalid("--script needs --provider claude|codex or --model-provider anthropic|gemini|ollama.")
+        }
+        if pauseBetweenRequests && script == nil { throw invalid("--pause-between-requests goes with --script.") }
         if continueOnError && script == nil { throw invalid("--continue goes with --script.") }
         if evidence != nil && script == nil { throw invalid("--evidence goes with --script.") }
         if chromeExecutable != nil && !channels.contains(.web) { throw invalid("--chrome goes with --channels web.") }
@@ -115,6 +187,9 @@ struct ChatOptions {
     braus chat [\"prompt\"] [options]
 
       --provider claude|codex       use the installed, signed-in provider CLI
+      --model-provider anthropic|gemini|ollama  use Braus's model loop
+      --anthropic-host <url>       Anthropic endpoint host (default or loopback only)
+      --pause-between-requests     with --script: wait for a line on stdin between requests
       --provider-key-service <service> read one provider credential from the Keychain
       --pass-env <NAME>            pass one named variable instead of a Keychain credential
       --model <name>                provider model ID/alias; default uses the provider default
@@ -122,12 +197,14 @@ struct ChatOptions {
       --list                       list saved conversations
       --once                       send the quoted prompt and exit
       --history-dir <directory>    override transcript storage
+      --profile <file>            load a session profile JSON file (default cli)
+      --effort low|medium|high|xhigh|max|ultra  requested reasoning effort
       --knowledge <directory>      override Braus's application memory
       --allow-unvalidated-build    explicit Driver research opt-in
       --allow-destructive          allow Engine targets classified as destructive
       --script <file>              one chat per request of the file (blocks of lines, # comments, a block
                                    starting with > continues the chat before it), on one archive, with
-                                   --provider; the Seat is released between requests
+                                   --provider or --model-provider; the profile controls how long the Seat stays ready
       --evidence <directory>       with --script: per request its conversation, tasks, each task's
                                    diagnosis (braus memory --task) and a summary with times and tokens
       --preflight <file.json>      before any turn, the identity the process must answer to memory_task

@@ -35,12 +35,23 @@ public protocol BrainReading: Sendable {
 
     /// The part of an application's projection the detections of one scene can match: what naming that
     /// scene's elements needs (`UIBrain.enrich`), read by its labels, kinds and groups, so the ordinary
-    /// path never reads an application's whole projection. Nil when the store has never seen the
+    /// uncached path does not read an application's whole projection. Nil when the store has never seen the
     /// application. A store with nothing to bound answers its whole projection.
     func projection(of bundleID: String, for detections: [BrainDetection]) async throws -> UIBrain?
+
+    /// The naming projection and its reusable index. The default builds from the current slice;
+    /// adapters may retain a complete snapshot only with an immutable-content guarantee.
+    func indexedProjection(of bundleID: String, for detections: [BrainDetection]) async throws -> BrainProjection?
 }
 
 public extension BrainReading {
+
+    func indexedProjection(of bundleID: String, for detections: [BrainDetection]) async throws -> BrainProjection? {
+        try BrainReadControl.checkCurrent()
+        let brain = try await projection(of: bundleID, for: detections)
+        try BrainReadControl.checkCurrent()
+        return try brain.map { try BrainProjection($0, checking: BrainReadControl.checkCurrent) }
+    }
 
     func projection(of bundleID: String, for detections: [BrainDetection]) async throws -> UIBrain? {
         try await brain(of: bundleID)

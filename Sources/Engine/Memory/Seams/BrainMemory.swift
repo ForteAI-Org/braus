@@ -75,7 +75,7 @@ public actor BrainMemory: EffectExpecting {
               let key = SceneElementKey.identities(in: sample.elements)[index]?.key else { return nil }
         let skeleton = SceneSkeleton.comparable(
             sample,
-            minimization: minimization,
+            minimization: CallMinimization.current ?? minimization,
             surface     : ConfidentialSurfaces.surface(of: bundleID)
         )
         let found: [BrainRelation]
@@ -156,19 +156,33 @@ public actor BrainMemory: EffectExpecting {
     /// nothing said about the state: for a scene whose capture is not at hand, so its state cannot be
     /// placed, so its knowledge is nil and the reader prints no memory line. If the projection
     /// cannot be read, the live scene carries unavailable knowledge without a rendered status line.
+    /// A stopped read returns the input scene; its cancellable caller must discard that result.
     public func enrich(_ scene: SceneSnapshot) async -> SceneSnapshot {
-        guard let elements = await named(scene) else { return Self.unavailable(scene) }
-        return Self.rebuilt(scene, elements: elements, knowledge: nil)
+        guard BrainReadControl.current != nil else {
+            return await BrainReadControl.$current.withValue(BrainReadControl()) { await enrich(scene) }
+        }
+        do {
+            let elements = try await named(scene)
+            try BrainReadControl.checkCurrent()
+            return Self.rebuilt(scene, elements: elements, knowledge: nil)
+        } catch is CancellationError {
+            return scene
+        } catch {
+            if Task.isCancelled || BrainReadControl.current?.isStopped == true { return scene }
+            failed(error)
+            return Self.unavailable(scene)
+        }
     }
 
     /// The scene of a live window, annotated with what was learned in the functional state its capture
     /// is placed in: its elements named, each identified element with the relations offered for it, the
     /// operations learned on the window itself, and what the memory could say (`SceneKnowledge`).
     public func enrich(_ scene: SceneSnapshot, window: PerceivedWindow) async -> SceneSnapshot {
+        guard !Task.isCancelled, BrainReadControl.current?.isStopped != true else { return scene }
         let sample = CaptureSample(key: CaptureSampleKey(eventID: "enrichment", phase: .current), of: window, sessionRevision: nil)
         let skeleton = SceneSkeleton.comparable(
             sample,
-            minimization: minimization,
+            minimization: CallMinimization.current ?? minimization,
             surface     : ConfidentialSurfaces.surface(of: window.scene.bundleID)
         )
         return await enrich(scene) { relations in
@@ -192,34 +206,52 @@ public actor BrainMemory: EffectExpecting {
     /// said unavailable, with nothing any read gave.
     private func enrich(_ scene: SceneSnapshot,
                         state: (any BrainRelationReading) async throws -> String?) async -> SceneSnapshot {
-        guard let elements = await named(scene) else { return Self.unavailable(scene) }
-        guard let relations else { return Self.rebuilt(scene, elements: elements, knowledge: nil) }
+        guard BrainReadControl.current != nil else {
+            return await BrainReadControl.$current.withValue(BrainReadControl()) {
+                await enrich(scene, state: state)
+            }
+        }
         do {
-            guard let sceneID = try await state(relations) else {
+            let elements = try await named(scene)
+            try BrainReadControl.checkCurrent()
+            guard let relations else { return Self.rebuilt(scene, elements: elements, knowledge: nil) }
+            let sceneID = try await state(relations)
+            try BrainReadControl.checkCurrent()
+            guard let sceneID else {
                 return Self.rebuilt(scene, elements: elements, knowledge: SceneKnowledge(status: .unrecognized))
             }
             let read = try await Self.annotate(elements, from: sceneID, in: scene.bundleID, relations: relations)
+            try BrainReadControl.checkCurrent()
             return Self.rebuilt(scene, elements: read.elements,
                                 knowledge: SceneKnowledge(status: read.applied ? .applied : .nothing, window: read.window))
+        } catch is CancellationError {
+            return scene
         } catch {
+            if Task.isCancelled || BrainReadControl.current?.isStopped == true { return scene }
             failed(error)
             return Self.unavailable(scene)
         }
     }
 
-    /// The elements named from the part of the projection they can match, or nil when it could not be
-    /// read. What an earlier enrichment said of them is dropped first: every read says only what it found.
-    private func named(_ scene: SceneSnapshot) async -> [SceneElement]? {
-        let elements = Self.live(scene)
-        let detections = elements.filter { $0.kind == .control || $0.kind == .icon }.map(BrainDetection.init)
-        guard !detections.isEmpty else { return elements }
-        do {
-            guard let brain = try await brains.projection(of: scene.bundleID, for: detections) else { return elements }
-            return brain.enrich(elements, affordances: false)
-        } catch {
-            failed(error)
-            return nil
+    /// Names elements from the projection they can match. Throws on stop or a failed read;
+    /// no partially named elements leave this method.
+    private func named(_ scene: SceneSnapshot) async throws -> [SceneElement] {
+        try BrainReadControl.checkCurrent()
+        let elements = try scene.elements.map { element in
+            try BrainReadControl.checkCurrent()
+            var live = element
+            live.does = nil
+            return live
         }
+        let detections = try elements.compactMap { element -> BrainDetection? in
+            try BrainReadControl.checkCurrent()
+            return element.kind == .control || element.kind == .icon ? BrainDetection(element) : nil
+        }
+        guard !detections.isEmpty else { return elements }
+        let brain = try await brains.indexedProjection(of: scene.bundleID, for: detections)
+        try BrainReadControl.checkCurrent()
+        guard let brain else { return elements }
+        return try brain.enrich(elements, checking: BrainReadControl.checkCurrent)
     }
 
     /// The scene's elements as perceived, without what an earlier enrichment said they do.
@@ -268,13 +300,16 @@ public actor BrainMemory: EffectExpecting {
     /// nothing, whatever was learned on a control of its kind. One query for the whole scene.
     static func annotate(_ elements: [SceneElement], from sceneID: String, in bundleID: String,
                          relations: any BrainRelationReading) async throws -> (elements: [SceneElement], window: [String], applied: Bool) {
+        try BrainReadControl.checkCurrent()
         var keys: [Int: String] = [:]
         for (index, identity) in identities(of: elements).enumerated() {
+            try BrainReadControl.checkCurrent()
             if let key = identity?.key { keys[index] = key }
         }
         let found = try await relations.relations(from: sceneID, in: bundleID, elementKeys: Array(Set(keys.values)).sorted(),
                                                   includingContext: true)
-        let offered = found.filter { $0.standing != .candidate }
+        try BrainReadControl.checkCurrent()
+        let offered = try found.filter { try BrainReadControl.checkCurrent(); return $0.standing != .candidate }
         func line(_ relation: BrainRelation) -> String {
             relation.summary + (relation.standing == .limited ? " (contradicted ×\(relation.contradictions))" : "")
         }
@@ -283,7 +318,8 @@ public actor BrainMemory: EffectExpecting {
         }
         let byKey = Dictionary(grouping: offered.filter { $0.key.elementKey != nil }) { $0.key.elementKey ?? "" }
         var applied = false
-        let annotated = elements.enumerated().map { index, element in
+        let annotated = try elements.enumerated().map { index, element in
+            try BrainReadControl.checkCurrent()
             guard let key = keys[index], let relations = byKey[key], !relations.isEmpty else { return element }
             applied = true
             var enriched = element

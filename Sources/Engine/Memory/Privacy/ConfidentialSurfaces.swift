@@ -22,6 +22,12 @@ public enum ConfidentialSurface: String, Sendable, Equatable, Hashable, CaseIter
 /// application's own controls, so a mailbox name or a list's heading may be withheld with the messages they hold.
 public enum ConfidentialSurfaces {
 
+    /// Whether an application or page shows mail or messages, excluding other confidential records.
+    public static func isCorrespondence(_ appKey: String) -> Bool {
+        let surface = surface(of: appKey)
+        return surface == .mail || surface == .messages
+    }
+
     /// The native applications whose windows show correspondence or records, by bundle ID.
     public static let applications: [String: ConfidentialSurface] = [
         "com.apple.mail"                     : .mail,

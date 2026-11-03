@@ -139,6 +139,12 @@ struct RelationRecoveryTests {
         #expect(Set(after.lateEntryStates.values) == [state] && after.lateEntryStates.count == 2,
                 "the procedure and its step say the state their first step started from: \(after.lateEntryStates)")
         await memory.store.close()
+        // File inspection reads the active schema; retain the historical projection through migration.
+        let active = SQLiteMemoryStore(url: memory.url)
+        try await SQLiteMemoryStore.$migrationAvailableSpace.withValue({ _ in Int64.max }) {
+            try await active.open()
+        }
+        await active.close()
         guard case .found(let inspection) = SQLiteMemoryInspection.task("task-1", in: memory.url) else {
             Issue.record("the task was not read")
             return

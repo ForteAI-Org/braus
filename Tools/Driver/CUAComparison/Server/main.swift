@@ -1,3 +1,4 @@
+import Memory
 import AppKit
 import AutomationMCP
 import AutomationRuntime
@@ -10,8 +11,9 @@ import SeatBroker
 // BrokeredAutomationSession on a SeatBroker made as the app makes its own. BRAUS_BENCH_UNVALIDATED=1 is
 // the broker's opt-in for a macOS build the ledger has not validated, which the app always passes.
 
-guard CommandLine.arguments.count == 2 else {
-    FileHandle.standardError.write(Data("usage: braus-mcp-stdio <knowledge directory>\n".utf8))
+let client = CommandLine.arguments.count == 3 && CommandLine.arguments[2] == "--client"
+guard CommandLine.arguments.count == 2 || client else {
+    FileHandle.standardError.write(Data("usage: braus-mcp-stdio <knowledge directory> [--client]\n".utf8))
     exit(2)
 }
 
@@ -35,19 +37,20 @@ Task { @MainActor in
         workerID          : workerID,
         knowledgeDirectory: knowledge
     )
-    let tools     = AutomationTools(session: desktop)
+    let tools     = AutomationTools(session: desktop, profile: client ? .mcpClient(name: "stdio-client", attendance: .client) : .app)
     tools.producer = CallProducer(
-        source  : .app,
+        source  : client ? .mcp : .app,
         streamID: "worker-" + workerID.uuidString
     )
     let router    = MCPRouter(
-        tools: AutomationTools.definitions,
-        instructions: AutomationTools.mcpInstructions(.firstLine)
+        tools: tools.toolDefinitions,
+        instructions: AutomationTools.mcpInstructions(client ? .full : .firstLine)
     ) { name, arguments in
         try await tools.call(name, arguments)
     }
     // The whole client is one worker turn: the seat is held between calls, never released for idling.
     do {
+        try await tools.prepareGuides()
         try await desktop.turn {
             for try await line in FileHandle.standardInput.bytes.lines {
                 guard let request = try? JSONDecoder().decode(JSONValue.self, from: Data(line.utf8)) else { continue }

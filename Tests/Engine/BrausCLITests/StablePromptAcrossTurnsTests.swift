@@ -62,7 +62,7 @@ struct StablePromptAcrossTurnsTests {
     @Test(arguments: [ChatProvider.claude, .codex])
     func twoActualTurnsKeepArgumentsAndUseDifferentConnectionFiles(_ provider: ChatProvider) async throws {
         let result = try await ChatChildProcess.run(provider: provider.rawValue, messages: "First request\n\n> Second request")
-        try #require(result.status == 0)
+        try #require(result.status == 0, Comment(rawValue: result.output))
         try #require(result.arguments.count == 2)
         let first = result.arguments[0], second = result.arguments[1]
         let old = try connection(in: first, provider: provider)

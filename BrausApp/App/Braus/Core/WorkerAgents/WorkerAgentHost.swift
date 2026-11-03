@@ -1,3 +1,4 @@
+import Memory
 import AppAdapters
 import AgentLoop
 import AutomationMCP
@@ -18,15 +19,17 @@ final class WorkerAgentHost: TurnHosting {
     private let workingDirectory: URL
     private let bridgeExecutable: URL
     private let tools: AutomationTools
+    let profile: SessionProfile
+    private let usesProfileWebSearch: Bool
     private let agents: (ModelProvider) throws -> (ChatProvider, URL)
     private let transports: (ModelSelection) -> any ModelTransport
     private let contextWindows: (ModelSelection) -> Int?
-    private let readSeatLine: @MainActor () -> String?
+    private let readSeatLine: @MainActor () -> SeatFacts?
     private let barrier: ActionBarrier
     private let approvals: AdapterApprovals?
     private let approvalScope: UUID
     private lazy var runner = TurnRunner(tools: tools, configuration: .init(
-        workingDirectory: workingDirectory, bridgeExecutable: bridgeExecutable, allowsSuspension: true), host: self)
+        workingDirectory: workingDirectory, bridgeExecutable: bridgeExecutable, allowsSuspension: profile.takeover), host: self)
 
     var callProducer: CallProducer {
         get { tools.producer }
@@ -42,10 +45,11 @@ final class WorkerAgentHost: TurnHosting {
         channels        : AutomationChannels = [],
         transports      : @escaping (ModelSelection) -> any ModelTransport = { $0.transport() },
         contextWindows  : @escaping (ModelSelection) -> Int?               = { _ in nil },
-        seatLine        : @escaping @MainActor () -> String?               = { nil },
+        seatLine        : @escaping @MainActor () -> SeatFacts?            = { nil },
         adapterApprover : (any AdapterApproving)?                          = nil,
         approvals       : AdapterApprovals?                                = nil,
-        offersWeb       : Bool                                             = false
+        offersWeb       : Bool                                             = false,
+        profile         : SessionProfile?                                  = nil
     ) {
         self.init(
             workingDirectory: workingDirectory,
@@ -58,7 +62,8 @@ final class WorkerAgentHost: TurnHosting {
             seatLine        : seatLine,
             adapterApprover : adapterApprover,
             approvals       : approvals,
-            offersWeb       : offersWeb
+            offersWeb       : offersWeb,
+            profile         : profile
         )
     }
 
@@ -70,14 +75,18 @@ final class WorkerAgentHost: TurnHosting {
         agents          : @escaping (ModelProvider) throws -> (ChatProvider, URL),
         transports      : @escaping (ModelSelection) -> any ModelTransport = { $0.transport() },
         contextWindows  : @escaping (ModelSelection) -> Int?               = { _ in nil },
-        seatLine        : @escaping @MainActor () -> String?               = { nil },
+        seatLine        : @escaping @MainActor () -> SeatFacts?            = { nil },
         adapters        : AppAdapters?                                     = nil,
         barrier         : ActionBarrier                                    = ActionBarrier(),
         adapterApprover: (any AdapterApproving)? = nil,
         approvals: AdapterApprovals? = nil,
         approvalScope: UUID = UUID(),
-        offersWeb: Bool = false
+        offersWeb: Bool = false,
+        profile: SessionProfile? = nil
     ) {
+        let composedProfile = profile ?? .app
+        self.profile = composedProfile
+        self.usesProfileWebSearch = profile != nil
         self.approvals        = approvals
         self.workingDirectory = workingDirectory
         self.bridgeExecutable = bridgeExecutable
@@ -86,9 +95,10 @@ final class WorkerAgentHost: TurnHosting {
         self.contextWindows   = contextWindows
         self.readSeatLine     = seatLine
         self.approvalScope = approvalScope
-        let tools  = AutomationTools(session: session(), channels: channels,
+        let driven = session()
+        let tools  = AutomationTools(session: driven, channels: channels,
                                      adapters: channels.contains(.adapters) ? (adapters ?? .standard(approver: adapterApprover)) : nil,
-                                     offersWeb: offersWeb)
+                                     offersWeb: offersWeb, profile: composedProfile)
         if let adapters, channels.contains(.adapters) { tools.adapters = adapters }
         self.tools = tools
         self.barrier = barrier
@@ -101,8 +111,10 @@ final class WorkerAgentHost: TurnHosting {
     static let codexCompactionPrompt = "Braus compacted this conversation. Reply only: ok"
 
     static func instructions(role: String?, hasTools: Bool = true, searchesWeb: Bool = false,
-                             offersWeb: Bool = false, tools: String = AutomationTools.instructions) -> String {
-        TurnInstructions.compose(role: role, hasTools: hasTools, searchesWeb: searchesWeb, offersWeb: offersWeb, tools: tools)
+                             offersWeb: Bool = false, tools: String = AutomationTools.instructions,
+                             toolNames: [String] = []) -> String {
+        TurnRunner.systemPrompt(role: role, hasTools: hasTools, searchesWeb: searchesWeb,
+            offersWeb: offersWeb, tools: tools, toolNames: toolNames)
     }
     static func changedInstructions(_ instructions: String) -> String { TurnInstructions.changedNotice(instructions) }
 
@@ -112,7 +124,7 @@ final class WorkerAgentHost: TurnHosting {
     }
     func turnBegan() { approvals?.admit(scope: approvalScope) }
     func turnStopping() { approvals?.refuse(scope: approvalScope) }
-    func seatLine() -> String? { readSeatLine() }
+    func seatFacts() -> SeatFacts? { readSeatLine() }
 
     func run(
         prompt: String,
@@ -121,13 +133,15 @@ final class WorkerAgentHost: TurnHosting {
         role: String?,
         history: [TurnMessage] = [],
         lastUsage: TurnUsage? = nil,
-        allowsWebSearch: Bool = false,
+        allowsWebSearch: Bool? = nil,
         reviewingHumanIntervention: Bool = false,
         inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         onEvent: @escaping @MainActor (WorkerAgentEvent) -> Void
     ) async throws {
+        try await tools.prepareGuides()
+        let searchesWeb = usesProfileWebSearch ? profile.options.harnessWebSearch : (allowsWebSearch ?? false)
         let request = try request(prompt: prompt, selection: selection, sessionID: sessionID, role: role,
-            history: history, lastUsage: lastUsage, allowsWebSearch: allowsWebSearch,
+            history: history, lastUsage: lastUsage, allowsWebSearch: searchesWeb,
             reviewingHumanIntervention: reviewingHumanIntervention, environment: inheritedEnvironment)
         var session = sessionID
         do {
@@ -137,6 +151,11 @@ final class WorkerAgentHost: TurnHosting {
                     if case .session(let id) = event { session = id }
                     onEvent(.provider(event))
                 case .tool(let text): onEvent(.tool(text))
+                case .todo(let change):
+                    let label = change.kind == .drafted ? "Plan" : "Plan updated"
+                    onEvent(.tool(label + ": " + change.rows.map {
+                        $0.id.rawValue + " " + $0.status.rawValue
+                    }.joined(separator: ", ")))
                 case .processStarted(let identity): onEvent(.processStarted(identity))
                 case .contextReset: break
                 case .usage(let reported, let total):
@@ -231,7 +250,8 @@ final class WorkerAgentHost: TurnHosting {
         isCompaction        : Bool = false,
         allowsWebSearch     : Bool = false,
         offersWeb           : Bool = false,
-        tools               : String = AutomationTools.instructions
+        tools               : String = AutomationTools.instructions,
+        toolNames           : [String] = []
     ) -> ProviderTurn {
         let searchesWeb = allowsWebSearch && !isCompaction
         let efforts = ModelSelection.supportedEfforts(provider: selection.provider, model: selection.model)
@@ -244,7 +264,8 @@ final class WorkerAgentHost: TurnHosting {
                 role       : role,
                 searchesWeb: searchesWeb,
                 offersWeb  : offersWeb,
-                tools      : tools
+                tools      : tools,
+                toolNames  : toolNames
             ),
             bridgeExecutable: bridgeExecutable.path,
             connectionFile  : connectionFile.path,
@@ -274,7 +295,12 @@ final class WorkerAgentHost: TurnHosting {
 }
 
 struct WorkerLoopInstructions: LoopInstructionComposing {
+    let toolNames: [String]
+
+    init(toolNames: [String] = []) { self.toolNames = toolNames }
+
     func systemText(role: String?, hasTools: Bool, tools: String) -> String {
-        TurnInstructions.compose(role: role, hasTools: hasTools, tools: tools)
+        TurnRunner.systemPrompt(role: role, hasTools: hasTools, tools: tools,
+            toolNames: toolNames)
     }
 }

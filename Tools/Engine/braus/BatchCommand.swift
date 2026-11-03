@@ -40,6 +40,9 @@ enum BatchCommand {
                 app     : AppContextIdentity(bundleID: bundleID),
                 parent  : parent,
                 children: children,
+                entryScene: BatchMode.isEnabled ? try await desktop.observe() : nil,
+                expectations: plan.expectations,
+                windowNumber: { desktop.observedWindowNumber },
                 prepare : { number, step in
                     let windows = try WindowServerWindowListing().windows(ownedBy: processID)
                     guard let seat = desktop.heldSeat, seat.state == .ready, seat.currentTarget?.id == original.id,
@@ -51,40 +54,43 @@ enum BatchCommand {
                         )
                     }
                     print("batch: step \(number)/\(plan.steps.count): \(step.summary)")
+                    return BatchMode.isEnabled ? try await desktop.observe() : nil
                 },
                 perform : { number, step, recorder in
-                    switch step {
-                        case .select(let control, let item):
-                            let directory = plan.invocation.options["evidence"].map {
-                                ($0 as NSString).appendingPathComponent("step-\(number)")
-                            }
-                            return try await SelectCommand.perform(
-                                control: control,
-                                item: item,
-                                bundleID: bundleID,
-                                desktop: desktop,
-                                invocation: plan.invocation,
-                                recorder: recorder,
-                                begun: true,
-                                evidenceDirectory: directory
-                            )
-                        case .act(let action):
-                            let request = ActionRequest(
-                                processID: processID,
-                                bundleID: bundleID,
-                                appName: application.localizedName ?? "pid \(processID)",
-                                target: action.target,
-                                verb: action.verb,
-                                section: action.section,
-                                desiredState: action.desiredState
-                            )
-                            return try await ActCommand.perform(request, recorder: recorder, begun: true) {
-                                try await ActCommand.brokered(request, on: desktop, recorder: $0)
-                            }
+                    try await ScreenExpectation.$current.withValue(plan.expectations[number - 1]) {
+                        switch step {
+                            case .select(let control, let item):
+                                let directory = plan.invocation.options["evidence"].map {
+                                    ($0 as NSString).appendingPathComponent("step-\(number)")
+                                }
+                                return try await SelectCommand.perform(
+                                    control: control,
+                                    item: item,
+                                    bundleID: bundleID,
+                                    desktop: desktop,
+                                    invocation: plan.invocation,
+                                    recorder: recorder,
+                                    begun: true,
+                                    evidenceDirectory: directory
+                                )
+                            case .act(let action):
+                                let request = ActionRequest(
+                                    processID: processID,
+                                    bundleID: bundleID,
+                                    appName: application.localizedName ?? "pid \(processID)",
+                                    target: action.target,
+                                    verb: action.verb,
+                                    section: action.section,
+                                    desiredState: action.desiredState
+                                )
+                                return try await ActCommand.perform(request, recorder: recorder, begun: true) {
+                                    try await ActCommand.brokered(request, on: desktop, recorder: $0)
+                                }
+                        }
                     }
                 }
             )
-            print("batch: completed \(plan.steps.count)/\(plan.steps.count) steps")
+            if !BatchMode.isEnabled { print("batch: completed \(plan.steps.count)/\(plan.steps.count) steps") }
         }
     }
 }

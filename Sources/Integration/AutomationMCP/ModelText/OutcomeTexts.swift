@@ -1,8 +1,35 @@
+import EngineCore
 import Foundation
 import Switches
 
 extension ModelText {
     nonisolated static let outcomeTexts: [Entry] = [
+        Entry(key: .init(rawValue: "outcome.choice.read_back_unavailable"), owner: "EngineCore", delivery: .summary,
+              budgetCharacters: 80, text: OutcomeText.choiceReadBackUnavailable, legacy: false),
+        Entry(key: .init(rawValue: "outcome.choice.selected"), owner: "EngineCore", delivery: .summary,
+              budgetCharacters: 80, text: OutcomeText.selectedChoicePresent, legacy: false),
+        Entry(key: .init(rawValue: "outcome.choice.unconfirmed"), owner: "EngineCore", delivery: .summary,
+              budgetCharacters: 100, text: OutcomeText.choiceStillUnconfirmed, legacy: false),
+        Entry(key: .init(rawValue: "outcome.command.observation_failure"), owner: "EngineCore", delivery: .summary,
+              budgetCharacters: 80, text: OutcomeText.commandObservationFailure, legacy: false),
+        Entry(key: .init(rawValue: "outcome.command.observation_recovery"), owner: "EngineCore", delivery: .summary,
+              budgetCharacters: 160, text: OutcomeText.commandObservationRecovery, legacy: false),
+        Entry(key: .init(rawValue: "outcome.command.windows_changing"), owner: "EngineCore", delivery: .summary,
+              budgetCharacters: 120, text: OutcomeText.commandWindowsChanging, legacy: false),
+        Entry(key: .init(rawValue: "outcome.command.windows_changing_recovery"), owner: "EngineCore", delivery: .summary,
+              budgetCharacters: 80, text: OutcomeText.commandWindowsChangingRecovery, legacy: false),
+        Entry(key: .init(rawValue: "outcome.human_intervention"), owner: "EngineCore",
+              delivery: .refusal(tool: "act"), budgetCharacters: 80,
+              text: OutcomeText.humanInterventionRefusal, legacy: false),
+        Entry(key: .init(rawValue: "outcome.protected_path"), owner: "EngineCore",
+              delivery: .refusal(tool: "app_call"), budgetCharacters: 100,
+              text: OutcomeText.protectedPathRefusal, legacy: false),
+        Entry(key: .init(rawValue: "outcome.committing_input.consent"), owner: "EngineCore",
+              delivery: .refusal(tool: "input"), budgetCharacters: 160,
+              text: OutcomeText.committingInputConsentRefusal, legacy: false),
+        Entry(key: .init(rawValue: "outcome.committing_input.unverifiable"), owner: "EngineCore",
+              delivery: .refusal(tool: "input"), budgetCharacters: 160,
+              text: OutcomeText.committingInputReadBackRefusal, legacy: false),
         Entry(key: .init(rawValue: "outcome.legend.v2"), owner: "AutomationMCP", delivery: .legend,
               budgetCharacters: 700,
               text: "\nAction results start with gesture · effect · recovery, for example sent · confirmed · continue. "
@@ -24,7 +51,31 @@ extension ModelText {
         Entry(key: .init(rawValue: "outcome.toggle.v2"), owner: "AutomationMCP", delivery: .toolDescription(tool: "act"),
               budgetCharacters: 120,
               text: "an absent or unknown effect when it did not; follow recovery. No input is needed ", legacy: false),
-    ]
+    ] + [
+        ("applicationAbsent", OutcomeText.expectationApplicationAbsent),
+        ("windowOpen", OutcomeText.expectationWindowOpen),
+        ("windowAbsent", OutcomeText.expectationWindowAbsent),
+        ("windowStillOpen", OutcomeText.expectationWindowStillOpen),
+        ("sceneUnavailable", OutcomeText.expectationSceneUnavailable),
+        ("outsideWindow", OutcomeText.expectationOutsideWindow),
+        ("elementPresent", OutcomeText.expectationElementPresent),
+        ("elementAbsent", OutcomeText.expectationElementAbsent),
+        ("elementStillPresent", OutcomeText.expectationElementStillPresent),
+        ("valueUnreadable", OutcomeText.expectationValueUnreadable),
+        ("valueExpected", OutcomeText.expectationValueExpected),
+        ("outsideValueExpected", OutcomeText.expectationOutsideValueExpected),
+        ("element", OutcomeText.expectationElement),
+        ("valueDifferent", OutcomeText.expectationValueDifferent),
+        ("stateUnreadable", OutcomeText.expectationStateUnreadable),
+        ("stateExpected", OutcomeText.expectationStateExpected),
+        ("stateDifferent", OutcomeText.expectationStateDifferent),
+        ("censusUnreadable", OutcomeText.expectationCensusUnreadable),
+        ("scenesIncomparable", OutcomeText.expectationScenesIncomparable),
+        ("alreadySatisfied", OutcomeText.expectationAlreadySatisfied)
+    ].map { key, text in
+        Entry(key: .init(rawValue: "outcome.expectation." + key), owner: "EngineCore", delivery: .summary,
+              budgetCharacters: text.count, text: text, legacy: false)
+    }
 
     /// Selects outcome wording at the existing delivery point; the default arm preserves its bytes.
     nonisolated static func outcomeText(_ key: Key, fallback: String) -> String {

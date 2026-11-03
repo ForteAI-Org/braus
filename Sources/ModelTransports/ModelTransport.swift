@@ -118,7 +118,7 @@ public extension ModelSelection {
         switch provider {
         case .codex: CodexCLIClient(model: model, effort: effort)
         case .claudeCode: ClaudeCLIClient(model: model, effort: effort)
-        case .anthropic: AnthropicClient(model: model, effort: effort, apiKey: settings.anthropicAPIKey)
+        case .anthropic: AnthropicClient(model: model, effort: effort, apiKey: settings.anthropicAPIKey, host: settings.anthropicHost)
         case .gemini: GeminiClient(model: model, effort: effort, apiKey: settings.geminiAPIKey)
         case .ollama: OllamaClient(model: model, effort: effort, settings: settings)
         }

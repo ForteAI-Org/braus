@@ -1,0 +1,8 @@
+Example (test.synthetic) "Folder A" 1000x800, 2 elements
+## Folders @0,0 100x100
+[field] Folder A id:'folder' = abcdef [sel 3..3/6] @10,20
+[field] Folder B id:'selected' = abcdef [sel 2..5/6] [disabled] {Folders} @10,30
+commands (1): File > Open
+## past the window's edge (read only, not visible)
+[field] Folder C = "Folder D"
+[field] Folder E secret [disabled] {Folders}

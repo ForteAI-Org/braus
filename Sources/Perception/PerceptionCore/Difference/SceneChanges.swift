@@ -57,140 +57,35 @@ public enum SceneChanges {
     /// The changes from `before` to `after`, or the one line that says there are none. `revision` is
     /// the number the reader knows `before` by. The lines carry no preamble: what `+`, `-` and `~` mean
     /// is said once in the tool instructions, and the result names its revision beside the text.
-    public static func text(from before: SceneSnapshot, to after: SceneSnapshot, since revision: Int) -> String {
-        var header: [String] = []
-        if before.compactHeader(counting: false) != after.compactHeader(counting: false) {
-            header.append("window: " + after.compactHeader(counting: false))
-        }
-        if before.viewportPixelSize != after.viewportPixelSize {
-            header.append("viewport: \(after.viewportPixelSize.width)x\(after.viewportPixelSize.height)\n")
-        }
-        let knowledge = after.knowledgeText()
-        if let status = after.knowledge?.status, status != .unavailable,
-           knowledge != before.knowledgeText() {
-            header.append(knowledge.isEmpty ? "memory: no window operations in this state\n" : knowledge)
-        }
-        let sectionsChanged = !sameLayout(before, after)
-        let sectionNames = Set(after.sections.map(\.name))
-
-        var reported: [Line] = []
-        var matchedBefore = Set<Int>()
-        var matchedAfter  = Set<Int>()
-        for (old, new) in pairs(before.elements, after.elements) {
-            matchedBefore.insert(old)
-            matchedAfter.insert(new)
-            let was = earlier(before.elements[old], after.elements[new], sections: sectionNames)
-            guard !was.isEmpty else { continue }
-            var shown = after.elements[new]
-            shown.does = nil
-            reported.append(Line(
-                section: placed(after.elements[new].section, in: after),
-                bounds : after.elements[new].bounds,
-                text   : "~ " + line(shown) + "  (was " + was.joined(separator: ", ") + ")"
-            ))
-        }
-        for (index, element) in after.elements.enumerated() where !matchedAfter.contains(index) {
-            reported.append(Line(
-                section: placed(element.section, in: after),
-                bounds : element.bounds,
-                text   : "+ " + line(element)
-            ))
-        }
-        for (index, element) in before.elements.enumerated() where !matchedBefore.contains(index) {
-            reported.append(Line(
-                section: after.section(at: element.bounds.center)?.name,
-                bounds : element.bounds,
-                text   : "- " + short(element)
-            ))
-        }
-
-        var body: [String] = []
-        let groups = Dictionary(grouping: reported, by: \.section)
-        func append(_ lines: [Line]) {
-            let ordered = SceneSnapshot.readingOrder(
-                lines,
-                rowTolerance: after.rowTolerance,
-                bounds      : \.bounds,
-                tieBreak    : \.text
-            )
-            body += ordered.map { $0.text + "\n" }
-        }
-        if after.sections.isEmpty {
-            if sectionsChanged { body.append("## \(SceneSnapshot.unsectioned)\n") }
-            append(groups[String?.none] ?? [])
-        } else {
-            for section in after.sectionsInReadingOrder {
-                let lines = groups[section.name] ?? []
-                guard sectionsChanged || !lines.isEmpty else { continue }
-                body.append(after.compactSectionLine(section))
-                append(lines)
-            }
-            if let loose = groups[String?.none], !loose.isEmpty {
-                body.append("## \(SceneSnapshot.unsectioned)\n")
-                append(loose)
-            }
-        }
-        if before.commands != after.commands {
-            body.append(after.commands.isEmpty ? "commands: none\n" : after.commandsLine())
-        }
-        let fields = outOfViewChanges(from: before.outOfViewFields, to: after.outOfViewFields)
-        if !fields.isEmpty { body.append(SceneSnapshot.outOfViewHeading + fields.joined(separator: "\n") + "\n") }
-        guard !header.isEmpty || !body.isEmpty else { return "Unchanged since revision \(revision)." }
-        return (header.joined() + body.joined()).trimmingCharacters(in: .newlines)
+    public static func text(
+        from before: SceneSnapshot,
+        to after: SceneSnapshot,
+        since revision: Int,
+        cuts: SceneTextCuts = []
+    ) -> String {
+        changes(from: before, to: after, cuts: cuts).text(since: revision)
     }
 
-    /// Read-only fields pair by their own label, role and container, with equal duplicates first.
-    private static func outOfViewChanges(from before: [OutOfViewField], to after: [OutOfViewField]) -> [String] {
-        var remaining = Set(after.indices)
-        var unchanged = Set<Int>()
-        for (index, old) in before.enumerated() {
-            if let match = after.indices.first(where: { remaining.contains($0) && after[$0] == old }) {
-                remaining.remove(match)
-                unchanged.insert(index)
-            }
-        }
-        var lines: [String] = []
-        for (index, old) in before.enumerated() where !unchanged.contains(index) {
-            let candidates = after.indices.filter {
-                remaining.contains($0) && after[$0].role == old.role && after[$0].container == old.container
-                    && LabelText.normalize(after[$0].label) == LabelText.normalize(old.label)
-            }
-            guard let index = candidates.first else {
-                lines.append("- " + SceneSnapshot.outOfViewLine(old))
-                continue
-            }
-            remaining.remove(index)
-            let new = after[index]
-            var was: [String] = []
-            if old.value != new.value {
-                was.append(String(reflecting: old.value.trimmingCharacters(in: .whitespacesAndNewlines)))
-            }
-            if old.label != new.label { was.append("label " + String(reflecting: old.label)) }
-            if (old.isEnabled == false) != (new.isEnabled == false) {
-                was.append(old.isEnabled == false ? "[disabled]" : "enabled")
-            }
-            if !was.isEmpty {
-                lines.append("~ " + SceneSnapshot.outOfViewLine(new) + "  (was " + was.joined(separator: ", ") + ")")
-            }
-        }
-        for index in after.indices where remaining.contains(index) {
-            lines.append("+ " + SceneSnapshot.outOfViewLine(after[index]))
-        }
-        return lines
-    }
-
-    /// One reported element: the section it is listed under, nil for none, and where it is.
-    private struct Line {
-        let section: String?
-        let bounds: NormalizedRect
-        let text: String
+    /// Returns typed changed rows and element pairs, independently of a reader's revision.
+    public static func changes(
+        from before: SceneSnapshot,
+        to after: SceneSnapshot,
+        cuts: SceneTextCuts = []
+    ) -> SceneChangeSet {
+        SceneChangeSet(
+            elements: elements(from: before, to: after),
+            commands: before.commands == after.commands ? nil : after.commands,
+            previousOutOfView: before.outOfViewFields == after.outOfViewFields ? nil : before.outOfViewFields,
+            outOfView: before.outOfViewFields == after.outOfViewFields ? nil : after.outOfViewFields,
+            lines: renderedChangeLines(from: before, to: after, cuts: cuts)
+        )
     }
 
     /// The pairs of indices, before and after, that are one element, closest first. A labeled element
     /// pairs with its own id, the same role first; failing that, with its label read as another kind
     /// within `nearby`, which is grouping that fused or split a caption. An unlabeled element pairs
     /// only with its kind within `nearby`.
-    private static func pairs(_ before: [SceneElement], _ after: [SceneElement]) -> [(Int, Int)] {
+    static func pairs(_ before: [SceneElement], _ after: [SceneElement]) -> [(Int, Int)] {
         let byIdentity = Dictionary(grouping: after.indices, by: { identity(after[$0]) })
         let byLabel = Dictionary(
             grouping: after.indices.filter { !isPositional(after[$0]) },
@@ -234,73 +129,15 @@ public enum SceneChanges {
         element.isUnlabeled || element.id.hasPrefix("?|@")
     }
 
-    /// The earlier values of everything the reader sees or targets differently in `new`, in line
-    /// order, then its section; empty when it is the same element in the same place. A group tag is
-    /// left out, since no target names it, and so is a section no longer among `sections`: a renamed
-    /// or redrawn panel is reported once, in its own line.
-    private static func earlier(_ old: SceneElement, _ new: SceneElement, sections: Set<String>) -> [String] {
-        var was: [String] = []
-        if tag(old) != tag(new) { was.append("[\(tag(old))]") }
-        if old.label != new.label { was.append("label \(String(reflecting: old.label))") }
-        if shownID(old) != shownID(new) { was.append(shownID(old).map { "id:'\($0)'" } ?? "no id") }
-        if old.state != new.state { was.append(old.state.map { "[\($0.rawValue)]" } ?? "no state") }
-        if shownValue(old) != shownValue(new) {
-            was.append(shownValue(old).map { "= \(String(reflecting: $0))" } ?? "no value")
-        }
-        let oldRange = SceneElement.validRange(old.selectedRange, value: old.value)
-        if oldRange != SceneElement.validRange(new.selectedRange, value: new.value) {
-            was.append(oldRange.map { "selection \($0.location)..\($0.location + $0.length)" } ?? "no selection")
-        }
-        if (old.isEnabled == false) != (new.isEnabled == false) {
-            was.append(old.isEnabled == false ? "[disabled]" : "enabled")
-        }
-        if old.container != new.container { was.append(old.container.map { "{\(SceneSnapshot.inline($0))}" } ?? "no container") }
-        if abs(old.bounds.midX - new.bounds.midX) > nearby || abs(old.bounds.midY - new.bounds.midY) > nearby {
-            was.append(SceneSnapshot.place(old.bounds))
-        }
-        if let section = old.section, section != new.section, sections.contains(section) {
-            was.append("in \(SceneSnapshot.inline(section))")
-        }
-        return was
-    }
-
-    /// `text()`'s line for one element, without its indent and line break.
-    private static func line(_ element: SceneElement) -> String {
-        String(SceneSnapshot.elementLine(element).dropLast())
-    }
-
-    /// A removed element as the reader can still tell it apart: its tag, label, shown id and place.
-    private static func short(_ element: SceneElement) -> String {
-        let identity = shownID(element).map { " id:'\($0)'" } ?? ""
-        let label = element.isUnlabeled && element.label == SceneSnapshot.unlabeledLabel ? "" : " " + SceneSnapshot.inline(element.label)
-        return "[\(tag(element))]\(label)\(identity) \(SceneSnapshot.place(element.bounds))"
-    }
-
-    /// The tag `text()` prints: `field` for text entry, a kind with `?` when unlabeled, else the kind.
-    private static func tag(_ element: SceneElement) -> String {
-        if AccessibilityAugmentation.textEntryRoles.contains(element.role ?? "") { return "field" }
-        return element.isUnlabeled ? "\(element.kind.rawValue)?" : element.kind.rawValue
-    }
-
-    /// The id `text()` prints, which a target can name: an unlabeled element's or a field's.
-    private static func shownID(_ element: SceneElement) -> String? {
-        element.isUnlabeled || tag(element) == "field" ? element.id : nil
-    }
-
-    /// The value `text()` prints: none when it repeats the label.
-    private static func shownValue(_ element: SceneElement) -> String? {
-        element.value == element.label ? nil : element.value
-    }
-
     /// The section an element is listed under in `scene`: its own, when the scene prints that one.
-    private static func placed(_ section: String?, in scene: SceneSnapshot) -> String? {
+    static func placed(_ section: String?, in scene: SceneSnapshot) -> String? {
         guard let section, scene.sections.contains(where: { $0.name == section }) else { return nil }
         return section
     }
 
     /// True when both scenes have the same sections in the same order, with the same scroll notes and
     /// bounds within `nearby`: a panel edge that moves less is the seam's jitter, not a new layout.
-    private static func sameLayout(_ before: SceneSnapshot, _ after: SceneSnapshot) -> Bool {
+    static func sameLayout(_ before: SceneSnapshot, _ after: SceneSnapshot) -> Bool {
         let old = before.sectionsInReadingOrder
         let new = after.sectionsInReadingOrder
         guard old.count == new.count else { return false }
@@ -310,5 +147,22 @@ public enum SceneChanges {
                 && old.horizontalScrollNote == new.horizontalScrollNote
                 && zip(old.bounds.array, new.bounds.array).allSatisfy { abs($0 - $1) <= nearby }
         }
+    }
+}
+
+/// SceneChangeSet is the typed update shared by model policy and human scene readings.
+public struct SceneChangeSet: Sendable {
+    public let elements: [SceneChanges.ElementChange]
+    public let commands: [String]?
+    public let previousOutOfView: [OutOfViewField]?
+    public let outOfView: [OutOfViewField]?
+    public let lines: [SceneSnapshot.TextLine]
+    public var isEmpty: Bool { lines.isEmpty }
+    public var header: [SceneSnapshot.TextLine] { lines.filter { $0.job == .header } }
+
+    /// Preserves the existing human-reading syntax, including its unchanged sentinel.
+    public func text(since revision: Int) -> String {
+        guard !isEmpty else { return SceneSnapshot.unchangedLine(since: revision) }
+        return lines.map(\.text).joined().trimmingCharacters(in: .newlines)
     }
 }

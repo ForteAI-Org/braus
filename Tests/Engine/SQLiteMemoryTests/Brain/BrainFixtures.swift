@@ -134,7 +134,8 @@ enum BrainFixtures {
 
     static func open(at url: URL? = nil, ids: BrainIdentities = BrainIdentities()) async throws -> Memory {
         let url   = try url ?? temporaryDatabase()
-        let store = try await SQLiteMemoryStore.open(at: url)
+        let store = SQLiteMemoryStore(url: url, schema: .historical19)
+        try await store.open()
         return Memory(
             url  : url,
             store: store,

@@ -35,9 +35,11 @@ struct AppClaimsTests {
     static func inRoot(_ body: (Root) async throws -> Void) async throws {
         let root = Root()
         do { try await body(root) } catch {
+            await MemoryService.closeAll()
             try? FileManager.default.removeItem(at: root.url)
             throw error
         }
+        await MemoryService.closeAll()
         try? FileManager.default.removeItem(at: root.url)
         #expect(!FileManager.default.fileExists(atPath: root.url.path))
     }

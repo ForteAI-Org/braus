@@ -1,12 +1,52 @@
 import AutomationRuntime
 import Foundation
+import LocalMCP
 import Testing
 @testable import AutomationMCP
+
+struct ModelTextRulesRegressionTests {
+    @Test
+    func fixedPromptAndProtectedPathPassCatalogueRules() throws {
+        for key in ["prompt.system.v2", "outcome.protected_path"] {
+            let entry = try #require(ModelText.catalogue.first { $0.key.rawValue == key })
+            let violations = validate([entry], context: RuleContext())
+            #expect(violations.isEmpty, "\(key): \(violations)")
+        }
+    }
+
+    @Test
+    @MainActor
+    func promptNamesBelongToTheServedList() {
+        for bits in 0..<8 {
+            var channels: AutomationChannels = []
+            if bits & 1 != 0 { channels.insert(.native) }
+            if bits & 2 != 0 { channels.insert(.web) }
+            if bits & 4 != 0 { channels.insert(.adapters) }
+            let definitions = AutomationTools.definitions(for: channels)
+            let names = definitions.compactMap { $0["name"].string }
+            var context = RuleContext()
+            context.channels = channels
+            context.toolNames = Set(names)
+            context.toolDefinitions = definitions
+            for format in [PromptDataFormat.plain, .tagged] {
+                for compact in [false, true] {
+                    let text = ModelText.systemPrompt(.v2, legacyText: "", dataFormat: format,
+                        compactOutcome: compact, toolNames: names, groupIndex: nil,
+                        searchesWeb: false, role: nil)
+                    let entry = specimen(text, budget: 2400)
+                    #expect(validate([entry], context: context).isEmpty)
+                }
+            }
+        }
+    }
+}
 
 struct ModelTextNamesTests {
     @Test
     func names() {
         #expect(validate(ModelText.catalogue, context: RuleContext()).filter { $0.code == .name }.isEmpty)
+        #expect(validate([specimen("Never use a shell.")], context: RuleContext()).isEmpty)
+        #expect(validate([specimen("Never use a computer-use fallback.")], context: RuleContext()).isEmpty)
         #expect(validate([specimen("Call observe with expected_value.")], context: RuleContext()).isEmpty)
         #expect(validate([specimen("The call completed. Do not repeat it.", delivery: .toolAnswer(tool: "act"))],
                          context: RuleContext()).isEmpty)

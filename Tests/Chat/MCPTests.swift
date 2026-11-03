@@ -24,7 +24,7 @@ struct MCPTests {
     }
 
     @Test
-    func concurrentActionsAreRejectedAndPauseCancelsThenDrains() async throws {
+    func concurrentActionsQueueAndPauseCancelsThenDrains() async throws {
         var calls = 0
         let router = MCPRouter(tools: [definition], instructions: nil) { _, _ in
             calls += 1
@@ -33,11 +33,21 @@ struct MCPTests {
         }
         let first = Task { await router.handle(request("tools/call")) }
         while calls == 0 { await Task.yield() }
-        let second = try #require(await router.handle(request("tools/call", id: 2)))
-        #expect(second["error"]["message"].string?.contains("still running") == true)
+        var secondFinished = false
+        let second = Task {
+            let answer = await router.handle(request("tools/call", id: 2))
+            secondFinished = true
+            return answer
+        }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(!secondFinished)
         #expect(calls == 1)
         router.pause()
         await router.drain()
+        #expect(await second.value?["error"]["code"] == .number(-32000))
+        #expect(await second.value?["error"]["message"] == .string(
+            "Braus is stopping. No further actions accepted."
+        ))
         let interrupted = try #require(await first.value)
         #expect(interrupted["result"]["isError"].bool == true)
         #expect((await router.handle(request("tools/call")))?["error"]["message"].string?.contains("stopping") == true)

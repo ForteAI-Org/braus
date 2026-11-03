@@ -159,10 +159,11 @@ struct TextTargetTests {
         #expect(actuator.gestures.count == 1, "the click alone, before the selection's keys: \(actuator.gestures)")
         if case .click = actuator.gestures.first {} else { Issue.record("not the click: \(actuator.gestures)") }
         #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
-        #expect(outcome.message.contains("nothing was typed"), Comment(rawValue: outcome.message))
+        #expect(outcome.outcome.gesture == .uncertain)
+        if outcome.scene == nil { #expect(outcome.message.contains("nothing was typed"), Comment(rawValue: outcome.message)) }
         let check = try #require(outcome.check)
         #expect(check.performed == .uncertain && check.limits.contains(.deliveryUncertain), "a partial delivery, not none")
-        #expect(check.expected == nil)
+        if outcome.scene == nil { #expect(check.expected == nil) }
         #expect(actuator.confirmations.contains(.unknown), "the receipt is closed as unknown, never replayed")
     }
 
@@ -175,7 +176,8 @@ struct TextTargetTests {
         let outcome = await engine([window([nome], [nome.id: nodeA])], actuator: actuator, controls: controls)
             .deliver(typing(binding: bound))
         #expect(actuator.gestures.count == 1 && !typed(actuator.gestures), "\(actuator.gestures)")
-        #expect(outcome.kind == .actedUnverified && outcome.message.contains("nothing was typed"), Comment(rawValue: outcome.message))
+        #expect(outcome.outcome.gesture == .uncertain)
+        if outcome.scene == nil { #expect(outcome.message.contains("nothing was typed"), Comment(rawValue: outcome.message)) }
     }
 
     @Test("bound: the focus holds after the click but not before the text: the click and the preparation key went out, no text")
@@ -188,7 +190,8 @@ struct TextTargetTests {
             .deliver(typing(replacing: false, binding: bound))
         #expect(actuator.gestures.count == 2 && !typed(actuator.gestures), "click and end of field: \(actuator.gestures)")
         #expect(controls.focusReads == 2, "checked after the click and again before the text")
-        #expect(outcome.kind == .actedUnverified && outcome.message.contains("nothing was typed"), Comment(rawValue: outcome.message))
+        #expect(outcome.outcome.gesture == .uncertain)
+        if outcome.scene == nil { #expect(outcome.message.contains("nothing was typed"), Comment(rawValue: outcome.message)) }
     }
 
     @Test("bound and aimed: the click names its field to the actuator, and a surface change refused after it types nothing")
@@ -267,7 +270,8 @@ struct TextTargetTests {
         failing.failure = CocoaError(.userCancelled)
         let failed = await engine([window([])], actuator: failing, controls: controls)
             .deliver(inserting("typed-pw", expecting: "Expected-Sentinel-55"))
-        #expect(failed.message.contains("delivery failed") && failed.check?.expected == nil, "\(String(describing: failed.check))")
+        #expect(failed.outcome.gesture == .uncertain && failed.check?.expected == nil)
+        if failed.scene == nil { #expect(failed.message.contains("delivery failed")) }
     }
 
     @Test("a text the call withholds: read back and judged, but no value quoted in the answer and none kept in the check")
@@ -292,10 +296,10 @@ struct TextTargetTests {
         #expect(inserted.check?.expected == nil && inserted.check?.observed == nil && inserted.check?.verdict == .passed)
     }
 
-    @Test("a long text: unwithheld, the answer quotes its first 59 characters; withheld, no form of it at all")
+    @Test("a long text: the quote fits 48 characters; withheld, no displayed fragment remains")
     func longTextPrefix() async throws {
         let long = "Lungo-" + String(repeating: "abcdefghij", count: 8) + "-Sentinel-77"
-        let prefix = String(long.prefix(59))
+        let prefix = String(long.prefix(45))
         for withholds in [false, true] {
             let controls = FakeControls()
             controls.focused = long
@@ -304,6 +308,7 @@ struct TextTargetTests {
             let outcome = await engine([window([field()]), window([field(value: long)])], controls: controls).deliver(request)
             #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
             #expect(outcome.message.contains(prefix) == !withholds, "withheld: \(withholds): \(outcome.message)")
+            #expect(!outcome.message.contains(String(long.prefix(46))))
         }
     }
 

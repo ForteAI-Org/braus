@@ -280,9 +280,9 @@ public enum SQLiteMemoryInspection {
         + "a.task_occurrence_id JOIN memory_verifications v ON v.event_id = e.event_id WHERE a.task_id = t.task_id "
         + "AND v.scope = 'task'"
 
-    private static func rows(in url: URL, filter: String, _ values: [SQLiteValue], limit: Int) -> TasksReading {
-        switch opened(url, { connection in
-            try connection.query(
+    static func taskRows(_ handle: some SQLiteQuerying, filter: String, values: [SQLiteValue], limit: Int) throws -> [TaskRow] {
+        let connection = try DB2CReadRows(handle)
+        return try connection.query(
                 """
                 SELECT t.task_id, t.source, t.source_stream_id, t.status, t.opened_at_ms, t.closed_at_ms, t.current_revision,
                        (SELECT r.goal FROM memory_task_revisions r WHERE r.task_id = t.task_id AND r.revision = t.current_revision),
@@ -322,6 +322,11 @@ public enum SQLiteMemoryInspection {
                         result: try row.text(15) ?? ((row.integer(16) ?? 0) > 0 ? "none" : "missing"),
                         guardsFailed: Int(row.integer(17) ?? 0))
             }
+    }
+
+    private static func rows(in url: URL, filter: String, _ values: [SQLiteValue], limit: Int) -> TasksReading {
+        switch opened(url, { connection in
+            try taskRows(connection, filter: filter, values: values, limit: limit)
         }) {
             case .read(let rows):       return .found(rows)
             case .unavailable(let why): return .unavailable(why)

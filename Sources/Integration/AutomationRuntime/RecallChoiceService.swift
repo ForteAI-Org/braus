@@ -16,6 +16,7 @@ extension RecallService {
 
     /// ProposalAnswer is a proposal's text and its record, with how long its phases took.
     public struct ProposalAnswer: Sendable {
+        public let reason: MemoryReadReason?
         public let delivery: RecallProposalDelivery
         public let recorded: SQLiteRecallRepository.RecordedProposal
         public let phases: Phases
@@ -30,13 +31,16 @@ extension RecallService {
 
     /// Searches for the request's needs as a query does, shortlists the versions per need, records the proposal and answers
     /// its text. Nothing is selected for the agent and nothing is delivered as a plan.
-    public func propose(_ request: RecallRequest, producer: TaskProducer) async throws -> ProposalAnswer {
+    public func propose(_ request: RecallRequest, producer: TaskProducer, access: MemoryAccess = .readLearn) async throws -> ProposalAnswer {
         let started = ContinuousClock.now
         let proposalID = UUID().uuidString
-        _ = await memory.flush(within: Self.observationFlush)
-        let since = memory.clock.calendarMS() - Self.observationFreshnessMS
-        let observed = try await memory.perform { try await $0.recall.observedState(of: producer.source, stream: producer.streamID, since: since) }
-        var prepared = try await prepare(request, observed: observed.map { [$0] } ?? [])
+        var observed: ObservedState?
+        if access.reads {
+            _ = await memory.flush(within: Self.observationFlush)
+            let since = memory.clock.calendarMS() - Self.observationFreshnessMS
+            observed = try await memory.perform { try await $0.recall.observedState(of: producer.source, stream: producer.streamID, since: since) }
+        }
+        var prepared = try await prepare(request, observed: observed.map { [$0] } ?? [], access: access)
         let clock = ContinuousClock.now
         let suggestions = outcomes(prepared)
         let shortlisted = RecallChoice.shortlist(scored(prepared) ?? [], suggestions: suggestions)
@@ -49,7 +53,7 @@ extension RecallService {
                                              recordedAtMS: memory.clock.calendarMS())
         let search = RecallDelivery.Search(status: prepared.searchStatus.rawValue, channel: prepared.channel.rawValue,
                                            partsConsidered: prepared.considered, versionsRead: prepared.sources.count, note: note)
-        let index = index(prepared.status, searchStatus: prepared.searchStatus, generation: prepared.cache?.generation)
+        let index = index(prepared.status, searchStatus: prepared.searchStatus, generation: prepared.cache?.generation, readsMemory: prepared.readsMemory)
         var delivery = Self.render(proposal, sources: sources, suggestions: suggestions, context: prepared.context, values: request.values,
                                    search: search, index: index)
         var bytes = (try? JSONEncoder().encode(delivery).count) ?? 0
@@ -69,9 +73,18 @@ extension RecallService {
             candidatesConsidered: prepared.considered, bytes: bytes,
             durationUS: elapsed.components.seconds * 1_000_000 + elapsed.components.attoseconds / 1_000_000_000_000)
         let recording = ContinuousClock.now
-        try await memory.perform { try await $0.recall.recordProposal(recorded) }
+        let offeredDelivery = delivery
+        let (saved, assignedDelivery) = try await memory.perform { repositories in
+            try await repositories.recall.recordPreparedProposal(proposedID: proposalID) { id in
+                let assigned = RecallProposalDelivery(proposal: id, revision: offeredDelivery.revision, index: offeredDelivery.index,
+                    search: offeredDelivery.search, needs: offeredDelivery.needs, sources: offeredDelivery.sources,
+                    guidance: offeredDelivery.guidance)
+                let bytes = try JSONEncoder().encode(assigned).count
+                return (recorded.withIdentity(id, bytes: bytes), assigned)
+            }
+        }
         prepared.phases.recording = recording.duration(to: .now)
-        return ProposalAnswer(delivery: delivery, recorded: recorded, phases: prepared.phases)
+        return ProposalAnswer(reason: prepared.reason, delivery: assignedDelivery, recorded: saved, phases: prepared.phases)
     }
 
     /// Checks the agent's plan against its proposal and the facts read now, records the query that delivers it and
@@ -81,7 +94,7 @@ extension RecallService {
     /// under the recorded query only if what it delivers now is what was recorded; otherwise it is stale too. A retry
     /// records nothing. Throws `RecallChoice.Refusal` with every reason when the plan is not admitted.
     public func choose(_ plan: RecallChoice.Plan, taskID: String, attemptID: String, revision: Int, values: [TaskValue],
-                       constraints: [String], producer: TaskProducer) async throws -> ChoiceAnswer {
+                       constraints: [String], producer: TaskProducer, preview: Bool = false) async throws -> ChoiceAnswer {
         let started = ContinuousClock.now
         guard let recordedProposal = try await memory.perform({ try await $0.recall.proposal(plan.proposalID) }),
               recordedProposal.proposal.producer.isExactly(producer), recordedProposal.proposal.taskID == taskID else {
@@ -151,20 +164,144 @@ extension RecallService {
                                                       state: state, recorded: false),
                                 queryID: earlierQuery, recordedNow: false)
         }
+        if preview { return ChoiceAnswer(delivery: delivery, queryID: queryID, recordedNow: false) }
         let at = memory.clock.calendarMS()
         let query = recorded
-        if let earlier = try await memory.perform({ try await $0.recall.recordChoice(query, proposalID: plan.proposalID, declarations: chosen,
-                                                                                      at: at) }) {
+        let deliveryState = state
+        let result = try await memory.perform { repositories in
+            try await repositories.recall.recordPreparedChoice(proposedID: queryID, proposalID: plan.proposalID,
+                declarations: chosen, at: at) { id in
+                let assigned = Self.render(chosen, queryID: id, proposal: proposal, sources: sources,
+                    request: request, state: deliveryState, recorded: true)
+                let bytes = try JSONEncoder().encode(assigned).count
+                return (query.withIdentity(id, deliveryBytes: bytes), assigned)
+            }
+        }
+        switch result {
+        case .alreadyApplied(let earlierID, let earlierPlan):
             // Another call chose this proposal meanwhile.
-            guard earlier.plan == normalized else {
-                throw RecallChoice.Refusal(.chosen, ["proposal \(plan.proposalID) was already chosen with another plan (query \(earlier.queryID)); "
+            guard earlierPlan == normalized else {
+                throw RecallChoice.Refusal(.chosen, ["proposal \(plan.proposalID) was already chosen with another plan (query \(earlierID)); "
                                                      + "propose again to choose otherwise"])
             }
-            delivery = Self.render(chosen, queryID: earlier.queryID, proposal: proposal, sources: sources, request: request, state: state,
+            delivery = Self.render(chosen, queryID: earlierID, proposal: proposal, sources: sources, request: request, state: state,
                                    recorded: false)
-            return ChoiceAnswer(delivery: delivery, queryID: earlier.queryID, recordedNow: false)
+            return ChoiceAnswer(delivery: delivery, queryID: earlierID, recordedNow: false)
+        case .recorded(let saved, let assignedDelivery):
+            return ChoiceAnswer(delivery: assignedDelivery, queryID: saved.queryID, recordedNow: true)
         }
-        return ChoiceAnswer(delivery: delivery, queryID: queryID, recordedNow: true)
+
+    }
+
+    /// PlanProposal retains a row's independently selectable proposal, before the answer budget is applied.
+    public struct PlanProposal: Sendable {
+        public let recorded: SQLiteRecallRepository.RecordedProposal
+        public var proposalID: String { recorded.proposal.proposalID }
+        public var searchAvailable: Bool { recorded.searchStatus != .failed && recorded.searchStatus != .unavailable }
+        public let parts: [RecallRendering.OfferedPart]
+        public let ranges: [String: ClosedRange<Int>]
+        public let composition: [String: RecallChoice.CompositionPart]
+    }
+
+    /// Searches at most eight rows together, but records choices independently so one invalid row cannot reject another.
+    /// The caller records only the parts actually delivered after the shared budget has been applied.
+    public func proposeRows(_ request: RecallRequest, producer: TaskProducer, access: MemoryAccess,
+                            availableChannels: Set<String>, doNotUse: Set<ProcedureFamilyID> = []) async throws -> [PlanProposal] {
+        guard access.reads else { return [] }
+        let prepared = try await prepare(request, access: access, availableChannels: availableChannels, doNotUse: doNotUse)
+        let scored = scored(prepared) ?? []
+        let trust = prepared.admissibility.compactMapValues(\.trust)
+        let shortlist = RecallChoice.shortlist(scored, suggestions: [], v2: true, trust: trust)
+        var result: [PlanProposal] = []
+        for (position, need) in prepared.needs.enumerated() {
+            let mine = shortlist.filter { $0.needPosition == position }
+            var parts: [RecallRendering.OfferedPart] = []
+            var ranges: [String: ClosedRange<Int>] = [:]
+            var calibration: [SQLiteRecallRepository.CalibrationRow] = []
+            var composition: [String: RecallChoice.CompositionPart] = [:]
+            for item in mine {
+                guard let candidate = scored[position].first(where: { $0.source.routeID == item.routeID }) else { continue }
+                let source = candidate.source
+                let offered = source.parts.filter { part in
+                    part.isOffered && (candidate.partRelevance[part.partID] ?? -.infinity) >= (part.kind == .step ? 0.68 : 0.60)
+                }.sorted {
+                    let left = candidate.partRelevance[$0.partID] ?? 0
+                    let right = candidate.partRelevance[$1.partID] ?? 0
+                    return left == right ? $0.partID < $1.partID : left > right
+                }
+                guard let part = offered.first else { continue }
+                let steps = source.steps.filter { (part.firstPosition...part.lastPosition).contains($0.position) }
+                let parameterIDs = Set(steps.flatMap(\.parameterIDs))
+                let parameters = source.parameters.filter { parameterIDs.contains($0.parameterID) }
+                func masked(_ text: String) -> String {
+                    var text = MethodText.masked(text, values: request.values)
+                    for parameter in source.parameters {
+                        for value in parameter.observedValues where !value.isEmpty {
+                            let pattern = "(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: value)
+                                + "(?![\\p{L}\\p{N}])"
+                            text = text.replacingOccurrences(of: pattern, with: "{\(parameter.name)}",
+                                options: [.regularExpression, .caseInsensitive])
+                        }
+                    }
+                    return text
+                }
+                let label = masked(part.label ?? source.procedureLabel)
+                let rendered = RecallRendering.OfferedPart(key: item.key, label: label,
+                    app: part.bundleID.map(RecallDocument.deliveredName) ?? "?",
+                    parameters: parameters.filter { $0.direction != .output }.map(\.name),
+                    produces: source.parameters.filter { $0.producedBy == part.partID }.map(\.name),
+                    shortSteps: steps.count <= 3 ? steps.map { masked($0.label ?? $0.tool.rawValue) } : nil,
+                    reliability: .init(verifiedRuns: source.confirmedUses, resultChecked: source.resultVerdict == .passed),
+                    trust: trust[source.routeID], bundleID: part.bundleID ?? "", partID: part.partID)
+                parts.append(rendered)
+                composition[part.partID] = .init(bundleID: part.bundleID, entry: steps.first?.entry ?? .unknown,
+                    exit: steps.last?.exit ?? .unknown, inputs: Set(rendered.parameters), outputs: Set(rendered.produces))
+                ranges[part.partID] = part.firstPosition...part.lastPosition
+                let slot = prepared.cache?.byPart[part.partID]
+                let cosine = slot.flatMap { slot -> Double? in
+                    guard prepared.cache?.slots[slot]?.vector != nil else { return nil }
+                    return prepared.cosine.indices.contains(position) && prepared.cosine[position].indices.contains(slot)
+                        ? prepared.cosine[position][slot] : nil
+                }
+                let lexical = slot.flatMap { slot in
+                    prepared.lexical.indices.contains(position) && prepared.lexical[position].indices.contains(slot)
+                        ? prepared.lexical[position][slot] : nil
+                }
+                calibration.append(.init(needPosition: 0, partID: part.partID, rank: parts.count - 1,
+                    cosine: cosine?.isFinite == true ? cosine : nil, lexical: lexical?.isFinite == true ? lexical : nil,
+                    score: candidate.partRelevance[part.partID] ?? item.relevance,
+                    threshold: part.kind == .step ? 0.68 : 0.60, delivered: true))
+            }
+            let keys = Set(parts.map(\.key))
+            let proposal = RecallChoice.Proposal(proposalID: UUID().uuidString, taskID: request.taskID,
+                attemptID: request.attemptID, revision: request.revision, producer: producer, reason: request.reason,
+                remainingWork: request.remainingWork, needs: [need], shortlisted: mine.filter { keys.contains($0.key) }.map {
+                    .init(needPosition: 0, key: $0.key, routeID: $0.routeID, relevance: $0.relevance, suggested: nil)
+                }, recordedAtMS: memory.clock.calendarMS())
+            let record = SQLiteRecallRepository.RecordedProposal(proposal: proposal,
+                generationID: prepared.channel == .none ? nil : prepared.cache?.generation.generationID,
+                channel: prepared.channel, searchStatus: prepared.searchStatus,
+                searchNote: prepared.notes.isEmpty ? nil : prepared.notes.joined(separator: "; "),
+                candidatesConsidered: prepared.considered, bytes: 0, durationUS: nil, calibration: calibration)
+            result.append(PlanProposal(recorded: record, parts: parts, ranges: ranges, composition: composition))
+        }
+        return result
+    }
+
+    /// Persists the exact row offer, with calibration only for the parts that survived the answer budget.
+    public func recordPlanProposal(_ plan: PlanProposal, delivered: Set<String>, bytes: Int) async throws -> String {
+        let record = plan.recorded
+        let proposal = record.proposal
+        let keys = Set(plan.parts.filter { delivered.contains($0.partID) }.map(\.key))
+        let kept = RecallChoice.Proposal(proposalID: proposal.proposalID, taskID: proposal.taskID,
+            attemptID: proposal.attemptID, revision: proposal.revision, producer: proposal.producer,
+            reason: proposal.reason, remainingWork: proposal.remainingWork, needs: proposal.needs,
+            shortlisted: proposal.shortlisted.filter { keys.contains($0.key) }, recordedAtMS: proposal.recordedAtMS)
+        let recorded = SQLiteRecallRepository.RecordedProposal(proposal: kept, generationID: record.generationID,
+            channel: record.channel, searchStatus: record.searchStatus, searchNote: record.searchNote,
+            candidatesConsidered: record.candidatesConsidered, bytes: bytes, durationUS: record.durationUS,
+            calibration: record.calibration.filter { delivered.contains($0.partID) })
+        return try await memory.perform { try await $0.recall.recordProposal(recorded) }
     }
 
     /// Whether `id` names a proposal recorded for the task: what a use that names it instead of a query is told.

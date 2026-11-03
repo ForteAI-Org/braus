@@ -153,11 +153,10 @@ struct SQLiteExecutorTests {
             _ = try await store.read(priority: priority) { try $0.query("SELECT count(*) FROM memory_events") { $0.integer(0) } }
             #expect(try await store.dataVersion() == initial)
         }
-        let probe = try ProbeProcess()
-        defer { probe.end() }
-        #expect(try await probe.ask("open \(url.path)").hasPrefix("opened "))
+        let other = try await SQLiteMemoryStore.open(at: url)
         #expect(try await store.dataVersion() == initial)
-        #expect(try await probe.ask("record external external-key 100") == "committed")
+        #expect(try await record(EventRow(id: "external", key: "external-key"), in: other) == .committed)
+        await other.close()
         let changed = try await store.dataVersion()
         #expect(changed != initial)
         let versioned = try await store.readVersioned {
@@ -165,7 +164,6 @@ struct SQLiteExecutorTests {
         }
         #expect(versioned.version == changed && versioned.value == 1)
         #expect(try await store.dataVersion() == changed)
-        #expect(try await probe.ask("close") == "closed")
         await store.close()
     }
 
@@ -250,7 +248,7 @@ struct SQLiteExecutorTests {
             _ = try await record(EventRow(id: "event-\(index)", key: "key-\(index)"), in: store)
         }
         let ids = try await store.read {
-            try $0.query("SELECT event_id FROM memory_events ORDER BY local_order") { try $0.text(0) ?? "" }
+            try $0.query("SELECT event_uuid FROM memory_events ORDER BY event_id") { try $0.text(0) ?? "" }
         }
         #expect(ids == (0..<20).map { "event-\($0)" })
         #expect(try await store.diagnostics().commits == 20)

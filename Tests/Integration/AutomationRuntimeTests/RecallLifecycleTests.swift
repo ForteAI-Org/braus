@@ -32,7 +32,7 @@ struct RecallLifecycleTests {
 
     /// A deterministic embedding in the space of the pinned E5 manifest, for the tests of a space's lifecycle: a
     /// hashed bag of the text's content words, normalized. It reads nothing but its texts and needs no model file.
-    struct HashedEmbedding: TextEmbedding {
+    struct HashedEmbedding: Memory.TextEmbedding {
         let space = EmbeddingModelManifest.multilingualE5Small.space
 
         func embed(_ texts: [String], as role: EmbeddingRole) throws -> [EmbeddedText] {
@@ -178,11 +178,11 @@ struct RecallLifecycleTests {
         #expect(interpreted["status"].string == "interpreted" && interpreted["revision"] == .number(2), "\(interpreted)")
         let memory = MemoryService.shared(for: session.directory)
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(30)))
-        #expect(try rawRows("SELECT count(*) FROM memory_recall_entries WHERE route_id = '\(first)'", at: Self.url(session)) == ["0"])
+        #expect(try rawRows("SELECT count(*) FROM memory_recall_entries WHERE route_id = (SELECT route_id FROM memory_routes WHERE route_uuid = '\(first)')", at: Self.url(session)) == ["0"])
         let second = ProcedureAssembly.routeID(candidateID: candidate, revision: 2)
         let begun = try await P.task(P.tools(session, stream: "worker-2"), RecallCycleTests.exportRequest)
         #expect(begun["recall"]["needs"].array?.first?["selection"]["version"].string == second, "\(begun)")
-        #expect(try rawRows("SELECT DISTINCT route_id FROM memory_recall_selections", at: Self.url(session)) == [second])
+        #expect(try rawRows("SELECT DISTINCT r.route_uuid FROM memory_recall_selections s JOIN memory_routes r ON r.route_id = s.route_id", at: Self.url(session)) == [second])
         await Self.close(session)
     }
 
@@ -269,7 +269,7 @@ struct RecallLifecycleTests {
         #expect(begun["recall"]["search"]["note"].string?.contains("not in the index yet") == true)
         let steps = begun["recall"]["needs"].array?.first?["selection"]["steps"].array?.compactMap { RecallCycleTests.int($0["step"]) } ?? []
         #expect(!steps.contains(7), "the part to evaluate again is not offered, though its entry is still in the index: \(steps)")
-        #expect(try rawRows("SELECT count(*) FROM memory_recall_entries WHERE part_id = '\(confirm)'", at: Self.url(session)) == ["1"])
+        #expect(try rawRows("SELECT count(*) FROM memory_recall_entries WHERE part_id = (SELECT part_id FROM memory_procedure_parts WHERE part_uuid = '\(confirm)')", at: Self.url(session)) == ["1"])
         await Self.close(session)
     }
 
@@ -361,11 +361,19 @@ struct RecallLifecycleTests {
     @Test("an archive of schema 1 migrates to the current schema, queues one rebuild of the Recall's index in the same transaction, and the rebuild completes")
     func schemaOneArchive() async throws {
         let session = P.photoSession(try W.directory())
-        _ = try await Self.learnPhoto(session)
-        await Self.close(session)
         let url = Self.url(session)
-        // The archive as main's build would hold it: its calls and its Brain, every later table dropped with its rows.
-        try UnificationTests.downgrade(url)
+        let historical = try SQLiteConnection(path: url.path)
+        try historical.execute(SQLiteMemorySchema.text(of: 1))
+        try historical.execute("PRAGMA user_version = 1")
+        historical.close()
+        _ = try await SQLiteMigration22.migrate(
+            from: url,
+            shape: .historical("version-1"),
+            into: url.appendingPathExtension("migrating-22-test"),
+            keepingSourceAs: "memory.sqlite.schema-1-test",
+            availableSpace: { _ in Int64.max },
+            progress: { _ in }
+        )
         let reopened = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: reopened, configuration: Self.configuration()))
         _ = try await reopened.ready()

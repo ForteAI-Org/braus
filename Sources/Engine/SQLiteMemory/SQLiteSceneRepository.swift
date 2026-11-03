@@ -43,70 +43,73 @@ public struct SQLiteSceneRepository: SceneStoring {
     }
 
     public func associate(_ key: CaptureSampleKey, at nowMS: Int64) async throws -> SceneAssociationOutcome {
-        let makeSceneID = self.makeSceneID
-        return try await store.write { transaction in
-            guard let sample = try SQLiteObservationRows.sample(transaction, key: key) else {
-                throw ObservationContractError.missingSample(key)
-            }
-            guard let appRow = try SQLiteEventRows.appID(transaction, eventID: key.eventID) else {
-                throw ObservationContractError.missingEvent(eventID: key.eventID)
-            }
-            guard let appID = appRow else { throw ObservationContractError.eventWithoutApp(eventID: key.eventID) }
-            let existing = try SQLiteSceneRows.associations(transaction, key: key)
-            if !existing.isEmpty {
-                let decision: SceneStructureMatcher.Decision
-                if let confirmed = existing.first(where: { $0.status == .confirmed }) {
-                    decision = .confirmed(sceneID: confirmed.sceneID)
-                } else {
-                    decision = .candidates(existing.map(\.sceneID))
-                }
-                return SceneAssociationOutcome(
-                    receipt: .alreadyApplied, decision: decision, associations: existing, createdSceneID: nil
-                )
-            }
-            let bundleID = try transaction.query(
-                "SELECT bundle_id FROM brain_apps WHERE app_id = ?", [.integer(appID)]
-            ) { try $0.text(0) ?? "" }.first ?? ""
-            let observed = SceneSkeleton(sample: sample)
-            // A complete capture is the same as, or uncertain against, only a scene of its own roles: the
-            // others are different whatever else they hold, so only those are read. An incomplete capture
-            // is uncertain against every scene, as the matcher decides.
-            let known    = try SQLiteSceneRows.scenes(
-                transaction, appID: appID, bundleID: bundleID,
-                roleKey: sample.quality.isComplete ? observed.roleKey : nil
-            )
-            let decision = SceneStructureMatcher.decide(
-                observed  : observed,
-                isComplete: sample.quality.isComplete,
-                phase     : key.phase,
-                among     : known.map { ($0.id, $0.skeleton) }
-            )
-            var created: String?
-            switch decision {
-                case .confirmed(let sceneID):
-                    try SQLiteSceneRows.insertAssociation(transaction, key: key, appID: appID, sceneID: sceneID, status: .confirmed)
-                    try SQLiteSceneRows.countObservation(transaction, sceneID: sceneID, nowMS: nowMS)
-                case .candidates(let sceneIDs):
-                    for sceneID in sceneIDs {
-                        try SQLiteSceneRows.insertAssociation(transaction, key: key, appID: appID, sceneID: sceneID, status: .candidate)
-                    }
-                case .newScene:
-                    let sceneID = makeSceneID()
-                    try SQLiteSceneRows.insertScene(
-                        transaction, sceneID: sceneID, appID: appID, sample: sample, skeleton: observed, nowMS: nowMS
-                    )
-                    try SQLiteSceneRows.insertAssociation(transaction, key: key, appID: appID, sceneID: sceneID, status: .confirmed)
-                    created = sceneID
-                case .none:
-                    break
+        try await store.write { transaction in try associate(key, at: nowMS, in: transaction) }
+    }
+
+    /// Associates a saved sample in the caller's transaction.
+    package func associate(_ key: CaptureSampleKey, at nowMS: Int64,
+                           in transaction: SQLiteTransaction) throws -> SceneAssociationOutcome {
+        guard let sample = try SQLiteObservationRows.sample(try DB2CReadRows(transaction), key: key) else {
+            throw ObservationContractError.missingSample(key)
+        }
+        guard let appRow = try SQLiteEventRows.appID(try DB2CReadRows(transaction), eventID: key.eventID) else {
+            throw ObservationContractError.missingEvent(eventID: key.eventID)
+        }
+        guard let appID = appRow else { throw ObservationContractError.eventWithoutApp(eventID: key.eventID) }
+        let existing = try SQLiteSceneRows.associations(transaction, key: key)
+        if !existing.isEmpty {
+            let decision: SceneStructureMatcher.Decision
+            if let confirmed = existing.first(where: { $0.status == .confirmed }) {
+                decision = .confirmed(sceneID: confirmed.sceneID)
+            } else {
+                decision = .candidates(existing.map(\.sceneID))
             }
             return SceneAssociationOutcome(
-                receipt       : .committed,
-                decision      : decision,
-                associations  : try SQLiteSceneRows.associations(transaction, key: key),
-                createdSceneID: created
+                receipt: .alreadyApplied, decision: decision, associations: existing, createdSceneID: nil
             )
         }
+        let bundleID = try transaction.query(
+            "SELECT bundle_id FROM brain_apps WHERE app_id = ?", [.integer(appID)]
+        ) { try $0.text(0) ?? "" }.first ?? ""
+        let observed = SceneSkeleton(sample: sample)
+        // A complete capture is the same as, or uncertain against, only a scene of its own roles: the
+        // others are different whatever else they hold, so only those are read. An incomplete capture
+        // is uncertain against every scene, as the matcher decides.
+        let known    = try SQLiteSceneRows.scenes(
+            transaction, appID: appID, bundleID: bundleID,
+            roleKey: sample.quality.isComplete ? observed.roleKey : nil
+        )
+        let decision = SceneStructureMatcher.decide(
+            observed  : observed,
+            isComplete: sample.quality.isComplete,
+            phase     : key.phase,
+            among     : known.map { ($0.id, $0.skeleton) }
+        )
+        var created: String?
+        switch decision {
+            case .confirmed(let sceneID):
+                try SQLiteSceneRows.insertAssociation(transaction, key: key, appID: appID, sceneID: sceneID, status: .confirmed)
+                try SQLiteSceneRows.countObservation(transaction, sceneID: sceneID, nowMS: nowMS)
+            case .candidates(let sceneIDs):
+                for sceneID in sceneIDs {
+                    try SQLiteSceneRows.insertAssociation(transaction, key: key, appID: appID, sceneID: sceneID, status: .candidate)
+                }
+            case .newScene:
+                let sceneID = makeSceneID()
+                try SQLiteSceneRows.insertScene(
+                    transaction, sceneID: sceneID, appID: appID, sample: sample, skeleton: observed, nowMS: nowMS
+                )
+                try SQLiteSceneRows.insertAssociation(transaction, key: key, appID: appID, sceneID: sceneID, status: .confirmed)
+                created = sceneID
+            case .none:
+                break
+        }
+        return SceneAssociationOutcome(
+            receipt       : .committed,
+            decision      : decision,
+            associations  : try SQLiteSceneRows.associations(transaction, key: key),
+            createdSceneID: created
+        )
     }
 
     public func associations(of key: CaptureSampleKey) async throws -> [SceneAssociation] {
@@ -134,9 +137,9 @@ enum SQLiteSceneRows {
         if let roleKey { values += [.integer(appID), .text(roleKey)] }
         let heads = try handle.query(
             """
-            SELECT scene_id, scene_kind, title_bucket, structural_key, first_seen_ms, last_seen_ms, observation_count
+            SELECT \(try DB2CIdentity.column(handle, "brain_scenes")), scene_kind, title_bucket, structural_key, first_seen_ms, last_seen_ms, observation_count
             FROM brain_scenes WHERE app_id = ? AND scene_kind <> 'app'\(filter)
-            ORDER BY first_seen_ms, scene_id
+            ORDER BY first_seen_ms, \(try DB2CIdentity.column(handle, "brain_scenes"))
             """,
             values
         ) { row in
@@ -151,6 +154,7 @@ enum SQLiteSceneRows {
             )
         }
         return try heads.map { head in
+            try BrainReadControl.current?.check()
             guard let surface = CaptureSurface(rawValue: head.kind), surface != .popupUnion, surface != .unknown else {
                 throw ObservationContractError.unknownSceneKind(head.kind)
             }
@@ -179,7 +183,7 @@ enum SQLiteSceneRows {
             SELECT scene_element_id, parent_element_id, element_key, element_scope, role, label, label_origin
             FROM brain_scene_elements WHERE scene_id = ? ORDER BY scene_element_id
             """,
-            [.text(sceneID)]
+            [try DB2CIdentity.key(handle, "brain_scenes", sceneID)]
         ) { row in
             (
                 id    : try row.text(0) ?? "",
@@ -193,6 +197,7 @@ enum SQLiteSceneRows {
         }
         var containerPaths: [String: String] = [:]
         for row in rows where row.scope == "container" {
+            try BrainReadControl.current?.check()
             guard row.key.hasPrefix("container|") else {
                 throw ObservationContractError.malformedSceneElement(sceneElementID: row.id, malformation: .missingColumn("element_key"))
             }
@@ -209,6 +214,7 @@ enum SQLiteSceneRows {
         var captions: [String: Set<SceneSkeleton.Caption>] = [:]
         var collections: Set<String> = []
         for row in rows {
+            try BrainReadControl.current?.check()
             switch row.scope {
                 case "container", "item_template":
                     continue
@@ -242,10 +248,10 @@ enum SQLiteSceneRows {
     static func associations(_ handle: some SQLiteQuerying, key: CaptureSampleKey) throws -> [SceneAssociation] {
         try handle.query(
             """
-            SELECT scene_id, match_status, matched_by, matcher_version FROM memory_event_scenes
-            WHERE event_id = ? AND phase = ? AND sample_ordinal = ? ORDER BY scene_id
+            SELECT \(try DB2CIdentity.publicReference(handle, "brain_scenes", "memory_event_scenes.scene_id")), match_status, matched_by, matcher_version FROM memory_event_scenes
+            WHERE event_id = ? AND phase = ? AND sample_ordinal = ? ORDER BY \(try DB2CIdentity.publicReference(handle, "brain_scenes", "memory_event_scenes.scene_id"))
             """,
-            [.text(key.eventID), .text(key.phase.rawValue), .integer(Int64(key.ordinal))]
+            [try DB2CIdentity.key(handle, "memory_events", key.eventID), .text(key.phase.rawValue), .integer(Int64(key.ordinal))]
         ) { row in
             let statusCode = try row.text(1) ?? ""
             guard let status = SceneMatchStatus(rawValue: statusCode) else {
@@ -277,11 +283,12 @@ enum SQLiteSceneRows {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
             """,
             [
-                .text(key.eventID), .integer(appID), .text(key.phase.rawValue), .integer(Int64(key.ordinal)),
-                .text(sceneID), .text(status.rawValue),
+                try DB2CIdentity.key(transaction, "memory_events", key.eventID), .integer(appID), .text(key.phase.rawValue), .integer(Int64(key.ordinal)),
+                try DB2CIdentity.key(transaction, "brain_scenes", sceneID), .text(status.rawValue),
                 .text(SceneStructureMatcher.method), .text(SceneStructureMatcher.version),
             ]
         )
+        try DB2CCoherence.validate(transaction)
     }
 
     /// Counts one confirmed observation of a scene: the count moves by one and the last sighting
@@ -293,7 +300,7 @@ enum SQLiteSceneRows {
             SET observation_count = observation_count + 1, last_seen_ms = max(last_seen_ms, ?)
             WHERE scene_id = ?
             """,
-            [.integer(nowMS), .text(sceneID)]
+            [.integer(nowMS), try DB2CIdentity.key(transaction, "brain_scenes", sceneID)]
         )
     }
 
@@ -309,6 +316,20 @@ enum SQLiteSceneRows {
         skeleton     : SceneSkeleton,
         nowMS        : Int64
     ) throws {
+        let integerKeys = try SQLiteRowIdentity(transaction).usesIntegerKeys
+        if integerKeys {
+            let set = try transaction.query("""
+                SELECT set_id FROM memory_event_observations WHERE event_id = ? AND phase = ? AND sample_ordinal = ?
+                AND observation_kind = 'capture'
+                """, [try DB2CIdentity.key(transaction, "memory_events", sample.key.eventID), .text(sample.key.phase.rawValue),
+                        .integer(Int64(sample.key.ordinal))]) { $0.integer(0) }.first ?? nil
+            try transaction.execute("""
+                INSERT INTO brain_scenes(scene_uuid,app_id,title_bucket,scene_kind,structural_key,first_seen_ms,last_seen_ms,
+                                         observation_count,skeleton_digest,set_id) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                """, [.text(sceneID), .integer(appID), .text(LabelText.letters(sample.windowTitle ?? "")),
+                        .text(skeleton.surface.rawValue), .text(skeleton.structuralKey), .integer(nowMS), .integer(nowMS),
+                        .blob(Array(SkeletonDigest(skeleton).bytes)), set.map(SQLiteValue.integer) ?? .null])
+        } else {
         try transaction.execute(
             """
             INSERT INTO brain_scenes
@@ -321,20 +342,21 @@ enum SQLiteSceneRows {
                 .text(skeleton.surface.rawValue), .text(skeleton.structuralKey), .integer(nowMS), .integer(nowMS),
             ]
         )
+        }
         for role in skeleton.roles.sorted() {
             try transaction.execute(
                 "INSERT INTO brain_scene_roles (scene_id, role, count_bucket) VALUES (?, ?, NULL)",
-                [.text(sceneID), .text(role)]
+                [try DB2CIdentity.key(transaction, "brain_scenes", sceneID), .text(role)]
             )
         }
         try transaction.execute(
             "INSERT INTO brain_scene_shapes (scene_id, app_id, role_key) VALUES (?, ?, ?)",
-            [.text(sceneID), .integer(appID), .text(skeleton.roleKey)]
+            [try DB2CIdentity.key(transaction, "brain_scenes", sceneID), .integer(appID), .text(skeleton.roleKey)]
         )
         for label in Set(skeleton.captions.map(\.label)).sorted() where !label.isEmpty {
             try transaction.execute(
                 "INSERT INTO brain_scene_labels (scene_id, label_token) VALUES (?, ?)",
-                [.text(sceneID), .text(label)]
+                [try DB2CIdentity.key(transaction, "brain_scenes", sceneID), .text(label)]
             )
         }
 
@@ -352,14 +374,16 @@ enum SQLiteSceneRows {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 """,
                 [
-                    .text(id), .integer(appID), .text(sceneID), .text(key), .text(scope),
-                    parent.map(SQLiteValue.text) ?? .null, label.map(SQLiteValue.text) ?? .null,
+                    integerKeys ? .null : .text(id), .integer(appID), try DB2CIdentity.key(transaction, "brain_scenes", sceneID), .text(key), .text(scope),
+                    try DB2CIdentity.key(transaction, "brain_scene_elements", parent), label.map(SQLiteValue.text) ?? .null,
                     origin.map { .text($0.rawValue) } ?? .null, role.map(SQLiteValue.text) ?? .null,
                     kind.map(SQLiteValue.text) ?? .null, .integer(nowMS), .integer(nowMS),
                 ]
             )
-            elementIDs[key] = id
-            return id
+            let assigned = integerKeys
+                ? String(try transaction.query("SELECT last_insert_rowid()") { $0.integer(0) ?? 0 }.first ?? 0) : id
+            elementIDs[key] = assigned
+            return assigned
         }
         /// The container element of a path, creating its chain parent first; nil for the root.
         func container(_ path: String) throws -> String? {
@@ -400,5 +424,6 @@ enum SQLiteSceneRows {
             _ = try insert(key: "item_template|\(path)", scope: "item_template", parent: collection,
                            role: "AXRow", label: nil, origin: nil, kind: nil)
         }
+        try DB2CCoherence.validate(transaction)
     }
 }

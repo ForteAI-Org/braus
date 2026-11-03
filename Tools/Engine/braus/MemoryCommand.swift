@@ -23,6 +23,25 @@ import SQLiteMemory
 enum MemoryCommand {
 
     static func run(_ invocation: Invocation) async throws {
+        let directory = Runtime.knowledgeDirectory(invocation)
+        if invocation.flags.contains("rollback") {
+            let copyName = try invocation.positional(0, "<retained-copy-name>")
+            try SQLiteMemoryStore.rollBack(at: directory.appendingPathComponent("memory.sqlite"), to: copyName)
+            print("the retained archive is restored; schema 22 writes are kept beside it")
+            return
+        }
+        let service = MemoryService.shared(for: directory)
+        try await service.setMigrationPolicy(.onlyWithFlag(invocation.flags.contains("migrate")))
+        if invocation.flags.contains("migrate") {
+            _ = try await service.ready()
+            if let migration = await service.status().lastMigration { print(migration) }
+            let otherFlags = invocation.flags.subtracting(["migrate"])
+            let otherOptions = Set(invocation.options.keys).subtracting(["knowledge"])
+            if invocation.positionals.isEmpty, otherFlags.isEmpty, otherOptions.isEmpty {
+                await service.close()
+                return
+            }
+        }
         if invocation.flags.contains("status") {
             printStatus(of: Runtime.knowledgeDirectory(invocation).appendingPathComponent("memory.sqlite"))
             return
@@ -211,8 +230,16 @@ enum MemoryCommand {
         }
     }
 
+    static func reasonCode(for state: PartOperationalState) -> String {
+        switch state {
+        case .usable: "requalified"
+        case .toReevaluate: "judged_wrong"
+        case .retired: "retired_by_person"
+        }
+    }
+
     /// Changes how the procedures are offered, without deleting anything: a part's operational state
-    /// (`--part <id> --state usable|to_reevaluate|retired --reason <text>`; `retired` is final), a
+    /// (`--part <id> --state usable|to_reevaluate|retired`; `retired` is final), a
     /// version evaluated again from the facts under the policy in force (`--requalify <route id>`), or a
     /// qualification policy put in quarantine (`--quarantine-policy <version> --reason <text>`), which
     /// stops offering what it admitted until a build with another policy evaluates the parts again.
@@ -225,9 +252,12 @@ enum MemoryCommand {
                 guard let state = PartOperationalState(rawValue: word) else {
                     throw UsageError.invalid(option: "state", value: word, expected: "usable, to_reevaluate or retired")
                 }
-                guard !reason.isEmpty else { throw UsageError.missing("--reason <text>") }
                 let receipt = try await runtime.service.perform {
-                    try await $0.procedures.setState(state, of: partID, reason: reason, by: "braus-cli", at: now)
+                    try await $0.procedures.setState(
+                        state, of: partID,
+                        reason: reasonCode(for: state),
+                        by: "person", at: now
+                    )
                 }
                 print("\(partID): \(state.rawValue) (\(receipt == .committed ? "recorded" : "already so"))")
             } else if let routeID = invocation.options["requalify"] {

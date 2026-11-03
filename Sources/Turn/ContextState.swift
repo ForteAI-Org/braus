@@ -1,8 +1,8 @@
+@_exported import enum AutomationMCP.SceneContextReset
+
 /// ContextState records why the runner last discarded scene references.
 nonisolated public struct ContextState: Sendable, Equatable {
-    public enum Reason: String, Sendable, Equatable, CaseIterable {
-        case compaction, newSession, sessionSwitch, personHadApp, turnStart
-    }
+    public typealias Reason = SceneContextReset
     public private(set) var lastReset: Reason?
     public private(set) var resets = 0
     public init() {}

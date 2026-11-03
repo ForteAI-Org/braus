@@ -45,7 +45,7 @@ struct PublicSurfaceTests {
         #expect(tools.takeInterpretationReminder() == nil)
         #expect(await tools.interpretLeftCandidate() == nil)
         tools.forgetConversation()
-        tools.forgetScene()
+        tools.contextHolds(after: .compaction)
         tools.markTaskInterrupted()
         try await tools.finishInterruptedTask()
         #expect(tools.takeStoppedTaskNotice() == nil)

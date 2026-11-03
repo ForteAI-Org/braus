@@ -53,15 +53,27 @@ struct SchemaShape: Equatable, Sendable {
         self.init(tables: byType["table"] ?? 0, triggers: byType["trigger"] ?? 0, indexes: byType["index"] ?? 0)
     }
 
-    /// The exact table, trigger and explicit index counts of the current shipped schema.
+    /// The exact table, trigger and explicit index counts of the frozen schema 19 fixture.
     static let current = SchemaShape(tables: 121, triggers: 217, indexes: 75)
 
-    /// Leaves a file of this build at an earlier schema: every trigger, index and table added since is
-    /// dropped, in that order, and the version set back. The current text writes every object of an earlier
+    /// The exact object counts of the approved schema 22 resource.
+    static let active = SchemaShape(tables: 163, triggers: 330, indexes: 91)
+
+    /// Leaves a historical schema 19 fixture at an earlier schema: added triggers, indexes and tables are
+    /// dropped in that order, then the version is set back. The historical text writes earlier objects
     /// schema as it did, so the earlier tables and their rows stay as written: the shape an earlier build
     /// bootstraps, holding facts.
     static func downgrade(_ raw: SQLiteConnection, to version: Int32) throws {
-        for object in try SQLiteMemorySchema.objectsAdded(since: version) {
+        let ddl = try SQLiteMemorySchema.historical19Text()
+        let earlier = try SQLiteMemorySchema.objects(of: SQLiteMemorySchema.text(of: version))
+        let added = try SQLiteMemorySchema.objects(of: ddl).subtracting(earlier)
+        let tables = SQLiteMemorySchema.tableNames(in: ddl)
+        func priority(_ object: SQLiteMemorySchema.SchemaObject) -> (Int, Int, String) {
+            let rank = object.type == "trigger" ? 0 : object.type == "index" ? 1 : 2
+            let position = object.type == "table" ? -(tables.firstIndex(of: object.name) ?? 0) : 0
+            return (rank, position, object.name)
+        }
+        for object in added.sorted(by: { priority($0) < priority($1) }) {
             try raw.execute("DROP \(object.type.uppercased()) \(object.name)")
         }
         try raw.execute("PRAGMA user_version = \(version)")
@@ -91,10 +103,11 @@ struct EventRow: Equatable, Sendable {
 /// repositories will use; here it lives in the test so the store's contract is proven on its own.
 func record(_ event: EventRow, in store: SQLiteMemoryStore) async throws -> MemoryReceipt {
     try await store.write { transaction in
+        let identity = try SQLiteRowIdentity(transaction).usesIntegerKeys ? "event_uuid" : "event_id"
         let stored = try transaction.query(
             """
             SELECT source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status
-            FROM memory_events WHERE event_id = ?
+            FROM memory_events WHERE \(identity) = ?
             """,
             [.text(event.id)]
         ) { row in
@@ -121,7 +134,7 @@ func record(_ event: EventRow, in store: SQLiteMemoryStore) async throws -> Memo
         try transaction.execute(
             """
             INSERT INTO memory_events
-                (event_id, source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
+                (\(identity), source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [.text(event.id), .text(event.source), .text(event.stream), .text(event.key),
@@ -134,10 +147,11 @@ func record(_ event: EventRow, in store: SQLiteMemoryStore) async throws -> Memo
 /// One cycle of `record`, through `attemptWrite`: answers `contention` when the budget is spent.
 func recordOnce(_ event: EventRow, in store: SQLiteMemoryStore) async throws -> MemoryReceipt {
     try await store.attemptWrite { transaction in
+        let identity = try SQLiteRowIdentity(transaction).usesIntegerKeys ? "event_uuid" : "event_id"
         try transaction.execute(
             """
             INSERT INTO memory_events
-                (event_id, source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
+                (\(identity), source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [.text(event.id), .text(event.source), .text(event.stream), .text(event.key),

@@ -70,9 +70,11 @@ public struct SQLiteRecallRepository: Sendable {
     public func startGeneration(format: RecallDocument.Format, spaceID: String?, at nowMS: Int64) async throws -> Generation {
         try await store.write { transaction in
             if let building = try SQLiteRecallRows.generations(transaction, where: "status = 'building'").first { return building }
+            let integerKeys = try DB2CRecallIndexRows.usesIntegerKeys(transaction)
             try transaction.execute(
-                "INSERT INTO memory_recall_generations (document_format, space_id, status, started_at_ms) VALUES (?, ?, 'building', ?)",
-                [.text(format.rawValue), spaceID.map(SQLiteValue.text) ?? .null, .integer(nowMS)]
+                "INSERT INTO memory_recall_generations (document_format, \(integerKeys ? "space_int_id" : "space_id"), status, started_at_ms) VALUES (?, ?, 'building', ?)",
+                [.text(format.rawValue), integerKeys ? try DB2CRecallIndexRows.space(transaction, spaceID) : spaceID.map(SQLiteValue.text) ?? .null,
+                 .integer(nowMS)]
             )
             guard let made = try SQLiteRecallRows.generations(transaction, where: "status = 'building'").first else {
                 throw SQLiteRecallRows.malformed("memory_recall_generations", "building", "not found after its insert")
@@ -143,7 +145,7 @@ public struct SQLiteRecallRepository: Sendable {
     public func pendingWork(limit: Int, below attempts: Int? = nil) async throws -> [Work] {
         try await store.read { snapshot in
             try snapshot.query(
-                "SELECT work_id, route_id, reason, attempts FROM memory_recall_work WHERE done_at_ms IS NULL"
+                "SELECT work_id, \(try DB2CIdentity.publicReference(snapshot, "memory_routes", "memory_recall_work.route_id")), reason, attempts FROM memory_recall_work WHERE done_at_ms IS NULL"
                     + " AND (?1 IS NULL OR attempts < ?1) ORDER BY work_id LIMIT ?2",
                 [attempts.map { .integer(Int64($0)) } ?? .null, .integer(Int64(max(1, limit)))]
             ) { Work(workID: $0.integer(0) ?? 0, routeID: try $0.text(1), reason: try $0.text(2) ?? "", attempts: Int($0.integer(3) ?? 0)) }
@@ -205,14 +207,22 @@ public struct SQLiteRecallRepository: Sendable {
     @discardableResult
     public func enumerate(_ generation: Generation, pageSize: Int, at nowMS: Int64) async throws -> [String] {
         try await store.write { transaction in
+            let integerKeys = try DB2CRecallIndexRows.usesIntegerKeys(transaction)
+            let offered = integerKeys ? DB2CRecallIndexRows.offered : SQLiteProcedureRows.offered
+            let route = integerKeys ? "(SELECT route_uuid FROM memory_routes WHERE route_id = r.route_id)" : "r.route_id"
+            let cursor = integerKeys ? "(SELECT route_id FROM memory_routes WHERE route_uuid = ?)" : "?"
             let routes = try transaction.query(
-                "SELECT DISTINCT r.route_id FROM (\(SQLiteProcedureRows.offered)) o JOIN memory_procedure_parts r ON r.part_id = o.part_id "
-                    + "WHERE r.route_id > ? ORDER BY r.route_id LIMIT ?",
+                "SELECT DISTINCT \(route) FROM (\(offered)) o JOIN memory_procedure_parts r ON r.part_id = o.part_id "
+                    + "WHERE \(route) > ? ORDER BY \(route) LIMIT ?",
                 [.text(generation.cursorRouteID ?? ""), .integer(Int64(max(1, pageSize)))]
             ) { try $0.text(0) ?? "" }
             for route in routes { _ = try SQLiteRecallRows.sync(transaction, routeID: route, generations: [generation], at: nowMS) }
+            if integerKeys {
+                try DB2CRecallIndexRows.validateEnumeration(transaction, generationID: generation.generationID,
+                                                          cursor: routes.last ?? generation.cursorRouteID, enumerated: routes.count < pageSize)
+            }
             try transaction.execute(
-                "UPDATE memory_recall_generations SET cursor_route_id = ?, enumerated = ? WHERE generation_id = ?",
+                "UPDATE memory_recall_generations SET cursor_route_id = \(cursor), enumerated = ? WHERE generation_id = ?",
                 [routes.last.map(SQLiteValue.text) ?? (generation.cursorRouteID.map(SQLiteValue.text) ?? .null),
                  .integer(routes.count < pageSize ? 1 : 0), .integer(generation.generationID)]
             )
@@ -229,6 +239,10 @@ public struct SQLiteRecallRepository: Sendable {
         guard !generationIDs.isEmpty else { return [] }
         if let routes, routes.isEmpty { return [] }
         return try await store.read { snapshot in
+            if try SQLiteRowIdentity(snapshot).usesIntegerKeys {
+                return try DB2CRecallIndexRows.documentsWithoutVector(snapshot, spaceID: spaceID, generationIDs: generationIDs,
+                                                                      routes: routes, limit: limit)
+            }
             var arguments: [SQLiteValue] = [.text(spaceID)]
             var filter = ""
             if let routes {
@@ -252,6 +266,10 @@ public struct SQLiteRecallRepository: Sendable {
     public func store(vectors: [(digest: String, embedded: EmbeddedText)], spaceID: String, at nowMS: Int64) async throws {
         guard !vectors.isEmpty else { return }
         try await store.write { transaction in
+            if try DB2CRecallIndexRows.usesIntegerKeys(transaction) {
+                try DB2CRecallIndexRows.store(transaction, vectors: vectors, spaceID: spaceID)
+                return
+            }
             for (digest, embedded) in vectors {
                 var bytes = [UInt8](repeating: 0, count: embedded.vector.count * 4)
                 for (index, value) in embedded.vector.enumerated() {
@@ -335,7 +353,7 @@ public struct SQLiteRecallRepository: Sendable {
         try await store.read { snapshot in
             let (revision, next) = try Self.revisionAndMark(snapshot, generation)
             let routes = try snapshot.query(
-                "SELECT DISTINCT route_id FROM memory_recall_work WHERE work_id >= ? AND route_id IS NOT NULL ORDER BY route_id LIMIT ?",
+                "SELECT DISTINCT \(try DB2CIdentity.publicReference(snapshot, "memory_routes", "memory_recall_work.route_id")) FROM memory_recall_work WHERE work_id >= ? AND route_id IS NOT NULL ORDER BY route_id LIMIT ?",
                 [.integer(mark), .integer(Int64(limit + 1))]
             ) { try $0.text(0) ?? "" }
             guard routes.count <= limit else { return nil }
@@ -347,6 +365,9 @@ public struct SQLiteRecallRepository: Sendable {
     public func vectors(spaceID: String, digests: [String]) async throws -> [String: [Float]] {
         guard !digests.isEmpty else { return [:] }
         return try await store.read { snapshot in
+            if try DB2CRecallIndexRows.usesIntegerKeys(snapshot) {
+                return try DB2CRecallIndexRows.vectors(snapshot, spaceID: spaceID, digests: digests)
+            }
             var found: [String: [Float]] = [:]
             for start in stride(from: 0, to: digests.count, by: 500) {
                 let page = Array(digests[start..<min(digests.count, start + 500)])
@@ -373,6 +394,9 @@ public struct SQLiteRecallRepository: Sendable {
     }
 
     private static func entries(_ snapshot: SQLiteSnapshot, _ generation: Generation, routes: [String]?) throws -> [IndexEntry] {
+        if try SQLiteRowIdentity(snapshot).usesIntegerKeys {
+            return try DB2CRecallIndexRows.entries(snapshot, generation: generation, routes: routes)
+        }
         var arguments: [SQLiteValue] = [generation.spaceID.map(SQLiteValue.text) ?? .null, .integer(generation.generationID)]
         var filter = ""
         if let routes {
@@ -482,6 +506,29 @@ public struct SQLiteRecallRepository: Sendable {
         try await store.write { transaction in try SQLiteRecallRows.record(transaction, query, at: nowMS) }
     }
 
+    /// Assigns the key under the write reservation, then builds the delivery and facts with that same key.
+    public func recordPrepared<Value: Sendable>(proposedID: String, at nowMS: Int64,
+        build: @escaping @Sendable (String) throws -> (RecordedQuery, Value)
+    ) async throws -> (RecordedQuery, Value) {
+        try await store.write { transaction in
+            let id = try Self.assignedID(transaction, table: "memory_recall_queries", column: "query_id", proposed: proposedID)
+            let (query, value) = try build(id)
+            guard query.queryID == id else { throw SQLiteRecallRows.malformed("memory_recall_queries", id, "assigned identity changed") }
+            try SQLiteRecallRows.record(transaction, query, at: nowMS, assignedIdentity: true)
+            return (query, value)
+        }
+    }
+
+    static func assignedID(_ transaction: SQLiteTransaction, table: String, column: String, proposed: String) throws -> String {
+        guard try SQLiteRowIdentity(transaction).usesIntegerKeys else { return proposed }
+        let maximum = try transaction.query("""
+            SELECT max(coalesce((SELECT max(query_id) FROM memory_recall_queries), 0),
+                       coalesce((SELECT max(proposal_id) FROM memory_recall_proposals), 0))
+            """) { $0.integer(0) ?? 0 }.first ?? 0
+        guard maximum < Int64.max else { throw SQLiteRecallRows.malformed(table, proposed, "integer identity exhausted") }
+        return String(maximum + 1)
+    }
+
     /// StoredSelection is a selected interval of a delivered query of an attempt, with the bindings it was given: the one
     /// selection of a need, or one of the tracts the agent chose for it (`isChoice`, at `selectionPosition`).
     public struct StoredSelection: Sendable {
@@ -514,6 +561,10 @@ public struct SQLiteRecallRepository: Sendable {
     public func link(queryID: String, needPosition: Int, selectionPosition: Int = 0, isChoice: Bool = false, links: [RecallUseLinking.Link],
                      at nowMS: Int64) async throws -> Int {
         try await store.write { transaction in
+            if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+                return try SQLiteRecallRows.link22(transaction, queryID: queryID, needPosition: needPosition,
+                    selectionPosition: selectionPosition, isChoice: isChoice, links: links, at: nowMS)
+            }
             var written = 0
             for link in links {
                 if isChoice {
@@ -547,6 +598,11 @@ public struct SQLiteRecallRepository: Sendable {
     /// Appends the agent's declared use of a need's selection.
     public func report(queryID: String, needPosition: Int, declared: String, cause: String?, note: String?, at nowMS: Int64) async throws {
         try await store.write { transaction in
+            if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+                try SQLiteRecallRows.report22(transaction, queryID: queryID, needPosition: needPosition, declared: declared,
+                    cause: cause, note: note, at: nowMS)
+                return
+            }
             let next = (try transaction.query(
                 "SELECT ifnull(max(sequence), 0) FROM memory_recall_reports WHERE query_id = ? AND need_position = ?",
                 [.text(queryID), .integer(Int64(needPosition))]
@@ -566,7 +622,7 @@ public struct SQLiteRecallRepository: Sendable {
     public func needCount(queryID: String, attemptID: String) async throws -> Int? {
         try await store.read { snapshot in
             let found = try snapshot.query("SELECT count(*) FROM memory_recall_queries WHERE query_id = ? AND task_occurrence_id = ?",
-                                           [.text(queryID), .text(attemptID)]) { $0.integer(0) ?? 0 }.first ?? 0
+                                           [.text(queryID), try DB2CIdentity.key(snapshot, "memory_task_occurrences", attemptID)]) { $0.integer(0) ?? 0 }.first ?? 0
             guard found > 0 else { return nil }
             return Int(try snapshot.query("SELECT count(*) FROM memory_recall_needs WHERE query_id = ?", [.text(queryID)]) {
                 $0.integer(0) ?? 0

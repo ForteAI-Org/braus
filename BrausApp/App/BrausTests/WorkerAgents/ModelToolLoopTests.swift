@@ -558,7 +558,7 @@ struct ModelToolLoopTests {
             session         : { session },
             agents          : { _ in throw AutomationFailure("A loop turn asked for a command line.") },
             transports      : { _ in transport },
-            seatLine        : { seat }
+            seatLine        : { SeatFacts(legacyText: seat) }
         )
         var events    = [WorkerAgentEvent]()
         for prompt in ["Click Button 1.", "Again."] {
@@ -1476,5 +1476,47 @@ struct ModelToolLoopTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         try #require(condition())
+    }
+}
+
+extension ModelToolLoopTests {
+    @Test func takeControlStopsOpenActionReadAndPreservesCall() async throws {
+        let session = UnchangingSession()
+        let entered = Mutex(false)
+        var completed = false
+        session.beforeAction = {
+            let wait = try #require(InterruptibleWait.current)
+            wait.open()
+            defer { wait.close() }
+            let result = await wait.reading {
+                entered.withLock { $0 = true }
+                do { try await Task.sleep(for: .seconds(30)) }
+                catch is CancellationError { return nil as Int? }
+                catch { Issue.record(error); return nil }
+                return 1
+            }
+            #expect(result == nil)
+            #expect(!Task.isCancelled)
+            completed = true
+        }
+        let arguments = "{\"session\":\"\(try #require(session.id).uuidString)\",\"target\":\"Button 1\"}"
+        let transport = ScriptedTransport(supportsTools: true, rounds: [[
+            .toolCall(ToolCall(id: "reading", name: "act", arguments: Data(arguments.utf8))), .completed(usage)
+        ]])
+        let host = WorkerAgentHost(
+            workingDirectory: URL.temporaryDirectory.appending(path: "braus-reading-\(UUID())"),
+            bridgeExecutable: URL(fileURLWithPath: "/nonexistent"), session: { session },
+            agents: { _ in throw AutomationFailure("No CLI expected.") }, transports: { _ in transport }
+        )
+        let turn = Task {
+            try await host.run(prompt: "Act.", selection: ollama, sessionID: nil, role: nil) { _ in }
+        }
+        try await Self.wait { entered.withLock { $0 } }
+        _ = try host.suspendForHumanIntervention()
+        #expect(await host.waitForCallsToDrain(within: .seconds(1)))
+        #expect(completed)
+        turn.cancel()
+        await #expect(throws: WorkerAgentHost.HumanInterventionSuspended.self) { try await turn.value }
+        try await host.close()
     }
 }

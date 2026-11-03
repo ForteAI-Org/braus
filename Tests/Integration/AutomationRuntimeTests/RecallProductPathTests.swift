@@ -14,6 +14,7 @@ import LocalMCP
 import Memory
 @testable import SQLiteMemory
 import Testing
+import Switches
 
 /// RecallProductPathTests prove, through `memory_task` and SQLite with no flag and no control, what the product's one path
 /// of the Recall (the agent's choice) answers in every state an agent meets: an archive with nothing learned, an index not
@@ -164,7 +165,10 @@ struct RecallProductPathTests {
         var configuration = L.configuration(.hybrid)
         configuration.model = .graniteEmbedding107MMultilingual
         configuration.modelsDirectory = session.directory.appendingPathComponent("NoModels", isDirectory: true)
-        let (_, routeID) = try await L.learnPhoto(session, configuration: configuration)
+        let memory = MemoryService.shared(for: session.directory)
+        let missingModel = EmbeddingService { _ in throw EmbeddingService.Unavailable.notInstalled }
+        let service = RecallService(memory: memory, configuration: configuration, embeddingService: missingModel)
+        let (_, routeID) = try await L.learnPhoto(session, configuration: configuration, service: service)
         let proposal = try await P.task(P.tools(session, stream: "asker"), C.proposeRequest)["recall_proposal"]
         #expect(proposal["search"]["channel"].string == "lexical" && proposal["search"]["status"].string == "limited", "\(proposal["search"])")
         #expect(proposal["search"]["note"].string?.contains("the semantic index is unavailable") == true)
@@ -219,40 +223,48 @@ struct RecallProductPathTests {
         await L.close(session)
     }
 
-    // MARK: A measure's control
+    // MARK: Session permissions
 
-    @Test("a measure's control turns the Recall off in its process: nothing fits, the record names the ablation, the task is learned as usual")
-    func measureControl() async throws {
+    @Test("learn skips Recall without changing the shared index")
+    func memoryLearnRecallsNothingAndLearns() async throws {
         let session = P.photoSession(try W.directory())
         let (_, routeID) = try await L.learnPhoto(session)
-        try await MeasureAblation.$testing.withValue(.recall) {
-            let tools = P.tools(session, stream: "control")
-            let proposal = try await P.task(tools, C.proposeRequest)["recall_proposal"]
-            #expect(proposal["sources"].array?.isEmpty == true && proposal["guidance"].string == RecallProposalDelivery.nothingGuidance,
-                    "\(proposal)")
-            #expect(proposal["search"]["note"].string == MeasureAblation.recallNote && proposal["index"]["status"].string == "off",
-                    "the index is said off, never empty: the archive learned the version")
-            #expect(try P.rows("SELECT search_note FROM memory_recall_proposals WHERE source_stream_id = 'control'", in: session)
-                    == [MeasureAblation.recallNote], "the record says the search was turned off, never that nothing was learned")
-            let ended = try await P.task(tools, #"{"operation":"end","outcome":"abandoned"}"#)
-            #expect(ended["status"].string == "ended")
-        }
-        // Without the ablation the same archive offers the version again.
-        let again = try await P.task(P.tools(session, stream: "after-control"), C.proposeRequest)["recall_proposal"]
+        let tools = AutomationTools(session: session, profile: SessionProfile.cli.replacing(memory: .learn))
+        tools.producer = CallProducer(source: .cli, streamID: "juniper")
+        let proposal = try await P.task(tools, C.proposeRequest)["recall_proposal"]
+        #expect(proposal["sources"].array?.isEmpty == true)
+        #expect(proposal["search"]["note"].string == "the session profile does not read memory")
+        #expect(proposal["index"]["status"].string == "off")
+        #expect(proposal["search"]["partsConsidered"] == .number(0))
+        _ = try await P.task(tools, #"{"operation":"end","outcome":"abandoned"}"#)
+        let again = try await P.task(P.tools(session, stream: "juniper-read"), C.proposeRequest)["recall_proposal"]
         #expect(Self.source(again, routeID) != nil)
-        #expect(MeasureAblation.parse("recall, brain") == [.recall, .brain] && MeasureAblation.parse("other").isEmpty)
         await L.close(session)
     }
 
-    @Test("a measure's ablation of the Brain shows each scene as perceived while the Brain still learns from it")
-    func brainAblation() async throws {
+    @Test("off shows the perceived scene and records facts without Brain learning")
+    func memoryOff() async throws {
         let memory = try W.service()
         let window = W.window([W.format, W.save])
-        let recorder = W.recorder(memory)
-        let shown = await MeasureAblation.$testing.withValue(.brain) { await recorder.observe(window) }
-        #expect(shown == window.scene, "no enrichment under the ablation")
+        let shown = await MemoryAccess.$current.withValue(SessionProfile.cli.replacing(memory: .off).memoryAccess) {
+            await W.recorder(memory).observe(window)
+        }
+        #expect(shown == window.scene)
         #expect(await memory.flush(within: .seconds(10)))
-        #expect(try await memory.brain(of: W.bundle)?.objects.isEmpty == false, "the Brain learned all the same")
+        #expect(try await memory.brain(of: W.bundle)?.objects.isEmpty != false)
+        await memory.close()
+    }
+
+    @Test("the scene switch off preserves recording with the historical projection frozen")
+    func brainEnrichmentOffKeepsProjectionFrozen() async throws {
+        let memory = try W.service()
+        let window = W.window([W.format, W.save])
+        let shown = await SwitchBoard.$testing.withValue(SwitchBoard(values: ["brain_enrichment": "off"])) {
+            await W.recorder(memory).observe(window)
+        }
+        #expect(shown == window.scene)
+        #expect(await memory.flush(within: .seconds(10)))
+        #expect(try await memory.brain(of: W.bundle)?.objects.isEmpty == true)
         await memory.close()
     }
 
@@ -264,18 +276,17 @@ struct RecallProductPathTests {
         configuration.model = .graniteEmbedding107MMultilingual
         configuration.modelsDirectory = session.directory.appendingPathComponent("Models", isDirectory: true)
         RecallService.install(RecallService(memory: memory, configuration: configuration))
-        let status = try await P.task(P.tools(session), #"{"operation":"status"}"#)
+        let status = try await P.task(AutomationTools(session: session, profile: .app), #"{"operation":"status"}"#)
         #expect(status["archive"].string == memory.url.path, "\(status)")
         let recall = status["recall"]
         #expect(recall["channel"].string == "hybrid" && recall["owns_index"].bool == true && recall["format"].string == "recall-document-1")
         #expect(recall["model"].string == "ibm-granite/granite-embedding-107m-multilingual@d6cffd338414d6a1c1f5decfad5fec62eebc90d5", "\(recall)")
         #expect(recall["models_folder"].string == configuration.modelsDirectory?.path && recall["model_state"].string == "not loaded yet")
-        // A measure's control is named by the process it runs in, and only then.
-        #expect(status["measure_ablation"] == .null, "\(status)")
-        let controlled = try await MeasureAblation.$testing.withValue([.recall, .brain]) {
-            try await P.task(P.tools(session), #"{"operation":"status"}"#)
-        }
-        #expect(controlled["measure_ablation"].array?.compactMap(\.string) == ["recall", "brain"], "\(controlled)")
+        #expect(status["profile"]["readsMemory"].bool == true)
+        let controlled = try await P.task(AutomationTools(session: session,
+            profile: SessionProfile.cli.replacing(memory: .off)), #"{"operation":"status"}"#)
+        #expect(controlled["profile"]["readsMemory"].bool == false)
+        #expect(controlled["profile"]["learnsMemory"].bool == false)
         await L.close(session)
     }
 

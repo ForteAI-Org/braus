@@ -20,7 +20,7 @@ final class TestTurnHost: TurnHosting {
     }
     func turnBegan() { began += 1 }
     func turnStopping() { stopping += 1 }
-    func seatLine() -> String? { "Braus seat: no session is open." }
+    func seatFacts() -> SeatFacts? { SeatFacts(legacyText: "Braus seat: no session is open.") }
 }
 
 final class TurnTestTransport: ModelTransport {

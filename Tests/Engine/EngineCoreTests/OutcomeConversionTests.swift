@@ -1,4 +1,5 @@
 import EngineCore
+import Switches
 import Testing
 
 struct OutcomeConversionTests {
@@ -43,6 +44,30 @@ struct OutcomeConversionTests {
         for noop in [nil, .listing, .substituted, .statePresent] as [NoopKind?] {
             let value = Outcome.converting(.actedNoop, check: nil, notSent: nil, noop: noop, sceneAttached: false)
             #expect(value.effect == (noop == .statePresent ? .confirmed : .notApplicable))
+        }
+    }
+}
+
+extension OutcomeConversionTests {
+    @Test(arguments: OperationCheck.Verdict.allCases)
+    func uncertainDeliveryKeepsTheObservedVerdict(_ verdict: OperationCheck.Verdict) {
+        SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "on"])) {
+            let check = OperationCheck(condition: .stateAfterGesture, method: .controlState,
+                verdict: verdict, limits: [.deliveryUncertain], performed: .uncertain)
+            let result = Outcome.converting(verdict == .passed ? .foundActed : .actedUnverified,
+                check: check, notSent: nil, noop: nil, sceneAttached: true)
+            #expect(result.gesture == .uncertain)
+            #expect(result.effect == (verdict == .passed ? .confirmed : verdict == .failed ? .absent : .unknown(.notClassified)))
+            #expect(result.recovery == (verdict == .passed ? .continue : .doNotRepeat))
+        }
+    }
+
+    @Test func interruptedUncertainReadingCannotAskForARepeat() {
+        SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "on"])) {
+            let check = OperationCheck(condition: .structuralEffect, method: .sceneDifference,
+                verdict: .unknown, limits: [.deliveryUncertain, .noAfterScene], performed: .uncertain)
+            let result = Outcome.converting(.actedUnverified, check: check, notSent: nil, noop: nil, sceneAttached: false)
+            #expect(result.row == "uncertain · unknown(not_readable) · do_not_repeat")
         }
     }
 }

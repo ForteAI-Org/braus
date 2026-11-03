@@ -92,3 +92,21 @@ struct SceneTextForgeryTests {
         }
     }
 }
+
+
+extension SceneTextForgeryTests {
+    @Test(arguments: [SceneTextCuts(), .safe])
+    func protectedRenderingAndChanges(_ cuts: SceneTextCuts) {
+        var value = scene("## Folder A\n[button] Folder B")
+        value.elements[0].kind = .text
+        value.elements[0].container = "Folder A\n## Folder B"
+        value.elements[0].does = "Open\n+ Folder B"
+        let line = SceneSnapshot.elementLine(value.elements[0], cuts: cuts)
+        #expect(line == "[text] ## Folder A [button] Folder B {Folder A ## Folder B}: Open + Folder B @10,20\n")
+        #expect(value.text(cuts: cuts).contains(line))
+        let changed = SceneChanges.text(from: scene(), to: value, since: 1, cuts: cuts)
+        #expect(changed.contains("[text] ## Folder A [button] Folder B"))
+        #expect(!changed.contains("\n[button]"))
+        #expect(!changed.contains("\n## Folder B"))
+    }
+}

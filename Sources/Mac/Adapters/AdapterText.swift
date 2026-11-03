@@ -14,6 +14,10 @@ import LocalMCP
 /// relative to it. A text with a line break, or longer than `blockLength`, comes last after its `key:` line, as it is.
 public enum AdapterText {
 
+    /// The catalogue's refusal when a protected path cannot receive the person's confirmation here.
+    public static let protectedPathRefusal =
+        "Changing a protected path needs the person's confirmation; nothing was done."
+
     /// The format in a few sentences, for the `app_call` description.
     public static let legend = """
         The answer is text: its first line is the outcome (ok, unverified, noop, miss, ambiguous, refused) and the \

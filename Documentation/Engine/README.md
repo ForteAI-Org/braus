@@ -33,6 +33,11 @@ all, `ActVerification.interrupted` still asks the surface's identity: a Cancel t
 stays closed while the focus is coming back, and anything else is uncertain, which is not a failure
 and is never a reason to send the gesture again.
 
+A bound screen expectation compares only values available to the model; secure and withheld values
+remain unknown. Its final check travels with action and input records to the observer. The call
+recorder retains that check when no explicit end check is supplied, including whether an expectation
+was verified. Without a bound expectation, records retain their existing behavior.
+
 ## Shared turn execution
 
 `Turn` in `Sources/Turn` owns command line turns, the model loop, context resets and
@@ -40,6 +45,13 @@ human suspension. `WorkerAgentHost` supplies application approval scope and even
 `ChatSession` supplies transcript persistence and holds the Seat around the whole runner call,
 including the interpretation reminder. The runner requires `AutomationMCP`, `AutomationRuntime`,
 `AgentLoop` and provider transports, and imports no application UI or workspace storage types.
+
+`SeatLine` owns the pre-turn instructions and facts for both hosts. `SeatFacts` and
+`SeatTaskFacts` live in `AutomationRuntime`, below their producers and the renderer.
+The runner freezes `seat_line` for each turn: v1 preserves the original text, while
+v2 separates instructions from a bounded `braus_state` block with JSON strings.
+V2 requires `tool_surface=v2` before admission. Todo and admitted procedure counts
+remain absent until their respective read contracts are available.
 
 A runner admits one turn at a time. Suspension blocks new calls, interrupts admitted reads and
 waits for admitted actions to finish. The host retains the application episode; only its current
@@ -57,6 +69,18 @@ retain one final usage event. Per-round usage remains open and is outside TU2; `
 unchanged. `TurnBudget.off` preserves the existing loop ceiling while requests and calls are counted.
 Command line contract fixtures and the three original application input fixtures live in
 `Tests/Turn/Fixtures`; host tests locate them from their source paths.
+
+`TaskState` in `Turn` retains typed runner inputs for the open task and checks todo states,
+failures, the latest whole scene revision and a 3,000 token ceiling. Its pure sections preserve
+request and digest operands, net outcomes with call provenance, and explicit observation limits.
+`task_state` defaults to `on`; `off` skips construction. Neither arm adds model messages.
+Section sizes update when their contents change; checks use the cached character total. Failure
+history retains the latest 128 records and input deduplication retains the latest 2,048 keys,
+with separate dropped counts. Reapplying a key older than that retention window is a new input.
+`LatestSceneProviding` defaults to nil until the scene owner connects it. Dispatcher inputs and
+loaded schemas or guides join through `TaskStateInput` in `AutomationRuntime` after their producers
+are connected; tool log text never supplies facts. `TokenEstimate` uses characters divided by four,
+rounded up. This increment performs no storage or model calls for the state.
 
 ## Human intervention in a background session
 
@@ -103,7 +127,7 @@ thread that touched it.
 | `WorkspaceActivation` | `ApplicationActivating` over AppKit's workspace |
 | `Memory` | what the agent remembers, pure: `AppKnowledge` (observed objects per window state, menu commands, the brain, routes), `UIBrain` with `ObjectAnchor`, `SiblingGroup`, `LearnedTransition`, `BrainMatcher`, `BrainUpdater` and `BrainRetention`, `Route`, `Recall` with `RecallEvidence` and `SightingGraph`, `Allowlist`, `KnowledgeCoding`, the role `KnowledgeStoring` with `InMemoryKnowledgeStore`, and `BrainMemory`, which fills `EffectExpecting` and enriches scenes from the stored brain (`BrainReading`); and the contracts of the living memory, pure: the observation contract (`ObservationKind`, `CaptureSample` with `CaptureElement`, `MemoryEventRecord`, `SceneSkeleton` and `SceneStructureMatcher`, `SceneDefinition`), the brain's storage and applications (`BrainStoring`, `BrainApplicationStoring` with `BrainApplicationCommand` and `BrainApplicationKey`, `BrainKeys`, `DecayReport`, `BrainClock`, `TransitionEffectRecord`), the agent calls (`AgentCallStoring` with `AgentTool`, `AgentCallRequest`, `AgentCallRecord`, `AgentCallProgress`, `AgentCallResult`, `ObservedEffect`), the menu commands as data (`MenuCommandStoring`), the observed inputs and explicit attributions (`ObservedInputStoring`, `VerificationStoring`, `TaskAttributionStoring`), the procedures and experiences (`RouteStoring`, `StepOccurrenceStoring`, `ExperienceStoring`), since D2 the procedures built from a task (`ProcedureSegmentation` and `ProcedureCandidate`, `ProcedureInterpretation`, `ProcedureAssembly` and `ProcedureVersion`, `QualificationPolicy` and `PartQualification`, `ProcedureInspection`) and the functional Brain's relations (`BrainRelationPolicy`, `BrainRelation`, `SceneElementKey`, `BrainRelationReading`), the brain's general graph (`BrainGraphStoring`, `MemoryOverview`) and the read of traces (`MemoryTraceReading`); the store's answers (`MemoryStoreError`, `MemoryReceipt`, `MemorySchemaMismatch`, `MemoryTextFault`, `MemorySnapshotRefusal`) |
 | `FileKnowledge` | `KnowledgeStoring` over one JSON file per application: write-behind, a directory lock, daily backups, quarantine and restore; and `FileAllowlistStore`. No source imports it since the Brain moved to SQLite; `braus` still lists it as a dependency and the `BrausEngine` library vends it. The JSON files it wrote are not read at run time |
-| `SQLiteMemory` | the living memory's SQLite store, composed by `AutomationRuntime`'s `MemoryService`: `SQLiteMemoryStore` opens one file, bootstraps current schema 19 from the module's one schema text and migrates only explicitly recognized historical shapes after a verified copy; other shapes are refused, runs typed write and read transactions over a serial writer and a separate reader, checkpoints passively, copies the file through the backup API (`snapshot(to:)`) and reports the reader's `data_version`; the `SQLite*Repository` types fill the `Memory` roles above, one transaction per write. The current table inventory and historical shapes are documented in [Memory schema](MemorySchema.md); do not derive compatibility from a schema version number alone. Schemas 2 to 5 add the facts of D1 and the procedures and relations of D2 with their history of evaluations (`SQLiteProcedureRepository`, `SQLiteBrainRelationRepository`); schema 6 adds the Recall's derived index and its facts (`SQLiteRecallRepository`). See [the memory schema](MemorySchema.md), [the memory contracts](MemoryContracts.md), [the memory procedures](MemoryProcedures.md), [the memory recall](MemoryRecall.md) and [uncertain effects and refusals](MemoryContracts.md#uncertain-effects-and-persistent-refusals) |
+| `SQLiteMemory` | the living memory's SQLite store, composed by `AutomationRuntime`'s `MemoryService`: `SQLiteMemoryStore` opens one file, bootstraps schema 22 and converts recognized historical shapes in a verified new file before exchanging names; the historical source is retained and other shapes are refused, runs typed write and read transactions over a serial writer and a separate reader, checkpoints passively, copies the file through the backup API (`snapshot(to:)`) and reports the reader's `data_version`; the `SQLite*Repository` types fill the `Memory` roles above, one transaction per write. The current table inventory and historical shapes are documented in [Memory schema](MemorySchema.md); do not derive compatibility from a schema version number alone. Schemas 2 to 5 add the facts of D1 and the procedures and relations of D2 with their history of evaluations (`SQLiteProcedureRepository`, `SQLiteBrainRelationRepository`); schema 6 adds the Recall's derived index and its facts (`SQLiteRecallRepository`). See [the memory schema](MemorySchema.md), [the memory contracts](MemoryContracts.md), [the memory procedures](MemoryProcedures.md), [the memory recall](MemoryRecall.md) and [uncertain effects and refusals](MemoryContracts.md#uncertain-effects-and-persistent-refusals) |
 | `LocalEmbedding` | `TextEmbedding` over a pinned local model (`LocalEmbeddingModel`, `EmbeddingModelManifest`): safetensors by memory mapping, the XLM-RoBERTa Unigram tokenizer, a BERT-family encoder on Accelerate, pooling and normalization, every file checked against its sha256. Imports `Memory`, Foundation and Accelerate; no network. The models are installed by `Tools/Engine/Scripts/fetch-recall-model.sh` ([MemoryRecall](MemoryRecall.md#local-embedding)) |
 | `LocalEmbeddingKernels` | the encoder's matrix product over Accelerate's current CBLAS interface, a C target because it needs a define |
 | `memory-probe` (tool, `Tools/Engine/memory-probe`) | a second real process on one store file for the module's tests and `measure-memory-store.sh`: driven by lines on its standard input, one answer per line; a package executable, bundled nowhere |
@@ -449,6 +473,18 @@ brain had learned in the foreground. Two things to watch: the window came back a
 and origin than it left (the Seat's return, not this layer's), and the multi-window follow the
 Driver offers is not yet turned on here.
 
+## Capability schema validation
+
+`Capabilities.SchemaValidation.firstProblem` validates every schema branch before
+checking arguments. Its supported validation keywords are `type`, `enum`, numeric
+bounds, string and array sizes, `uniqueItems`, `items`, `properties`, `required`,
+boolean `additionalProperties`, and `anyOf`/`oneOf`/`allOf`. It also accepts the
+annotations `title`, `description`, `default`, and `examples`. Other keywords,
+including schema-valued `additionalProperties`, return an unsupported-keyword code.
+The root is depth zero; nesting beyond depth 32 is invalid. Escaped property paths
+are limited to 64 Unicode scalars. Failures return typed `SchemaValidation.Code` values;
+AutomationMCP's ModelText owns any eventual model-facing explanations.
+
 ## Contracts
 
 - `ActVerification.verdict` compares a remembered expectation by effect family, never by exact
@@ -719,6 +755,21 @@ manual input, window attribution and production perception. It does not feed the
 For external Claude and Codex clients using the running macOS app, see
 [Local MCP connections](LocalMCP.md).
 
+## Shared embedding lifetime
+
+`LocalEmbedding.EmbeddingService.shared` owns the process's single installed embedding model for
+Recall and the human intervention digest. The first registered source fixes its space and directory;
+other spaces are refused and consumers use their existing fallback. App startup registers the Recall
+source lazily on every Mac; taking control requests eager preparation. Each consumer awaits `ready`
+before using an adapter. Adapters retain only the service, and synchronous `embed` never loads.
+`release()` frees an idle model, or defers until the final inference finishes. A readiness request
+cancels that deferred release. The service owns loading independently of a caller's cancellation;
+completed loading tasks return only status, so they cannot retain a released model. Injected test
+loaders use isolated service instances.
+A loading failure remains permanent until process restart. Before RA4 uses release as a memory
+control, verify the `notLoaded` → `ready` reload loop, including release between readiness and
+inference.
+
 ## SQLite connection execution
 
 `SQLiteMemoryStore` owns a writer on a dedicated serial executor at `userInitiated` QoS.
@@ -847,3 +898,188 @@ last refusal; changed content or a sent gesture clears it for that window. The r
 the exact tool, target, verb, typed arguments and cause in RAM, excluding request tokens and
 correlation IDs. An identical refusal yields `do_not_repeat`; uncertain delivery is never entered
 as a refusal. The default `outcome=v1` retains historical errors and checks.
+
+### Derived work after tool answers
+
+`CallRecorder.begin` opens a pause in `MemoryService`. Scene associations, Brain observations
+and relation evaluations retain their admitted inputs and original instants in typed commands.
+`CallDispatcher` holds the pause through result formatting and signals `answered()` from a defer,
+including error and cancellation exits. Command line producers close in `end`; standalone
+observations close their own pause. Batch steps share their parent's pause.
+
+Each closed pause becomes one queued job and one synchronous store transaction. A failed grouped
+transaction rolls back before each command is attempted separately; failures retain the service's
+commit-based accounting. Service shutdown closes remaining pauses in opening order. Relation
+recovery waits while calls have open pauses. `observe` reads existing knowledge without flushing
+its new learning. Application learning retains anchors and historical group and transition rows.
+Ordinal matching candidates are reconstructed in memory from ungrouped anchors, separately for each
+window and observation representation; this preserves positional recognition without writing groups.
+`BrainIndex` constructs its spatial lookup only when matching reaches ordinal recovery, then shares
+the lookup across matches and copies for that exact immutable snapshot.
+The task-local `CallMinimization` snapshot makes live comparisons use the call's admitted secrets,
+including batch children, and falls back to the Brain's initial minimization outside a call.
+
+### Uncertain delivery and takeover
+
+`EngineCore.DeliveryResult` separates a refused gesture from a delivery that may have acted.
+With `scene_after_uncertain=on`, Engine runs the site's existing reading and verdict once after
+uncertainty, attaches the scene and keeps `deliveryUncertain` in the check. The action record retains
+the delivery diagnostic, so a confirmed effect does not teach a confirmed delivery. The default
+`off` preserves historical answers. Neither arm repeats a failed gesture.
+
+Every Engine gesture passes through `post`. It refuses further input inside an uncertain delivery's
+judge or after a stop request. `InterruptibleWait` opens after a gesture returns, closes with the
+action's outcome and cancels only child readings. A takeover never cancels the mutating call's task,
+so its ordinary completion and memory writes can finish. AutomationRuntime binds this low-level
+contract for TurnRunner without introducing a dependency from Engine to the runtime.
+
+`Outcome.converting` reads the same `scene_after_uncertain` switch through EngineCore's direct
+Switches dependency. The default arm retains historical uncertain rows even when a producer has
+a passing verdict. Open child readings forward caller cancellation as well as takeover stop;
+a stop after a verified outcome preserves that evidence.
+
+With `verdict_v2=on`, a passing effect keeps its verdict after a capped or unwatched wait, with the
+wait limit attached. `second_look=on` permits one additional reading of an eligible unknown effect,
+never another delivery. Both switches default to `off`. Each action owns a locked `VerdictTrace`,
+bound only for that action, which retains its judge and final records until conclusion. Verification
+uses the original before-scene and a budget counted from the last gesture's return (one second,
+two for Mac composition and menu commands). Menu and dialog commands share the menu executor;
+`PerceivedCommand` checks its final scene without starting another reading. Observation callbacks
+may outlive a cut reading in a cancelled child; they are escaping and actor-isolated at that boundary.
+Takeover cancels child readings, removes the after-scene and preserves the first delivery evidence;
+it never cancels the mutating caller's task. In the new arm, an unknown result with `noAfterScene`
+converts to `not_readable` before considering an earlier wait limit. A fixed pause without a settling
+role keeps its historical absence of a `SettleTrail` ending; it does not invent an unwatched wait.
+
+## Task cycle
+
+`task_cycle=v1` retains the existing task tool and responses. The optional `v2` arm serves `plan`
+and `end`, with `step` on gestures. `TaskCycleHandler` owns the live plan, buffered call attribution,
+Stop and delivered-memory state. On tool surface v2, `plan` inputs and `end` result checks use the
+same compact parameter envelopes as the legacy task tool; parsing retains full runtime validation.
+`TaskChannel` joins the first todo to task creation and joins final
+rows and completion evidence to the task's closure. `TodoEvent` belongs to AutomationRuntime and
+reaches hosts through `TurnRunEvent.todo` after a revision commits, on the main actor.
+
+`SQLiteTodoRepository` uses the approved schema 22 resource without creating or migrating tables.
+After DB2 migration, ordinary schema 22 archives expose the todo store automatically.
+An explicitly opened historical schema 19 archive returns `TodoStoreError.unavailable`.
+Row identities remain stable, state and expectations are appended sparsely, and each todo has its
+own optimistic revision sequence. Removed rows remain abandoned history outside the active row cap.
+Changing a finished row's predicate or application reopens it. Stop references consult the latest stored
+check, so changing an expectation cannot reuse an earlier passed verdict.
+
+Schema 22 stores parameter references rather than literal predicate operands. Unrepresentable
+literals, nonempty file-name lists and unresolved predicate applications read back explicitly as
+withheld. A `none` predicate returns the fixed `TaskResultCheck.Expectation.noReadableResultReason`.
+The stored goal-match Boolean is false for the existing `not_assessed` response, and a missing check
+is stored as `unknown`. Neither conversion claims evidence that was not observed.
+
+Call attribution is committed with the following todo revision. Schema 22 has no per-revision call
+link, so revision readback leaves `attributedCalls` empty; `attributedCalls(ofTask:item:)` returns exact
+pairs in event order. Registered capability recording currently exposes no event identity; attribution
+for that route requires its recording integration. Core gesture and batch-child events carry row attribution.
+
+CLI restoration supplies the last task named in the saved conversation through `restoreTaskReference`.
+The archive accepts it only when it is the producer's latest task, abandoned with a final stopped
+revision. It restores verified rows and leaves gesture uncertainty unknown. App hosts retain the normal
+in-process reference. After a restart, the first plan can restore a stopped reference for the same producer
+and trace. An explicit saved task reference uses the same facade when that trace is unavailable.
+
+### Row and gesture expectations
+
+A row opens with its own timestamp and file readings in `TaskCycleHandler`. Changing its predicate
+invalidates those readings. At the next `step` or `end`, the handler reads the result once and appends
+the verdict with the todo revision; it sends no gesture and creates no task-wide result verification.
+`TaskResultCheck.CheckWindow.row` requires a write within that row, while the default `.task` retains
+its existing clock tolerance. Missing row baselines cannot prove changes, preservation, moves, copies
+or a folder guard. Predicate revisions advance even when different operands share the same withheld
+archive representation. Qualification c-2 reads the call's item and predicate interval from SQLite;
+earlier policy evaluations remain stored.
+
+`EngineCore.ScreenExpectation` owns the screen comparison shared by Memory and Engine. Operands stay
+in RAM through a task-local binding. `expect=on` adds the optional predicate to individual Engine
+commands; the default `off` retains their schema. A bound predicate is evaluated regardless of that
+switch. CLI batch `--expect` uses the public `ToolArguments.expectation(from:)` decoder and binds
+each step through the same channel; MCP batch v2 can supply its own binding through that decoder.
+The `menu` and `press` tools do not expose this argument. Engine compares final values and retains
+only the comparison result in the operation check. On the T2 base, pending ES4 integration uses the
+existing volatile action records and input readings for that comparison.
+
+### Batch step policy
+
+`AutomationRuntime.BatchPolicy` owns the pure admission, target resolution, committing-step
+classification and continuation rules shared by MCP and the CLI. `batch=v1` remains the default;
+`batch=v2` checks current targets and typed outcomes within 20 steps, one application and 15 seconds.
+For model turns, `batch=v2` requires `task_cycle=v2`; `TurnRunner` rejects an incompatible
+configuration with `BatchConfigurationError.taskCycleV2Required` before turn admission.
+A committing step requires an expectation, the last position and confirmed earlier outcomes.
+Return and Command-Return are conservatively treated as committing until the consequence classifier
+can refine them. Both runners retain explicit uncertainty when an operation supplies no check,
+matching the evidence the recorder keeps.
+`BatchStepBoundary` forwards the host stop and deadline to a fresh ES3 wait for each step without
+cancelling delivery. Its provisional delivery allowance is three seconds, below the host drain limit.
+`batch_form=in_gestures` serves optional `then` steps through the same MCP runner.
+
+`BatchConclusion` belongs to Memory. SQLite keeps a `batch:v2` discriminator in the batch result's
+otherwise unused message column so complete policy runs also round-trip without changing the schema.
+Stopped runs additionally write `memory_batch_stops` in the parent conclusion transaction, using the
+stored integer event key. Policy runs read their child event UUIDs and saved step checks through the
+schema 22 boundary. Legacy summaries use `producerSummary`, while marked policy runs use `policySummary`.
+
+Recall query, proposal and choice identities are assigned inside the store's write transaction before
+building their deliveries. Assignment changes only the rendered identity and its encoded byte count.
+A calibrated plan proposal shares its assigned identity with its search query; both reserve from the
+query and proposal keys together, and calibration is committed with the proposal. Public route,
+attempt and part UUIDs are resolved at the repository boundary, including admissibility and reuse
+calibration. Session memory access remains per request, and `recall=v1` remains the default.
+
+### Frozen naming projection storage
+
+`BrainReading.indexedProjection` returns an immutable `BrainProjection` that owns its
+`BrainIndex`; its default implementation builds from the current detection-dependent slice.
+`MemoryService` forwards this seam to its repository. `BrainMemory` names each new scene through
+that value and never retains enriched elements.
+`SQLiteBrainRepository` reuses the complete naming inputs only for an open store whose
+verified schema 22 shape guarantees frozen anchors, aliases, groups and memberships.
+Historical mutable stores and a zero-byte cache retain the existing SQL slice path. Snapshots
+with nonempty labels that normalize to empty also use that path: the legacy SQL ordinal lookup
+requires raw empty labels, while the matcher accepts normalized empty labels. Its current result
+is preserved rather than broadening ordinal matches through the full snapshot.
+
+`ProjectionCache.shared` owns one LRU budget across all stores and applications in the process.
+The injectable default is provisionally 8 MiB of estimated retained storage, including strings,
+collection slack and the normalized/spatial index. Oversized snapshots are returned without
+retention. Cache statistics expose hits, misses, loads, index builds, SQL/index durations,
+cached bytes and evicted snapshots still owned by readers. Reader ownership can outlive eviction;
+these bytes are reported separately and are not a bound on total process memory.
+`releaseMemory()` drops retained entries without waiting for readers and prevents pending loads
+from repopulating them. Store close, failed cleanup and rollback retire the store incarnation;
+reopening or replacing an archive uses a new identity even at the same path. Neither path nor
+`ingestEpoch` grants reuse. SQL, index construction and matching run outside the cache mutex.
+Real-scene latency and allocator usage require separate measurement.
+
+## Stopping a Brain read
+
+`BrainReadControl` in Memory belongs to one derived reading. The recorder binds it only
+around enrichment, after essential observation facts and durable work have been kept.
+It observes both the read task's cancellation and the ES3 explicit wait stop, including
+enrichment after the action task has closed its engine wait. A stop returns the live scene
+at nonthrowing Memory boundaries and does not increment failed-read diagnostics. The
+broker and command boundaries discard that scene before returning an action result.
+A stopped action keeps its delivery and verification facts; its owning task is never
+cancelled by this control.
+
+Index construction, spatial lookup, matching, projection row decoding and state loading
+check the read control. SQLiteSnapshot installs a progress handler only for each query
+on its borrowed reader connection, with checks between rows; the handler is removed on
+both success and failure before transaction cleanup or reuse. Writer queries do not
+install it. Sorting, a single label normalization, capture/skeleton construction and one
+structural comparison remain synchronous units; their maximum stop delay is not measured.
+
+Cold projection/index construction and byte accounting check the current read control.
+ProjectionCache checks it again under its bookkeeping lock before publication; the lazy
+spatial index builds outside its lock and publishes only a complete, unstopped value.
+SK3/SK4 will connect
+scheduler ownership and add the integrated suspend/return test in T3/6. Neither that
+scheduler connection nor real workload latency is verified by the offline read tests.

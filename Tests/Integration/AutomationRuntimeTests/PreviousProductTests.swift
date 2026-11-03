@@ -91,7 +91,9 @@ struct PreviousProductTests {
         folders.register()
         let memory = MemoryService.shared(for: folders.knowledge)
         RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
-        _ = try await memory.ready()
+        _ = try await SQLiteMemoryStore.$migrationAvailableSpace.withValue({ _ in Int64.max }) {
+            try await memory.ready()
+        }
         await memory.unificationFinished()
         return memory
     }
@@ -128,13 +130,15 @@ struct PreviousProductTests {
         let earlierFiles = try Self.files(folders.earlier)
         let earlierEvents = try U.count("SELECT count(*) FROM memory_events", at: folders.earlier.appendingPathComponent("memory.sqlite"))
 
-        let memory = try await Self.open(folders)
+        let memory = try await SQLiteMemoryStore.$migrationAvailableSpace.withValue({ _ in Int64.max }) {
+            try await Self.open(folders)
+        }
         let status = await memory.status()
         #expect(status.lastUnification?.contains("Earlier/Knowledge: adopted whole") == true, "\(status.lastUnification ?? "")")
         #expect(status.lastMigration?.contains("from schema d3-7 to \(SQLiteMemorySchema.version)") == true, "\(status.lastMigration ?? "")")
         let url = memory.url
         #expect(try U.count("SELECT count(*) FROM memory_events", at: url) == earlierEvents)
-        #expect(try rawRows("SELECT origin_id || ':' || origin_kind || ':' || status || ':' || location FROM memory_archive_origins", at: url)
+        #expect(try rawRows("SELECT origin_uuid || ':' || origin_kind || ':' || status || ':' || location FROM memory_archive_origins", at: url)
                 == ["previous-product:knowledge:previous_product:completed:Earlier/Knowledge"])
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
         let session = P.photoSession(folders.knowledge)
@@ -156,26 +160,18 @@ struct PreviousProductTests {
     @Test("the earlier name's JSON Brains only: merged once into the new archive, journaled as the earlier name's; reopening merges nothing again")
     func takesTheJSONBrains() async throws {
         let folders = try Self.folders()
-        let scratch = try W.service()
-        let window = W.window([W.format, W.save])
-        var scene = window.scene
-        scene.bundleID = "com.example.Earlier"
-        _ = await CallRecorder(memory: scratch, brain: W.brain(scratch), context: ActionContext(source: .app, streamID: "w"))
-            .observe(PerceivedWindow(scene: scene, frame: window.frame, capture: window.capture, surface: window.surface))
-        #expect(await scratch.flush(within: .seconds(10)))
-        let brain = try #require(try await scratch.brain(of: "com.example.Earlier"))
-        await scratch.close()
+        let brain = W.legacyBrain([W.format, W.save])
         try U.writeJSON(brain, of: "com.example.Earlier", in: folders.earlier)
         let earlierFiles = try Self.files(folders.earlier)
 
         let memory = try await Self.open(folders)
-        #expect(try await memory.brain(of: "com.example.Earlier")?.objects.count == 2)
+        #expect(try await memory.brain(of: "com.example.Earlier") == nil)
         #expect(try rawRows("SELECT origin_kind || ':' || status || ':' || brains_imported FROM memory_archive_origins", at: memory.url)
-                == ["previous_product:completed:1"])
+                == ["previous_product:completed:0"])
         await Self.close(folders)
         let again = try await Self.open(folders)
-        #expect(try rawRows("SELECT count(*) || ':' || sum(brains_imported) FROM memory_archive_origins", at: again.url) == ["1:1"])
-        #expect(try await again.brain(of: "com.example.Earlier")?.objects.count == 2, "merged once")
+        #expect(try rawRows("SELECT count(*) || ':' || sum(brains_imported) FROM memory_archive_origins", at: again.url) == ["1:0"])
+        #expect(try await again.brain(of: "com.example.Earlier") == nil, "merged once")
         await Self.close(folders)
         #expect(try Self.files(folders.earlier) == earlierFiles)
     }
@@ -209,7 +205,7 @@ struct PreviousProductTests {
         let memory = try await Self.open(folders)
         let url = memory.url
         #expect(try U.count("SELECT count(*) FROM memory_events", at: url) == ownEvents + earlierEvents)
-        #expect(try U.count("SELECT count(*) FROM memory_origin_events WHERE origin_id = 'previous-product:knowledge'", at: url) == earlierEvents)
+        #expect(try U.count("SELECT count(*) FROM memory_origin_events WHERE origin_id = (SELECT origin_id FROM memory_archive_origins WHERE origin_uuid = 'previous-product:knowledge')", at: url) == earlierEvents)
         #expect(try rawRows("SELECT origin_kind || ':' || status FROM memory_archive_origins", at: url) == ["previous_product:completed"])
         await Self.close(folders)
         let again = try await Self.open(folders)

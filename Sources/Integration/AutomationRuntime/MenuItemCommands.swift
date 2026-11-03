@@ -18,7 +18,7 @@ public struct MenuItemCommands: MenuCommanding {
     public typealias Command = @MainActor @Sendable (
         _ path     : String,
         _ processID: pid_t,
-        _ observe  : () async throws -> SceneSnapshot
+        _ observe  : @escaping @MainActor () async throws -> SceneSnapshot
     ) async throws -> ActOutcome
 
     private let command       : Command
@@ -34,7 +34,7 @@ public struct MenuItemCommands: MenuCommanding {
     public func performMenuItem(
         _ path      : String,
         in processID: pid_t,
-        observe     : @Sendable () async throws -> SceneSnapshot
+        observe     : @escaping @Sendable () async throws -> SceneSnapshot
     ) async -> ActOutcome? {
         do {
             guard let outcome = Self.dispatched(try await command(path, processID, observe)) else { return nil }

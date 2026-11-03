@@ -36,6 +36,16 @@ struct FilesAdapterTests {
         }
     }
 
+    @Test("outcomes preserve complete file paths")
+    func longPathIsNotTruncated() async throws {
+        let path = "~/" + String(repeating: "synthetic-folder-", count: 5)
+        let result = try await call("make_folder", ["path": path])
+        #expect(result.message.contains(path))
+        #expect(!result.message.contains("…"))
+        let refused = try await call("read", ["path": "/outside/" + String(repeating: "synthetic-", count: 10)])
+        #expect(refused.message.contains("/outside/" + String(repeating: "synthetic-", count: 10)))
+    }
+
     /// A call whose arguments are all texts.
     private func call(_ verb: String, _ arguments: [String: String]) async throws -> AdapterOutcome {
         try await adapter.call(verb, .object(arguments.mapValues { .string($0) }))
@@ -474,5 +484,150 @@ struct FilesAdapterTests {
         #expect(parameter("write", "path")?.isContent == false && parameter("find", "name")?.allowsEmpty == false)
         #expect(verbs["read"]?.contentResults == ["text"] && verbs["list"]?.contentResults == [])
         #expect(verbs["move_to_trash"]?.safety == .irreversible && verbs["write"]?.safety == .write && verbs["cd"]?.safety == .read)
+    }
+    @Test(arguments: ["~/.zshrc", "~/.zprofile", "~/.zshenv", "~/.bashrc", "~/.bash_profile", "~/.profile",
+                      "~/.zlogin", "~/.ssh/x", "~/.gnupg/x", "~/.config/x", "~/.aws/x", "~/.netrc", "~/.gitconfig",
+                      "~/.SSH/config", "~/Documents/../.ssh/x"])
+    func protectedDestinations(path: String) async throws {
+        let confirmation = await adapter.confirmation("write", .object(["path": .string(path), "text": .string("test")]))
+        #expect(confirmation?.reason == .protectedPath)
+        #expect(confirmation?.resolvedArguments["path"].string?.hasPrefix("~/") == true)
+    }
+
+    @Test func protectedMovesAndRelativePaths() async throws {
+        for source in ["~/.ssh/id_ed25519", "~/.zshrc", "~/.ssh"] {
+            let arguments = JSONValue.object(["from": .string(source), "to": .string("~/Documents/old")])
+            #expect(await adapter.confirmation("move", arguments)?.reason == .protectedPath)
+            #expect(await adapter.confirmation("copy", arguments)?.reason == nil)
+        }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Documents"), withIntermediateDirectories: true)
+        _ = try await call("cd", ["path": "~/Documents"])
+        let confirmation = await adapter.confirmation("write", .object(["path": .string("../.zshrc"), "text": .string("x")]))
+        #expect(confirmation?.resolvedArguments["path"] == .string("~/.zshrc"))
+        #expect(await adapter.confirmation("write", .object(["path": .string("a.txt"), "text": .string("x")]))?.reason == nil)
+        #expect(await adapter.confirmation("read", .object(["path": .string("~/.zshrc")])) == nil)
+    }
+
+    @Test func protectedWriteNeedsThePerson() async throws {
+        try touch(".zshrc", "original")
+        let arguments = JSONValue.object(["path": .string("~/.zshrc"), "text": .string("changed"), "overwrite": .bool(true)])
+        let approver = FakeApprover(.refuse)
+        let refused = try await AppAdapters([adapter], approver: approver).call(app: "files", verb: "write", arguments: arguments)
+        #expect(refused.kind == .refused)
+        #expect(await approver.asked.count == 1)
+        #expect(try String(contentsOf: root.appendingPathComponent(".zshrc"), encoding: .utf8) == "original")
+        #expect(try await AppAdapters([adapter]).call(app: "files", verb: "write", arguments: arguments).kind == .refused)
+        let allowed = FakeApprover(.allow)
+        #expect(try await AppAdapters([adapter], approver: allowed).call(app: "files", verb: "write", arguments: arguments).kind == .foundActed)
+        #expect(await allowed.asked.count == 1)
+    }
+
+    @Test func invalidRelativePathsStayRefusedAfterWorkingDirectoryChange() async throws {
+        try touch(".zshrc", "protected")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Documents"), withIntermediateDirectories: true)
+        let outcome = try await AppAdapters([adapter]).call(
+            app: "files", verb: "write",
+            arguments: .object(["path": .string("../.zshrc"), "text": .string("changed"), "overwrite": .bool(true)]),
+            invoking: { _ in
+                do {
+                    let changed = try await adapter.call("cd", .object(["path": .string("~/Documents")]))
+                    #expect(changed.kind == .foundActed)
+                } catch {
+                    Issue.record("Changing the working directory failed: \(error)")
+                }
+            }
+        )
+        #expect(outcome.kind == .refused)
+        #expect(try String(contentsOf: root.appendingPathComponent(".zshrc"), encoding: .utf8) == "protected")
+    }
+
+    @Test(arguments: [false, true])
+    func uncheckedPathsSurviveWorkingDirectoryChange(hasApprover: Bool) async throws {
+        try touch(".zshrc", "protected")
+        try touch("Documents/.zshrc", "ordinary")
+        _ = try await call("cd", ["path": "~/Documents"])
+        let approver = FakeApprover(.refuse)
+        let outcome = try await AppAdapters([adapter], approver: hasApprover ? approver : nil).call(
+            app: "files", verb: "write",
+            arguments: .object(["path": .string(".zshrc"), "text": .string("changed"), "overwrite": .bool(true)]),
+            invoking: { _ in
+                do {
+                    let changed = try await adapter.call("cd", .object(["path": .string("~")]))
+                    #expect(changed.kind == .foundActed)
+                } catch {
+                    Issue.record("Changing the working directory failed: \(error)")
+                }
+            }
+        )
+        #expect(outcome.kind == .foundActed)
+        #expect(await approver.asked.isEmpty)
+        #expect(try String(contentsOf: root.appendingPathComponent(".zshrc"), encoding: .utf8) == "protected")
+        #expect(try String(contentsOf: root.appendingPathComponent("Documents/.zshrc"), encoding: .utf8) == "changed")
+    }
+
+    @Test func approvedPathsSurviveWorkingDirectoryChange() async throws {
+        try touch(".zshrc", "original")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Documents"), withIntermediateDirectories: true)
+        let approver = ChangingDirectoryApprover(adapter: adapter)
+        let outcome = try await AppAdapters([adapter], approver: approver).call(
+            app: "files", verb: "write",
+            arguments: .object(["path": .string(".zshrc"), "text": .string("approved"), "overwrite": .bool(true)])
+        )
+        #expect(outcome.kind == .foundActed)
+        #expect(await approver.path == .string("~/.zshrc"))
+        #expect(try String(contentsOf: root.appendingPathComponent(".zshrc"), encoding: .utf8) == "approved")
+        #expect(!exists("Documents/.zshrc"))
+    }
+
+    actor ChangingDirectoryApprover: AdapterApproving {
+        let adapter: FilesAdapter
+        var path: JSONValue?
+        init(adapter: FilesAdapter) { self.adapter = adapter }
+        func approve(_ consent: AdapterConsent) async -> Bool {
+            path = consent.arguments["path"]
+            do {
+                let outcome = try await adapter.call("cd", .object(["path": .string("~/Documents")]))
+                #expect(outcome.kind == .foundActed)
+                return true
+            } catch {
+                Issue.record("Changing the working directory failed: \(error)")
+                return false
+            }
+        }
+    }
+    @Test func protectedWritesCoverEveryChangingVerb() async throws {
+        for verb in ["write", "append", "edit", "make_folder"] {
+            #expect(await adapter.confirmation(verb, .object(["path": .string("~/.config/new")]))?.reason == .protectedPath)
+        }
+        for verb in ["copy", "move"] {
+            let arguments = JSONValue.object(["from": .string("~/a"), "to": .string("~/.ssh/config")])
+            #expect(await adapter.confirmation(verb, arguments)?.reason == .protectedPath)
+        }
+        let absolute = root.appendingPathComponent(".zshrc").path
+        #expect(await adapter.confirmation("write", .object(["path": .string(absolute)]))?.resolvedArguments["path"]
+            == .string("~/.zshrc"))
+        #expect(await adapter.confirmation("write", .object(["path": .string("~/.ssh-other")]))?.reason == nil)
+    }
+
+    @Test func moveRequiresConsentButCopyingFromProtectedSourceDoesNot() async throws {
+        try touch(".ssh/config", "test")
+        try touch(".zshrc", "test")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Documents"), withIntermediateDirectories: true)
+        let approver = FakeApprover(.refuse)
+        let guarded = AppAdapters([adapter], approver: approver)
+        for source in ["~/.ssh/config", "~/.zshrc"] {
+            let result = try await guarded.call(app: "files", verb: "move",
+                arguments: .object(["from": .string(source), "to": .string("~/Documents")]))
+            #expect(result.kind == .refused)
+        }
+        #expect(await approver.asked.count == 2)
+        #expect(exists(".ssh/config") && exists(".zshrc"))
+        let copied = try await AppAdapters([adapter]).call(app: "files", verb: "copy",
+            arguments: .object(["from": .string("~/.ssh/config"), "to": .string("~/Documents")]))
+        #expect(copied.kind == .foundActed)
+        #expect(exists(".ssh/config") && exists("Documents/config"))
+        let ordinary = try await AppAdapters([adapter]).call(app: "files", verb: "write",
+            arguments: .object(["path": .string("~/Documents/a.txt"), "text": .string("ordinary")]))
+        #expect(ordinary.kind == .foundActed)
     }
 }

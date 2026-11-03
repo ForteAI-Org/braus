@@ -1,12 +1,119 @@
-import AutomationRuntime
+@testable import AutomationRuntime
 import EngineCore
 import Foundation
 import Memory
 import PerceptionCore
+import SQLiteMemory
 import Testing
 
 @Suite("Call recorder input perceptions")
 struct CallRecorderTests {
+
+    @Test func relationRecoveryRunsAfterEndWithoutAnOpenPause() async throws {
+        let memory = try W.service()
+        let recorder = W.recorder(memory)
+        try await recorder.begin(.observe(full: false), app: AppContextIdentity(bundleID: W.bundle))
+        try await recorder.end(.completed, result: nil, tool: .observe)
+        _ = await recorder.observe(W.window([W.open]))
+        await memory.scheduleRelationRecovery()
+        #expect(await memory.flush(within: .seconds(5)))
+        #expect(await memory.status().relationRecoveryPending == false)
+        await memory.close()
+    }
+
+    @Test func answerClosesBeforeTheNextCall() async throws {
+        let memory = try W.service()
+        let first = W.recorder(memory)
+        try await first.begin(.observe(full: false), app: AppContextIdentity(bundleID: W.bundle))
+        await first.holdPauseUntilAnswered()
+        _ = await first.observe(W.window([W.open]))
+        try await first.end(.completed, result: nil, tool: .observe)
+        await first.answered()
+        let status = await memory.status()
+        #expect(status.pending + status.inFlight + status.written == 1)
+        let next = W.recorder(memory)
+        try await next.begin(.observe(full: false), app: AppContextIdentity(bundleID: W.bundle))
+        #expect(await memory.flush(within: .seconds(5)))
+        #expect(await memory.status().written == 1)
+        try await next.end(.completed, result: nil, tool: .observe)
+        await memory.close()
+    }
+
+    @Test(arguments: [false, true])
+    func perceptionAfterEndIsStandalone(keep: Bool) async throws {
+        let memory = try W.service()
+        let recorder = W.recorder(memory)
+        try await recorder.begin(.observe(full: false), app: AppContextIdentity(bundleID: W.bundle))
+        try await recorder.end(.completed, result: nil, tool: .observe)
+        if keep {
+            await recorder.record(InputRecord(bundleID: W.bundle, input: .insertText("fixture", expecting: nil),
+                target: nil, before: W.window([W.open]), after: W.window([W.save])))
+        } else {
+            _ = await recorder.observe(W.window([W.open]))
+        }
+        #expect(await memory.flush(within: .seconds(5)))
+        let phase: CapturePhase = keep ? .before : .current
+        let key = CaptureSampleKey(eventID: recorder.eventID, phase: phase)
+        #expect(try await memory.perform { try await $0.scenes.associations(of: key) }.count == 1)
+        await memory.close()
+    }
+
+    @Test func standaloneObserveDoesNotCloseHeldAnswer() async throws {
+        let memory = try W.service()
+        let recorder = W.recorder(memory)
+        try await recorder.begin(.observe(full: false), app: AppContextIdentity(bundleID: W.bundle))
+        await recorder.holdPauseUntilAnswered()
+        try await recorder.end(.completed, result: nil, tool: .observe)
+        _ = await recorder.observe(W.window([W.open]))
+        #expect(await memory.flush(within: .seconds(1)))
+        #expect(await memory.status().written == 0)
+        await recorder.answered()
+        #expect(await memory.flush(within: .seconds(5)))
+        #expect(await memory.status().written == 1)
+        await memory.close()
+    }
+
+    @Test
+    func endClosesWithoutHold() async throws {
+        let memory = try W.service()
+        let recorder = W.recorder(memory)
+        try await recorder.begin(.observe(full: false), app: AppContextIdentity(bundleID: W.bundle))
+        _ = await recorder.observe(W.window([W.open]))
+        #expect(try await memory.application(.observe(CaptureSampleKey(eventID: recorder.eventID, phase: .current))) == nil)
+        try await recorder.end(.completed, result: nil, tool: .observe)
+        #expect(await memory.flush(within: .seconds(5)))
+        #expect(try await memory.application(.observe(CaptureSampleKey(eventID: recorder.eventID, phase: .current))) == nil)
+        await memory.close()
+    }
+
+    @Test
+    func derivedStartsAfterTheAnswer() async throws {
+        let memory = try W.service()
+        let recorder = W.recorder(memory)
+        try await recorder.begin(.observe(full: false), app: AppContextIdentity(bundleID: W.bundle))
+        await recorder.holdPauseUntilAnswered()
+        _ = await recorder.observe(W.window([W.open]))
+        try await recorder.end(.completed, result: nil, tool: .observe)
+        #expect(await memory.status().written == 0)
+        await recorder.answered()
+        try await PauseTestWait.untilWritten(memory)
+        #expect(await memory.flush(within: .seconds(5)))
+        #expect(await memory.status().written == 1)
+        await memory.close()
+    }
+
+    @Test
+    func observeDoesNotWaitForBrain() async throws {
+        let memory = try W.service()
+        let recorder = W.recorder(memory)
+        try await recorder.begin(.observe(full: false), app: AppContextIdentity(bundleID: W.bundle))
+        await memory.enqueue("slow test work") { _ in try await Task.sleep(for: .milliseconds(500)) }
+        let started = ContinuousClock.now
+        _ = await recorder.observe(W.window([W.open]))
+        #expect(started.duration(to: .now) < .milliseconds(50))
+        try await recorder.end(.completed, result: nil, tool: .observe)
+        await memory.close()
+    }
 
     @Test(arguments: [false, true])
     func inputUpdatesLastPerceived(hasAfter: Bool) async throws {

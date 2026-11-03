@@ -6,6 +6,7 @@
 //
 
 import AutomationRuntime
+import LocalEmbedding
 import SeatBroker
 import SwiftUI
 
@@ -45,6 +46,10 @@ struct BrausApp: App {
     }
 
     init() {
+        let recall = RecallConfiguration.resolved()
+        if recall.channel != .lexical, let manifest = recall.model, let directory = recall.modelsDirectory {
+            EmbeddingService.shared.prepare(.lazy, source: .init(manifest: manifest, directory: directory.appendingPathComponent(manifest.directoryName)))
+        }
         // A restored team window would open the person's workspace; a snapshot run must not, nor an isolated one.
         if Self.isCheckRun || LaunchIsolation.current.isIsolated {
             UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])

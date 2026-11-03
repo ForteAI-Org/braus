@@ -38,6 +38,41 @@ struct ModelProfileTests {
         try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
     }
 
+    private func withoutCacheMarkers(_ blocks: [[String: Any]]) -> [[String: Any]] {
+        blocks.map { block in
+            var result = block
+            result.removeValue(forKey: "cache_control")
+            return result
+        }
+    }
+
+    private func normalizedText(_ value: Any) -> Any {
+        guard let blocks = value as? [[String: Any]] else { return value }
+        let clean = withoutCacheMarkers(blocks)
+        if clean.count == 1, clean[0].count == 2,
+           clean[0]["type"] as? String == "text", let text = clean[0]["text"] as? String {
+            return text
+        }
+        return clean
+    }
+
+    private func normalizedBody(_ body: [String: Any]) -> [String: Any] {
+        var result = body
+        result.removeValue(forKey: "cache_control")
+        if let tools = body["tools"] as? [[String: Any]] {
+            result["tools"] = withoutCacheMarkers(tools)
+        }
+        if let system = body["system"] { result["system"] = normalizedText(system) }
+        if let messages = body["messages"] as? [[String: Any]] {
+            result["messages"] = messages.map { message in
+                var result = message
+                if let content = message["content"] { result["content"] = normalizedText(content) }
+                return result
+            }
+        }
+        return result
+    }
+
     @Test
     func unknownModelGetsThePrudentProfile() {
         let value = profile("unlisted-model")
@@ -115,7 +150,7 @@ struct ModelProfileTests {
     }
 
     @Test
-    func requestBodiesUnchanged() throws {
+    func requestBodiesPreserveFieldsWithExplicitCacheBreakpoints() throws {
         let schema = Data(#"{"type":"object","properties":{"answer":{"type":"string"}}}"#.utf8)
         let schemaObject = try JSONSerialization.jsonObject(with: schema)
         let tool = ToolDefinition(name: "status", description: "Read status.", parameters: schema)
@@ -129,7 +164,7 @@ struct ModelProfileTests {
                     "messages": [["role": "user", "content": "Hello"]],
                 ]
                 #expect(try bytes(client.structuredBody(prompt: "Hello", schema: schema)) == bytes(expected))
-                for includeTools in [false, true] {
+                for (includeTools, includeSystem) in [(false, false), (true, false), (false, true), (true, true)] {
                     var streamed: [String: Any] = [
                         "model": id, "max_tokens": 16000, "stream": true,
                         "cache_control": ["type": "ephemeral"], "system": "Be helpful.",
@@ -141,14 +176,28 @@ struct ModelProfileTests {
                             "name": "status", "description": "Read status.", "input_schema": schemaObject,
                         ]]
                     }
+                    if !includeSystem { streamed.removeValue(forKey: "system") }
                     let actual = try client.requestBody(
-                        messages: [
-                            TurnMessage(role: .system, text: "Be helpful."),
-                            TurnMessage(role: .user, text: "Hello"),
-                        ],
+                        messages: (includeSystem ? [TurnMessage(role: .system, text: "Be helpful.")] : [])
+                            + [TurnMessage(role: .user, text: "Hello")],
                         tools: includeTools ? [tool] : []
                     )
-                    #expect(try bytes(actual) == bytes(streamed))
+                    #expect(try bytes(normalizedBody(actual)) == bytes(normalizedBody(streamed)))
+                    var cached = streamed
+                    cached.removeValue(forKey: "cache_control")
+                    if includeSystem {
+                        cached["system"] = [[
+                            "type": "text", "text": "Be helpful.", "cache_control": ["type": "ephemeral"],
+                        ]]
+                    } else if includeTools {
+                        var markedTools = try #require(cached["tools"] as? [[String: Any]])
+                        markedTools[markedTools.count - 1]["cache_control"] = ["type": "ephemeral"]
+                        cached["tools"] = markedTools
+                    }
+                    cached["messages"] = [["role": "user", "content": [[
+                        "type": "text", "text": "Hello", "cache_control": ["type": "ephemeral"],
+                    ]]]]
+                    #expect(try bytes(actual) == bytes(cached))
                 }
                 var arguments = [
                     "-p", "--output-format", "json", "--json-schema", String(decoding: schema, as: UTF8.self),

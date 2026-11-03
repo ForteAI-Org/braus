@@ -36,6 +36,11 @@ nonisolated struct HumanSceneFinding: Sendable {
         var scenes: [Int: SceneSnapshot] = [:]
         var initialScenes: [Int: SceneSnapshot] = [:]
         var closedWindowNumbers: [Int] = []
+        #if DEBUG
+        // Scene encoding omits label origins; retain only SG3's positions while that provenance is available.
+        var replayProtectedPositions: [Int: [Int]]? = nil
+        var initialReplayProtectedPositions: [Int: [Int]]? = nil
+        #endif
     }
 
     let sequence: UInt64
@@ -44,9 +49,9 @@ nonisolated struct HumanSceneFinding: Sendable {
     let baselineSequence: UInt64?
     let kind: Kind
     let reason: Reason?
-    let compressed: Data
-    private let compressedScenes: Data
-    let rawBytes: Int
+    private(set) var compressed: Data
+    private var compressedScenes: Data
+    private(set) var rawBytes: Int
     var readMilliseconds: Double
     var coveredBySequence: UInt64?
     var inputDuringRead = false
@@ -76,11 +81,21 @@ nonisolated struct HumanSceneFinding: Sendable {
         self.baselineSequence = baselineSequence
         self.kind = kind
         self.reason = reason
-        let evidence = SceneEvidence(
+        var evidence = SceneEvidence(
             scenes: scenes.mapValues(HumanInterventionConsumer.minimized),
             initialScenes: initialScenes.mapValues(HumanInterventionConsumer.minimized),
             closedWindowNumbers: closedWindowNumbers
         )
+        #if DEBUG
+        let classifier = SensitivityClassifier()
+        func protectedPositions(_ scenes: [Int: SceneSnapshot]) -> [Int: [Int]] {
+            scenes.mapValues { scene in
+                scene.elements.indices.filter { classifier.classify(scene.elements[$0]).sensitivity != .ordinary }
+            }
+        }
+        evidence.replayProtectedPositions = protectedPositions(evidence.scenes)
+        evidence.initialReplayProtectedPositions = protectedPositions(evidence.initialScenes)
+        #endif
         let sceneBytes = scenes.isEmpty && initialScenes.isEmpty && closedWindowNumbers.isEmpty
             ? Data() : try JSONEncoder().encode(evidence)
         compressedScenes = sceneBytes.isEmpty ? Data() : try (sceneBytes as NSData).compressed(using: .lzfse) as Data
@@ -121,5 +136,60 @@ nonisolated struct HumanSceneFinding: Sendable {
 }
 
 #if DEBUG
-extension HumanSceneFinding: Codable {}
+import Memory
+
+extension HumanSceneFinding: Codable {
+    /// Decodes and minimizes both compressed payloads before retaining any replay bytes.
+    /// Invalid evidence throws so the writer can omit it and count the omission.
+    func withholding(_ transform: (String) -> String) throws -> HumanSceneFinding {
+        let evidence = try sceneEvidence()
+        let classifier = SensitivityClassifier()
+        var sensitive: Set<String> = []
+        func collect(_ scenes: [Int: SceneSnapshot], positions: [Int: [Int]]?) {
+            for (window, scene) in scenes {
+                let protected = positions?[window].map(Set.init)
+                for index in scene.elements.indices {
+                    let element = scene.elements[index]
+                    let isProtected = protected?.contains(index)
+                        ?? (classifier.classify(element).sensitivity != .ordinary)
+                    guard isProtected else { continue }
+                    if !element.label.isEmpty { sensitive.insert(element.label) }
+                    if let value = element.value, !value.isEmpty { sensitive.insert(value) }
+                }
+            }
+        }
+        collect(evidence.scenes, positions: evidence.replayProtectedPositions)
+        collect(evidence.initialScenes, positions: evidence.initialReplayProtectedPositions)
+        let fragments = sensitive.sorted { $0.count > $1.count }
+        func safe(_ text: String) -> String {
+            var result = transform(text)
+            for fragment in fragments { result = result.replacingOccurrences(of: fragment, with: "[withheld]") }
+            return result
+        }
+        let raw = Data(try safe(text()).utf8)
+        let minimized = try Self.withheldValue(evidence, by: safe)
+        let sceneBytes = try JSONEncoder().encode(minimized)
+        var result = self
+        result.compressed = try (raw as NSData).compressed(using: .lzfse) as Data
+        result.compressedScenes = try (sceneBytes as NSData).compressed(using: .lzfse) as Data
+        result.rawBytes = raw.count + sceneBytes.count
+        result.provenance = try Self.withheldValue(provenance, by: safe)
+        result.recordedAction = try Self.withheldValue(recordedAction, by: safe)
+        return result
+    }
+
+    /// Visits string values, including future Codable text fields; object keys remain structural.
+    private static func withheldValue<T: Codable>(_ value: T, by transform: (String) -> String) throws -> T {
+        func visit(_ value: Any) -> Any {
+            if let text = value as? String { return transform(text) }
+            if let array = value as? [Any] { return array.map(visit) }
+            if let object = value as? [String: Any] { return object.mapValues(visit) }
+            return value
+        }
+        let bytes = try JSONEncoder().encode(value)
+        let object = try JSONSerialization.jsonObject(with: bytes, options: [.fragmentsAllowed])
+        let minimized = try JSONSerialization.data(withJSONObject: visit(object), options: [.fragmentsAllowed])
+        return try JSONDecoder().decode(T.self, from: minimized)
+    }
+}
 #endif

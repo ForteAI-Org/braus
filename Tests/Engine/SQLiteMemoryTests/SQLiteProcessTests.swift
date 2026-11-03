@@ -16,6 +16,25 @@ import Testing
 @Suite("Two real processes on one file")
 struct SQLiteProcessTests {
 
+    @Test("the probe writes event identities in the explicitly selected schema", arguments: [19, 22])
+    func selectedSchema(version: Int) async throws {
+        let url = try temporaryDatabase()
+        let probe = try ProbeProcess()
+        defer { probe.end() }
+        let command = version == 19 ? "open-historical19" : "open"
+        #expect(try await probe.ask("\(command) \(url.path)").hasPrefix("opened bootstrapped=1 version=\(version) "))
+        #expect(try await probe.ask("record e1 k1 100") == "committed")
+        #expect(try await probe.ask("record e1 k1 100") == "alreadyApplied")
+        #expect(try await probe.ask("record e1 k1 200") == "error identity")
+        #expect(try await probe.ask("increment other 2").hasPrefix("incremented 2 last=2"))
+        #expect(try await probe.ask("measure measured 2 8").hasPrefix("measured count=2 "))
+        #expect(try await probe.ask("close") == "closed")
+        let identity = version == 19 ? "event_id" : "event_uuid"
+        let order = version == 19 ? "local_order" : "event_id"
+        #expect(try rawCount("SELECT count(*) FROM memory_events", at: url) == 5)
+        #expect(try rawCount("SELECT \(order) FROM memory_events WHERE \(identity) = 'e1'", at: url) == 1)
+    }
+
     private func walSize(_ url: URL) throws -> UInt64 {
         (try FileManager.default.attributesOfItem(atPath: url.path + "-wal")[.size] as? UInt64) ?? 0
     }
@@ -53,7 +72,12 @@ struct SQLiteProcessTests {
         let store = try await SQLiteMemoryStore.open(at: url)
         #expect(!(try await store.diagnostics().bootstrappedNow))
         #expect(try await count("SELECT count(*) FROM memory_events", in: store) == 2)
-        #expect(try await store.read { try SchemaShape($0) } == SchemaShape.current)
+        let expected = try SQLiteMemorySchema.objects(of: SQLiteMemorySchema.text())
+        #expect(try await store.read { try SchemaShape($0) } == SchemaShape(
+            tables: expected.filter { $0.type == "table" }.count,
+            triggers: expected.filter { $0.type == "trigger" }.count,
+            indexes: expected.filter { $0.type == "index" }.count
+        ))
         await store.close()
     }
 

@@ -21,8 +21,25 @@ public struct SQLiteExperienceRepository: ExperienceStoring {
         self.store = store
     }
 
+    /// Inserts an experience and returns the store-assigned identity on schema 22.
+    public func insert(_ experience: ExperienceRecord) async throws -> (receipt: MemoryReceipt, experience: ExperienceRecord) {
+        if try await store.read({ try SQLiteRowIdentity($0).usesIntegerKeys }) {
+            return try await store.db2BWrite { transaction in try DB2BExperiences.insert(transaction, experience) }
+        }
+        return (try await record(experience), experience)
+    }
+
     public func record(_ experience: ExperienceRecord) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
+            if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+                if let stored = try SQLiteExperienceRows.experience(transaction, id: experience.experienceID) {
+                    guard stored.isExactly(experience) else {
+                        throw SQLiteFactRows.conflict(experience.experienceID, stored: "\(stored)", offered: "\(experience)")
+                    }
+                    return .alreadyApplied
+                }
+                return try DB2BExperiences.insert(transaction, experience).receipt
+            }
             let id = experience.experienceID
             if let stored = try SQLiteExperienceRows.experience(transaction, id: id) {
                 guard stored.isExactly(experience) else { throw SQLiteFactRows.conflict(id, stored: "\(stored)", offered: "\(experience)") }
@@ -70,7 +87,7 @@ public struct SQLiteExperienceRepository: ExperienceStoring {
     }
 
     public func record(_ use: ExperienceUse) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             guard try SQLiteExperienceRows.experience(transaction, id: use.experienceID) != nil else { throw EventFactError.missingDefinition(id: use.experienceID) }
             guard try SQLiteFactRows.exists(transaction, "SELECT count(*) FROM memory_events WHERE event_id = ?", use.eventID) else {
                 throw EventFactError.missingEvent(eventID: use.eventID)
@@ -80,7 +97,7 @@ public struct SQLiteExperienceRepository: ExperienceStoring {
                 return .alreadyApplied
             }
             try transaction.execute("INSERT INTO memory_experience_uses (experience_id, event_id, verdict) VALUES (?, ?, ?)",
-                                    [.text(use.experienceID), .text(use.eventID), .text(use.verdict.rawValue)])
+                                    [try DB2BKeys.local(transaction, use.experienceID), try SQLiteRowIdentity(transaction).key(.event, use.eventID), .text(use.verdict.rawValue)])
             return .committed
         }
     }
@@ -91,7 +108,7 @@ public struct SQLiteExperienceRepository: ExperienceStoring {
 
     public func experiences(ofRoute routeID: String) async throws -> [ExperienceRecord] {
         try await store.read { snapshot in
-            try snapshot.query("SELECT experience_id FROM memory_experiences WHERE route_id = ? ORDER BY experience_id", [.text(routeID)]) { try $0.text(0) ?? "" }
+            try snapshot.query("SELECT experience_id FROM memory_experiences WHERE route_id = ? ORDER BY experience_id", [try DB2BKeys.key(snapshot, routeID, table: "memory_routes", id: "route_id", uuid: "route_uuid")]) { try $0.text(0) ?? "" }
                 .compactMap { try SQLiteExperienceRows.experience(snapshot, id: $0) }
         }
     }
@@ -121,7 +138,9 @@ enum SQLiteExperienceRows {
     /// Every binding names a parameter of the Route that a binding may fill, `input` or `inout`,
     /// with its type, and every required one of those is bound.
     static func checkBindings(_ handle: some SQLiteQuerying, _ experience: ExperienceRecord) throws {
-        let parameters = try SQLiteRouteRows.parameters(handle, routeID: experience.routeID)
+        let parameters = try SQLiteRowIdentity(handle).usesIntegerKeys
+            ? DB2BExperiences.parameters(handle, route: experience.routeID)
+            : SQLiteRouteRows.parameters(handle, routeID: experience.routeID)
         let byID = Dictionary(uniqueKeysWithValues: parameters.map { (Array($0.parameterID.utf8), $0) })
         for binding in experience.bindings {
             guard let parameter = byID[Array(binding.parameterID.utf8)] else { throw EventFactError.missingDefinition(id: binding.parameterID) }
@@ -137,7 +156,7 @@ enum SQLiteExperienceRows {
 
     static func experience(_ handle: some SQLiteQuerying, id: String) throws -> ExperienceRecord? {
         guard let row = try handle.query(
-            "SELECT phrase, route_id, step_id, created_at_ms FROM memory_experiences WHERE experience_id = ?", [.text(id)],
+            "SELECT phrase, \(try SQLiteRowIdentity(handle).usesIntegerKeys ? "(SELECT route_uuid FROM memory_routes r WHERE r.route_id=memory_experiences.route_id)" : "route_id"), \(try DB2CIdentity.publicReference(handle, "memory_route_steps", "step_id")), created_at_ms FROM memory_experiences WHERE experience_id = ?", [try DB2BKeys.local(handle, id)],
             { (phrase: try $0.text(0) ?? "", route: try $0.text(1) ?? "", step: try $0.text(2), created: $0.integer(3) ?? 0) }
         ).first else { return nil }
         func refuse(_ malformation: EventFactError.Malformation) -> EventFactError {
@@ -145,10 +164,10 @@ enum SQLiteExperienceRows {
         }
         let bindings = try handle.query(
             """
-            SELECT parameter_id, value_type, binding_kind, binding_contract_version, slot_name, literal_text, literal_integer, literal_real, literal_boolean
+            SELECT \(try DB2CIdentity.publicReference(handle, "memory_route_parameters", "parameter_id")), value_type, binding_kind, binding_contract_version, slot_name, literal_text, literal_integer, literal_real, literal_boolean
             FROM memory_experience_bindings WHERE experience_id = ? ORDER BY parameter_id
             """,
-            [.text(id)]
+            [try DB2BKeys.local(handle, id)]
         ) { row -> ExperienceBinding in
             let typeCode = try row.text(1) ?? "", kind = try row.text(2) ?? ""
             guard let type = SQLiteRouteRows.code(ParameterValueType.self, typeCode) else { throw refuse(.unknownCode(column: "value_type", code: typeCode)) }
@@ -193,10 +212,10 @@ enum SQLiteExperienceRows {
     static func uses(_ handle: some SQLiteQuerying, of experienceID: String) throws -> [ExperienceUse] {
         try handle.query(
             """
-            SELECT u.event_id, u.verdict FROM memory_experience_uses u JOIN memory_events e ON e.event_id = u.event_id
-            WHERE u.experience_id = ? ORDER BY e.local_order
+            SELECT \(try SQLiteRowIdentity(handle).publicReference(.event, column: "u.event_id")), u.verdict FROM memory_experience_uses u JOIN memory_events e ON e.event_id = u.event_id
+            WHERE u.experience_id = ? ORDER BY \(try DB2BEventSQL.order(handle, alias: "e"))
             """,
-            [.text(experienceID)]
+            [try DB2BKeys.local(handle, experienceID)]
         ) { row in
             let eventID = try row.text(0) ?? "", code = try row.text(1) ?? ""
             guard let verdict = SQLiteRouteRows.code(VerificationVerdict.self, code) else {

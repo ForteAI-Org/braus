@@ -22,6 +22,8 @@ public protocol AccessibilityTreeReading: Sendable {
     /// Whether two handles name the same native element. Readers without identity support answer
     /// false, preserving ambiguity rather than merging different controls by their labels or frames.
     func isSameNode(_ first: Node, _ second: Node) -> Bool
+    /// An opaque physical token shared with focus reads; nil when the reader cannot attest identity.
+    func physicalIdentity(_ node: Node) -> String?
     func role(_ node: Node) -> String?
     func subrole(_ node: Node) -> String?
     func title(_ node: Node) -> String?
@@ -57,6 +59,7 @@ public protocol AccessibilityTreeReading: Sendable {
 }
 
 extension AccessibilityTreeReading {
+    public func physicalIdentity(_ node: Node) -> String? { nil }
     public var requiresValueClassification: Bool { false }
     public func value(_ node: Node, role: String?, subrole: String?) -> String? { value(node) }
     public func numericValue(_ node: Node, role: String?, subrole: String?) -> Int? { numericValue(node) }

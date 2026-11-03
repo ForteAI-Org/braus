@@ -317,10 +317,10 @@ struct ProcedureMethodTests {
         #expect(!catalogue.contains { $0.part.routeID == firstVersion })
         #expect(catalogue.contains { $0.part.routeID == secondVersion && $0.part.kind == .procedure })
         let inheritedFrom = try P.rows(
-            "SELECT e.call_event_id FROM memory_part_qualification_evidence e WHERE e.part_id = '\(secondVersion)/step-5'", in: second)
+            "SELECT e.call_event_id FROM memory_part_qualification_evidence e WHERE e.part_id = (SELECT part_id FROM memory_procedure_parts WHERE part_uuid = '\(secondVersion)/step-5')", in: second)
         let firstCalls = try P.rows(
             "SELECT e.event_id FROM memory_task_events e JOIN memory_agent_actions a ON a.event_id = e.event_id"
-            + " WHERE e.task_occurrence_id = (SELECT task_occurrence_id FROM memory_procedure_versions WHERE route_id = '\(firstVersion)')",
+            + " WHERE e.task_occurrence_id = (SELECT task_occurrence_id FROM memory_procedure_versions WHERE route_id = (SELECT route_id FROM memory_routes WHERE route_uuid = '\(firstVersion)'))",
             in: first)
         #expect(inheritedFrom.count == 1 && firstCalls.contains(inheritedFrom[0]), "the evidence names the first run's call")
         await memory.close()

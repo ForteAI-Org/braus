@@ -114,16 +114,17 @@ private func replay(_ stream: String, chunked size: Int) throws
 @Suite("Anthropic's tool turn on the wire")
 struct AnthropicToolTurnTests {
 
-    @Test func theBodyCarriesToolsSystemAndOneAutomaticCacheBreakpoint() throws {
+    @Test func theBodyCarriesToolsSystemAndTwoExplicitCacheBreakpoints() throws {
         let body = try client.requestBody(
             messages: [TurnMessage(role: .system, text: "Be brief."), TurnMessage(role: .user, text: "ciao")],
             tools: [status])
         #expect(try json(body["tools"] as Any) == #"[{"description":"Read the status.","#
             + #""input_schema":{"properties":{},"type":"object"},"name":"status"}]"#)
-        #expect(try json(body["cache_control"] as Any) == #"{"type":"ephemeral"}"#)
-        #expect(body["system"] as? String == "Be brief.")
+        #expect(body["cache_control"] == nil)
+        #expect(try json(body["system"] as Any)
+            == #"[{"cache_control":{"type":"ephemeral"},"text":"Be brief.","type":"text"}]"#)
         #expect(body["stream"] as? Bool == true)
-        #expect(try json(body["messages"] as Any) == #"[{"content":"ciao","role":"user"}]"#)
+        #expect(try json(body["messages"] as Any) == #"[{"content":[{"cache_control":{"type":"ephemeral"},"text":"ciao","type":"text"}],"role":"user"}]"#)
 
         let textOnly = try client.requestBody(messages: [TurnMessage(role: .user, text: "ciao")], tools: [])
         #expect(textOnly["tools"] == nil)

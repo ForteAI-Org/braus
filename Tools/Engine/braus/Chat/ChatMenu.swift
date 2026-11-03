@@ -64,7 +64,7 @@ enum ChatMenu {
         guard !saved.isEmpty else { return nil }
         print("  0. New conversation")
         for (index, conversation) in saved.prefix(10).enumerated() {
-            print("  \(index + 1). [\(conversation.provider.rawValue)] \(conversation.title)")
+            print("  \(index + 1). [\(conversation.modelProvider ?? conversation.provider.rawValue)] \(conversation.title)")
         }
         guard let answer = await read("Conversation [0] › ") else { throw CancellationError() }
         guard let index = Int(answer.isEmpty ? "0" : answer), index >= 0, index <= min(10, saved.count) else {

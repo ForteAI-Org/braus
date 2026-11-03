@@ -33,22 +33,29 @@ public struct SQLiteBrainGraphRepository: BrainGraphStoring {
     public func link(element sceneElementID: String, toAnchor anchorID: String) async throws -> MemoryReceipt {
         try await store.write { transaction in
             guard let row = try transaction.query(
-                "SELECT app_id, anchor_id FROM brain_scene_elements WHERE scene_element_id = ?", [.text(sceneElementID)],
+                "SELECT app_id, anchor_id FROM brain_scene_elements WHERE scene_element_id = ?", [try DB2CIdentity.key(transaction, "brain_scene_elements", sceneElementID)],
                 { (app: $0.integer(0) ?? 0, anchor: try $0.text(1)) }
             ).first else { throw EventFactError.missingDefinition(id: sceneElementID) }
-            guard try transaction.query("SELECT count(*) FROM brain_anchors WHERE anchor_id = ? AND app_id = ?", [.text(anchorID), .integer(row.app)],
+            guard try transaction.query("SELECT count(*) FROM brain_anchors WHERE anchor_id = ? AND app_id = ?", [try DB2CIdentity.key(transaction, "brain_anchors", anchorID), .integer(row.app)],
                                         { $0.integer(0) ?? 0 }).first ?? 0 > 0 else { throw EventFactError.missingDefinition(id: anchorID) }
             if let current = row.anchor {
                 guard current.utf8.elementsEqual(anchorID.utf8) else { throw SQLiteFactRows.conflict(sceneElementID, stored: current, offered: anchorID) }
                 return .alreadyApplied
             }
-            try transaction.execute("UPDATE brain_scene_elements SET anchor_id = ? WHERE scene_element_id = ?", [.text(anchorID), .text(sceneElementID)])
+            try transaction.execute("UPDATE brain_scene_elements SET anchor_id = ? WHERE scene_element_id = ?", [try DB2CIdentity.key(transaction, "brain_anchors", anchorID), try DB2CIdentity.key(transaction, "brain_scene_elements", sceneElementID)])
+            try DB2CCoherence.validate(transaction)
             return .committed
         }
     }
 
+    public func recordResult(_ arc: BrainArc) async throws -> BrainProjectionWrite<MemoryReceipt> {
+        if try await store.read({ try SQLiteRowIdentity($0).usesIntegerKeys }) { return .frozen }
+        return .applied(try await record(arc))
+    }
+
     public func record(_ arc: BrainArc) async throws -> MemoryReceipt {
         try await store.write { transaction in
+            if try SQLiteRowIdentity(transaction).usesIntegerKeys { return .alreadyApplied }
             if let stored = try SQLiteGraphRows.arc(transaction, id: arc.transitionID) {
                 guard stored.isExactly(arc) else { throw SQLiteFactRows.conflict(arc.transitionID, stored: "\(stored)", offered: "\(arc)") }
                 return .alreadyApplied
@@ -85,10 +92,17 @@ public struct SQLiteBrainGraphRepository: BrainGraphStoring {
         }
     }
 
+    public func updateResult(from expected: BrainArc, to updated: BrainArc) async throws -> BrainProjectionWrite<MemoryReceipt> {
+        if try await store.read({ try SQLiteRowIdentity($0).usesIntegerKeys }) { return .frozen }
+        return .applied(try await update(from: expected, to: updated))
+    }
+
     public func update(from expected: BrainArc, to updated: BrainArc) async throws -> MemoryReceipt {
+        if try await store.read({ try SQLiteRowIdentity($0).usesIntegerKeys }) { return .alreadyApplied }
         guard expected.sameIdentity(as: updated) else { throw EventFactError.immutableField(id: expected.transitionID, field: "arc identity") }
         guard updated.lastSeenMS >= expected.lastSeenMS else { throw EventFactError.immutableField(id: expected.transitionID, field: "last_seen_ms") }
         return try await store.write { transaction in
+            if try SQLiteRowIdentity(transaction).usesIntegerKeys { return .alreadyApplied }
             guard let stored = try SQLiteGraphRows.arc(transaction, id: expected.transitionID) else {
                 throw EventFactError.missingDefinition(id: expected.transitionID)
             }
@@ -129,9 +143,10 @@ public struct SQLiteBrainGraphRepository: BrainGraphStoring {
             }
             try transaction.execute(
                 "INSERT INTO brain_evidence (app_id, event_id, relation, assessed_by, assessment_version, assessed_at_ms, \(column)) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [.integer(appID), .text(evidence.eventID), .text(evidence.relation.rawValue), .text(evidence.assessedBy),
-                 .text(evidence.assessmentVersion), .integer(evidence.assessedAtMS), .text(SQLiteGraphRows.id(of: evidence.target))]
+                [.integer(appID), try DB2CIdentity.key(transaction, "memory_events", evidence.eventID), .text(evidence.relation.rawValue), .text(evidence.assessedBy),
+                 .text(evidence.assessmentVersion), .integer(evidence.assessedAtMS), try DB2CIdentity.key(transaction, SQLiteGraphRows.table(of: evidence.target), SQLiteGraphRows.id(of: evidence.target))]
             )
+            try DB2CCoherence.validate(transaction)
             return .committed
         }
     }
@@ -167,7 +182,7 @@ enum SQLiteGraphRows {
                    role, kind, source, bounds_x, bounds_y, bounds_width, bounds_height, first_seen_ms, last_seen_ms, observation_count
             FROM brain_scene_elements WHERE scene_id = ? ORDER BY scene_element_id
             """,
-            [.text(sceneID)]
+            [try DB2CIdentity.key(handle, "brain_scenes", sceneID)]
         ) { row in
             let id = try row.text(0) ?? ""
             func refuse(_ malformation: EventFactError.Malformation) -> EventFactError {
@@ -233,7 +248,7 @@ enum SQLiteGraphRows {
     static func arc(_ handle: some SQLiteQuerying, id: String) throws -> BrainArc? {
         guard let row = try handle.query(
             """
-            SELECT a.bundle_id, t.from_scene_id, t.anchor_id, t.scene_element_id, t.menu_command_id, t.trigger_kind, t.to_scene_id, t.effect_kind,
+            SELECT a.bundle_id, \(try DB2CIdentity.publicReference(handle, "brain_scenes", "t.from_scene_id")), t.anchor_id, t.scene_element_id, t.menu_command_id, t.trigger_kind, \(try DB2CIdentity.publicReference(handle, "brain_scenes", "t.to_scene_id")), t.effect_kind,
                    t.effect_text, t.required_target_state, t.resulting_target_state, t.last_observed_epoch, t.status, t.first_seen_ms, t.last_seen_ms,
                    t.evidence_count, \(projectionOwned), t.effect_label, t.effect_value
             FROM brain_transitions t JOIN brain_apps a ON a.app_id = t.app_id WHERE t.transition_id = ?
@@ -290,6 +305,17 @@ enum SQLiteGraphRows {
 
     // MARK: Evidence
 
+    static func table(of target: BrainEvidenceTarget) -> String {
+        switch target {
+        case .scene: "brain_scenes"
+        case .anchor: "brain_anchors"
+        case .sceneElement: "brain_scene_elements"
+        case .group: "brain_groups"
+        case .menuCommand: "brain_menu_commands"
+        case .transition: "brain_transitions"
+        }
+    }
+
     static func column(of target: BrainEvidenceTarget) -> String {
         switch target {
             case .scene: "scene_id"
@@ -325,30 +351,30 @@ enum SQLiteGraphRows {
             case .menuCommand: (table, key) = ("brain_menu_commands", "menu_command_id")
             case .transition: (table, key) = ("brain_transitions", "transition_id")
         }
-        guard try count(transaction, "SELECT count(*) FROM \(table) WHERE \(key) = ? AND app_id = ?", [.text(id), .integer(appID)]) > 0 else {
+        guard try count(transaction, "SELECT count(*) FROM \(table) WHERE \(key) = ? AND app_id = ?", [try DB2CIdentity.key(transaction, table, id), .integer(appID)]) > 0 else {
             throw EventFactError.missingDefinition(id: id)
         }
-        guard let eventApp = try SQLiteEventRows.appID(transaction, eventID: evidence.eventID) else { throw EventFactError.missingEvent(eventID: evidence.eventID) }
+        guard let eventApp = try SQLiteEventRows.appID(try DB2CReadRows(transaction), eventID: evidence.eventID) else { throw EventFactError.missingEvent(eventID: evidence.eventID) }
         guard eventApp == appID else { throw EventFactError.invalidRecord(.appContradiction) }
         var source: String?
         switch evidence.target {
             case .scene:
-                guard try count(transaction, "SELECT count(*) FROM brain_scenes WHERE scene_id = ? AND scene_kind = 'app'", [.text(id)]) == 0 else {
+                guard try count(transaction, "SELECT count(*) FROM brain_scenes WHERE scene_id = ? AND scene_kind = 'app'", [try DB2CIdentity.key(transaction, "brain_scenes", id)]) == 0 else {
                     throw EventFactError.invalidRecord(.shape(field: "the application's scope is never evidence"))
                 }
                 source = id
             case .sceneElement:
-                source = try transaction.query("SELECT scene_id FROM brain_scene_elements WHERE scene_element_id = ?", [.text(id)]) { try $0.text(0) }.first ?? nil
+                source = try transaction.query("SELECT \(try DB2CIdentity.publicReference(transaction, "brain_scenes", "brain_scene_elements.scene_id")) FROM brain_scene_elements WHERE scene_element_id = ?", [try DB2CIdentity.key(transaction, "brain_scene_elements", id)]) { try $0.text(0) }.first ?? nil
             case .transition:
                 source = try transaction.query(
-                    "SELECT s.scene_id FROM brain_transitions t JOIN brain_scenes s ON s.scene_id = t.from_scene_id WHERE t.transition_id = ? AND s.scene_kind <> 'app'",
-                    [.text(id)]) { try $0.text(0) }.first ?? nil
+                    "SELECT s.\(try DB2CIdentity.column(transaction, "brain_scenes")) FROM brain_transitions t JOIN brain_scenes s ON s.scene_id = t.from_scene_id WHERE t.transition_id = ? AND s.scene_kind <> 'app'",
+                    [try DB2CIdentity.key(transaction, "brain_transitions", id)]) { try $0.text(0) }.first ?? nil
             default:
                 break
         }
         if let source {
             guard try count(transaction, "SELECT count(*) FROM memory_event_scenes WHERE event_id = ? AND scene_id = ? AND match_status = 'confirmed'",
-                            [.text(evidence.eventID), .text(source)]) > 0 else {
+                            [try DB2CIdentity.key(transaction, "memory_events", evidence.eventID), try DB2CIdentity.key(transaction, "brain_scenes", source)]) > 0 else {
                 throw EventFactError.invalidRecord(.shape(field: "unconfirmed structural source"))
             }
         }
@@ -358,11 +384,11 @@ enum SQLiteGraphRows {
     static func evidence(_ handle: some SQLiteQuerying, ofEvent eventID: String) throws -> [BrainEvidenceRecord] {
         try handle.query(
             """
-            SELECT e.evidence_id, a.bundle_id, e.relation, e.assessed_by, e.assessment_version, e.assessed_at_ms, e.scene_id, e.anchor_id,
-                   e.scene_element_id, e.group_id, e.menu_command_id, e.transition_id
+            SELECT e.evidence_id, a.bundle_id, e.relation, e.assessed_by, e.assessment_version, e.assessed_at_ms, \(try DB2CIdentity.publicReference(handle, "brain_scenes", "e.scene_id")), e.anchor_id,
+                   e.scene_element_id, \(try DB2CIdentity.publicReference(handle, "brain_groups", "e.group_id")), e.menu_command_id, e.transition_id
             FROM brain_evidence e JOIN brain_apps a ON a.app_id = e.app_id WHERE e.event_id = ? ORDER BY e.evidence_id
             """,
-            [.text(eventID)]
+            [try DB2CIdentity.key(handle, "memory_events", eventID)]
         ) { row in
             let id = "\(row.integer(0) ?? 0)"
             func refuse(_ malformation: EventFactError.Malformation) -> EventFactError { .malformedRow(table: "brain_evidence", id: id, malformation: malformation) }

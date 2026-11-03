@@ -19,7 +19,7 @@ struct BrainZoomControls: View {
     var body: some View {
         VStack(spacing: 0) {
             button(
-                "Zoom In",
+                String(localized: "Zoom In"),
                 systemImage: "plus",
                 action     : zoomIn
             )
@@ -28,7 +28,7 @@ struct BrainZoomControls: View {
                 .frame(width: 18)
 
             button(
-                "Zoom Out",
+                String(localized: "Zoom Out"),
                 systemImage: "minus",
                 action     : zoomOut
             )
@@ -37,7 +37,7 @@ struct BrainZoomControls: View {
                 .frame(width: 18)
 
             button(
-                "Zoom to Fit",
+                String(localized: "Zoom to Fit"),
                 systemImage: "viewfinder",
                 action     : fit
             )

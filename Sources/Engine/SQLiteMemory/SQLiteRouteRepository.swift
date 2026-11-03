@@ -69,7 +69,7 @@ public struct SQLiteRouteRepository: RouteStoring {
                 default: break
             }
             try transaction.execute(
-                "UPDATE memory_routes SET status = ?, last_used_ms = ?, demoted_at_ms = ?, demotion_cause = ? WHERE route_id = ?",
+                "UPDATE memory_routes SET status = ?, last_used_ms = ?, demoted_at_ms = ?, demotion_cause = ? WHERE \(try DB2CIdentity.column(transaction, "memory_routes")) = ?",
                 [.text(to.rawValue), updated.lastUsedMS.map(SQLiteValue.integer) ?? .null, updated.demotedAtMS.map(SQLiteValue.integer) ?? .null,
                  updated.demotionCause.map(SQLiteValue.text) ?? .null, .text(routeID)]
             )
@@ -94,7 +94,7 @@ enum SQLiteRouteRows {
     }
 
     static func status(_ handle: some SQLiteQuerying, _ routeID: String) throws -> String? {
-        try handle.query("SELECT status FROM memory_routes WHERE route_id = ?", [.text(routeID)]) { try $0.text(0) ?? "" }.first
+        try handle.query("SELECT status FROM memory_routes WHERE \(try DB2CIdentity.column(handle, "memory_routes")) = ?", [.text(routeID)]) { try $0.text(0) ?? "" }.first
     }
 
     /// Every call of the definition: the called Route exists, each binding names one of its
@@ -171,6 +171,11 @@ enum SQLiteRouteRows {
     // MARK: Writing
 
     static func insert(_ transaction: SQLiteTransaction, _ definition: RouteDefinition, state: RouteState) throws {
+        if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+            try insert22(transaction, definition, state: state)
+            try DB2CCoherence.validate(transaction)
+            return
+        }
         let routeID = definition.routeID
         // Parameter, step, check and operation ids are identities of the whole file, not of the
         // Route: one another definition already holds is a typed refusal, before any row is written.
@@ -321,11 +326,11 @@ enum SQLiteRouteRows {
     }
 
     /// Checks that an anchor, a structural scene or a menu command belongs to the step's application.
-    private static func reference(_ handle: some SQLiteQuerying, _ kind: String, _ id: String, appID: Int64?) throws {
+    static func reference(_ handle: some SQLiteQuerying, _ kind: String, _ id: String, appID: Int64?) throws {
         guard let appID else { throw RouteError.invalidDefinition(.reference(kind: kind, id: id)) }
         let sql = switch kind {
-            case "anchor": "SELECT count(*) FROM brain_anchors WHERE anchor_id = ? AND app_id = ?"
-            case "scene" : "SELECT count(*) FROM brain_scenes WHERE scene_id = ? AND app_id = ? AND scene_kind <> 'app'"
+            case "anchor": "SELECT count(*) FROM brain_anchors WHERE \(try DB2CIdentity.column(handle, "brain_anchors")) = ? AND app_id = ?"
+            case "scene" : "SELECT count(*) FROM brain_scenes WHERE \(try DB2CIdentity.column(handle, "brain_scenes")) = ? AND app_id = ? AND scene_kind <> 'app'"
             default      : "SELECT count(*) FROM brain_menu_commands WHERE menu_command_id = ? AND app_id = ?"
         }
         guard try handle.query(sql, [.text(id), .integer(appID)], { $0.integer(0) ?? 0 }).first ?? 0 > 0 else {
@@ -337,7 +342,7 @@ enum SQLiteRouteRows {
 
     static func parameters(_ handle: some SQLiteQuerying, routeID: String) throws -> [RouteParameter] {
         let rows = try handle.query(
-            "SELECT parameter_id, name, direction, value_type, is_required FROM memory_route_parameters WHERE route_id = ?", [.text(routeID)]
+            "SELECT \(try DB2CIdentity.publicReference(handle, "memory_route_parameters", "memory_route_parameters.parameter_id")), name, direction, value_type, is_required FROM memory_route_parameters WHERE route_id = ?", [try DB2CIdentity.key(handle, "memory_routes", routeID)]
         ) { row in
             let id = try row.text(0) ?? ""
             guard let direction = code(ParameterDirection.self, try row.text(2)), let type = code(ParameterValueType.self, try row.text(3)) else {
@@ -353,7 +358,7 @@ enum SQLiteRouteRows {
     /// 0 ..< n, a reference or a shape a definition may not have, are typed refusals.
     static func read(_ handle: some SQLiteQuerying, routeID: String) throws -> StoredRoute? {
         guard let route = try handle.query(
-            "SELECT name, status, supersedes_route_id, created_at_ms, last_used_ms, demoted_at_ms, demotion_cause FROM memory_routes WHERE route_id = ?",
+            "SELECT name, status, \(try DB2CIdentity.publicReference(handle, "memory_routes", "memory_routes.supersedes_route_id")), created_at_ms, last_used_ms, demoted_at_ms, demotion_cause FROM memory_routes WHERE \(try DB2CIdentity.column(handle, "memory_routes")) = ?",
             [.text(routeID)],
             { row in (name: try row.text(0) ?? "", status: try row.text(1) ?? "", supersedes: try row.text(2), created: row.integer(3) ?? 0,
                       lastUsed: row.integer(4), demoted: row.integer(5), cause: try row.text(6)) }
@@ -367,10 +372,10 @@ enum SQLiteRouteRows {
         let parameters = try self.parameters(handle, routeID: routeID)
         let stepRows = try handle.query(
             """
-            SELECT s.step_id, s.position, s.step_kind, s.goal_text, a.bundle_id, s.called_route_id
+            SELECT \(try DB2CIdentity.publicReference(handle, "memory_route_steps", "s.step_id")), s.position, s.step_kind, s.goal_text, a.bundle_id, \(try DB2CIdentity.publicReference(handle, "memory_routes", "s.called_route_id"))
             FROM memory_route_steps s LEFT JOIN brain_apps a ON a.app_id = s.app_id WHERE s.route_id = ? ORDER BY s.position
             """,
-            [.text(routeID)]
+            [try DB2CIdentity.key(handle, "memory_routes", routeID)]
         ) { (id: try $0.text(0) ?? "", position: $0.integer(1) ?? -1, kind: try $0.text(2) ?? "", goal: try $0.text(3) ?? "",
              bundle: try $0.text(4), callee: try $0.text(5)) }
         var steps: [ProcedureStep] = []
@@ -418,11 +423,11 @@ enum SQLiteRouteRows {
     private static func checks(_ handle: some SQLiteQuerying, stepID: String) throws -> [StepCheck] {
         try handle.query(
             """
-            SELECT check_id, position, check_kind, expected_scene_id, expected_anchor_id, expected_state, expected_text, expected_integer,
-                   expected_real, expected_bool, expected_parameter_id, comparison
+            SELECT \(try DB2CIdentity.publicReference(handle, "memory_step_checks", "memory_step_checks.check_id")), position, check_kind, \(try DB2CIdentity.publicReference(handle, "brain_scenes", "memory_step_checks.expected_scene_id")), \(try DB2CIdentity.publicReference(handle, "brain_anchors", "memory_step_checks.expected_anchor_id")), expected_state, expected_text, expected_integer,
+                   expected_real, expected_bool, \(try DB2CIdentity.publicReference(handle, "memory_route_parameters", "memory_step_checks.expected_parameter_id")), comparison
             FROM memory_step_checks WHERE step_id = ? ORDER BY position
             """,
-            [.text(stepID)]
+            [try DB2CIdentity.key(handle, "memory_route_steps", stepID)]
         ) { row in
             let id = try row.text(0) ?? ""
             func refuse(_ column: String, _ value: String) -> RouteError {
@@ -458,8 +463,8 @@ enum SQLiteRouteRows {
 
     private static func operations(_ handle: some SQLiteQuerying, stepID: String) throws -> [StepOperation] {
         let rows = try handle.query(
-            "SELECT operation_id, parent_operation_id, position, tool_kind, contract_version FROM memory_step_operations WHERE step_id = ? ORDER BY position, operation_id",
-            [.text(stepID)]
+            "SELECT \(try DB2CIdentity.publicReference(handle, "memory_step_operations", "memory_step_operations.operation_id")), \(try DB2CIdentity.publicReference(handle, "memory_step_operations", "memory_step_operations.parent_operation_id")), position, tool_kind, contract_version FROM memory_step_operations WHERE step_id = ? ORDER BY position, operation_id",
+            [try DB2CIdentity.key(handle, "memory_route_steps", stepID)]
         ) { (id: try $0.text(0) ?? "", parent: try $0.text(1), position: $0.integer(2) ?? -1, tool: try $0.text(3) ?? "", version: $0.integer(4) ?? 0) }
         func build(_ row: (id: String, parent: String?, position: Int64, tool: String, version: Int64), children: [StepOperation]) throws -> StepOperation {
             guard row.version == Int64(AgentCallContract.version) else {
@@ -512,11 +517,11 @@ enum SQLiteRouteRows {
         -> [(index: Int, argument: OperationArgument)] {
         let rows = try handle.query(
             """
-            SELECT argument_name, argument_position, argument_index, segment_position, segment_kind, literal_text, parameter_id
+            SELECT argument_name, argument_position, argument_index, segment_position, segment_kind, literal_text, \(try DB2CIdentity.publicReference(handle, "memory_route_parameters", "memory_operation_argument_segments.parameter_id"))
             FROM memory_operation_argument_segments WHERE operation_id = ?
             ORDER BY argument_index, argument_name, argument_position, segment_position
             """,
-            [.text(operationID)]
+            [try DB2CIdentity.key(handle, "memory_step_operations", operationID)]
         ) { row in
             (name: try row.text(0) ?? "", position: row.integer(1) ?? -1, index: row.integer(2) ?? -1, segment: row.integer(3) ?? -1,
              kind: try row.text(4) ?? "", literal: try row.text(5), parameter: try row.text(6))
@@ -555,11 +560,11 @@ enum SQLiteRouteRows {
     private static func rows(_ handle: some SQLiteQuerying, operationID: String) throws -> [OperationArgument] {
         try handle.query(
             """
-            SELECT argument_name, position, value_kind, text_value, integer_value, real_value, boolean_value, parameter_id, anchor_id,
+            SELECT argument_name, position, value_kind, text_value, integer_value, real_value, boolean_value, \(try DB2CIdentity.publicReference(handle, "memory_route_parameters", "memory_operation_arguments.parameter_id")), \(try DB2CIdentity.publicReference(handle, "brain_anchors", "memory_operation_arguments.anchor_id")),
                    menu_command_id, event_id, brain_application_id
             FROM memory_operation_arguments WHERE operation_id = ? ORDER BY argument_id
             """,
-            [.text(operationID)]
+            [try DB2CIdentity.key(handle, "memory_step_operations", operationID)]
         ) { row in
             let name = try row.text(0) ?? ""
             func refuse(_ malformation: RouteError.Malformation) -> RouteError {
@@ -586,10 +591,10 @@ enum SQLiteRouteRows {
     private static func bindings(_ handle: some SQLiteQuerying, stepID: String) throws -> [RouteCallBinding] {
         try handle.query(
             """
-            SELECT called_parameter_id, source_parameter_id, literal_text, literal_integer, literal_real, literal_bool
+            SELECT \(try DB2CIdentity.publicReference(handle, "memory_route_parameters", "memory_route_call_bindings.called_parameter_id")), \(try DB2CIdentity.publicReference(handle, "memory_route_parameters", "memory_route_call_bindings.source_parameter_id")), literal_text, literal_integer, literal_real, literal_bool
             FROM memory_route_call_bindings WHERE step_id = ? ORDER BY called_parameter_id
             """,
-            [.text(stepID)]
+            [try DB2CIdentity.key(handle, "memory_route_steps", stepID)]
         ) { row in
             let called = try row.text(0) ?? ""
             let source: BindingSource

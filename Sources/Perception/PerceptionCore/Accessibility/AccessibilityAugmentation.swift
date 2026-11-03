@@ -145,7 +145,8 @@ public enum AccessibilityAugmentation {
 
         func emit(_ frame: CGRect, role: String, label: String, origin: LabelOrigin?, state: ControlState?,
                   clip: CGRect, container: String?, collectionPath: String?, value: String? = nil,
-                  isEnabled: Bool? = nil, selectedRange: NSRange? = nil, kind: ElementKind = .control) {
+                  isEnabled: Bool? = nil, selectedRange: NSRange? = nil, kind: ElementKind = .control,
+                  nativeIdentity: String? = nil) {
             guard (kind == .text ? staticText.count : out.count) < limits.maxElements else {
                 return stop(.elementLimit)
             }
@@ -167,7 +168,8 @@ public enum AccessibilityAugmentation {
                 isEnabled     : isEnabled,
                 container     : container,
                 labelOrigin   : origin,
-                collectionPath: collectionPath
+                collectionPath: collectionPath,
+                nativeIdentity: nativeIdentity
             )
             if kind == .text { staticText.append(element) } else { out.append(element) }
         }
@@ -335,7 +337,8 @@ public enum AccessibilityAugmentation {
                          value: role == "AXPopUpButton" ? firstText([rawValue, reader.title(node)]) : rawValue,
                          isEnabled: reader.isEnabled(node),
                          selectedRange: !isSecure && textEntryRoles.contains(role)
-                            && (!webContent || reader.isFocused(node) == true) ? reader.selectedRange(node) : nil)
+                            && (!webContent || reader.isFocused(node) == true) ? reader.selectedRange(node) : nil,
+                         nativeIdentity: reader.physicalIdentity(node))
                 }
             }
             if statefulRoles.contains(role), !isSecure, let frame = reader.frame(node) {
@@ -369,7 +372,8 @@ public enum AccessibilityAugmentation {
                          value: role == "AXComboBox" ? rawValue : (role == "AXMenuButton" ? value : nil),
                          isEnabled: reader.isEnabled(node),
                          selectedRange: role == "AXComboBox"
-                            && (!webContent || reader.isFocused(node) == true) ? reader.selectedRange(node) : nil)
+                            && (!webContent || reader.isFocused(node) == true) ? reader.selectedRange(node) : nil,
+                         nativeIdentity: role == "AXComboBox" ? reader.physicalIdentity(node) : nil)
                 }
             }
             var previous: Reader.Node?
@@ -547,6 +551,7 @@ public enum AccessibilityAugmentation {
                 result[index].collectionPath = element.collectionPath
                 result[index].label = element.label
                 result[index].labelOrigin = element.labelOrigin
+                result[index].nativeIdentity = element.nativeIdentity
                 coreKeys[index] = core
                 valueKeys[index] = LabelText.coreKey(element.label)
                 result[index].isUnlabeled = false

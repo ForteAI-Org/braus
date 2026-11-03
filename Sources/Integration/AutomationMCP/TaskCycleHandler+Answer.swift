@@ -104,7 +104,7 @@ extension TaskCycleHandler {
                 // The checkpoint is saved whatever the candidate: a candidate that cannot be built now is
                 // built again from the same facts by `candidate` or the next checkpoint.
                 do {
-                    if let summary = try await ProcedureProducer.candidate(attemptID: current.attemptID, producer: producer,
+                    if access.learns, let summary = try await ProcedureProducer.candidate(attemptID: current.attemptID, producer: producer,
                                                                            memory: memory) {
                         extra["candidate"] = Self.candidate(summary)
                         let candidateID = summary.candidate.candidateID
@@ -166,12 +166,19 @@ extension TaskCycleHandler {
                 }
                 return open(resumed, "resumed", extra)
             case .candidate(let taskID):
+                guard access.learns else {
+                    throw MemoryTaskTool.Failure(code: "learning_disabled", message: ModelText.text(.init(rawValue: "profile.learning_disabled.v1")))
+                }
                 guard let summary = try await ProcedureProducer.candidate(taskID: taskID, producer: producer, memory: memory) else {
                     return .object(["status": .string(ModelText.text(.init(rawValue: "task_cycle_handler__answer.summary.v1"))), "task": .string(taskID),
                                     "message": .string(ModelText.text(.init(rawValue: "task_cycle_handler__answer.summary.v1.2")))])
                 }
                 return .object(["status": .string("candidate"), "task": .string(taskID), "candidate": Self.candidate(summary)])
             case .interpret(let interpretation, let declared, let checks):
+                guard access.learns else {
+                    pendingCandidate = nil
+                    throw MemoryTaskTool.Failure(code: "learning_disabled", message: ModelText.text(.init(rawValue: "profile.learning_disabled.v1")))
+                }
                 keep(declared)
                 // A result the end did not name, read now, before the version is built and qualified on it.
                 var checkedResult: JSONValue?
@@ -250,7 +257,7 @@ extension TaskCycleHandler {
                             + ModelText.text(.init(rawValue: "task_cycle_handler__answer.fact.v1.3")))
                         + ModelText.text(.init(rawValue: "task_cycle_handler__answer.fact.v1.4")))
                 }
-                let left = await unresolvedCalls(memory: memory)
+                let left = try await unresolvedCalls(memory: memory)
                 return .object(["status": .string("reconciled"), "call": .string(call), "finding": .string(finding.rawValue),
                                 "unresolved_calls": .array(left.map(Self.unresolvedJSON))])
             case .use(let uses):
@@ -285,12 +292,7 @@ extension TaskCycleHandler {
                                             "models_folder": recall.modelsFolder.map(JSONValue.string) ?? .null,
                                             "format": .string(recall.format), "owns_index": .bool(recall.ownsIndex),
                                             "model_state": .string(recall.modelState)])
-                // A measure's control names what it turned off, so the run proves it from the process; absent otherwise.
-                let ablation = MeasureAblation.active
-                if !ablation.isEmpty {
-                    let named: [(MeasureAblation, String)] = [(.recall, "recall"), (.brain, "brain")]
-                    answer["measure_ablation"] = .array(named.filter { ablation.contains($0.0) }.map { .string($0.1) })
-                }
+                if reportsProfile { answer["profile"] = profile.status }
                 return .object(answer)
         }
     }

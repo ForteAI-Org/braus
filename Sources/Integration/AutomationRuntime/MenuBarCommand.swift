@@ -439,9 +439,10 @@ public enum MenuBarCommand {
         withFront        : (@escaping @MainActor () -> Void) async -> String?,
         frontReturned    : () -> Bool,
         settling         : (any Settling)? = nil,
-        observe          : () async throws -> SceneSnapshot
+        observe          : @escaping @MainActor () async throws -> SceneSnapshot
     ) async throws -> ActOutcome {
         let before = windowSignature(of: processID)
+        var gestureEnded: ContinuousClock.Instant?
         var frontIssue: String?
         let (pressed, outcome, _, answer) = await runInFront(
             read: {
@@ -452,7 +453,14 @@ public enum MenuBarCommand {
                     closingRefusal   : closingRefusal
                 )
             },
-            press: { AXUIElementPerformAction($0, kAXPressAction as CFString) },
+            press: {
+                let answer = AXUIElementPerformAction($0, kAXPressAction as CFString)
+                if SecondLook.isEnabled {
+                    gestureEnded = .now
+                    if answer == .success || answer == .cannotComplete { InterruptibleWait.current?.open() }
+                }
+                return answer
+            },
             withFront: { command in
                 frontIssue = await withFront(command)
                 return frontIssue
@@ -468,6 +476,7 @@ public enum MenuBarCommand {
             frontIssue   : frontIssue,
             frontReturned: frontReturned,
             settling     : settling,
+            gestureEnded : gestureEnded ?? .now,
             observe      : observe
         )
     }
@@ -490,10 +499,11 @@ public enum MenuBarCommand {
         refresh          : (() async -> Refresh)? = nil,
         preparesEnabledItems: Bool = false,
         settling         : (any Settling)? = nil,
-        observe          : () async throws -> SceneSnapshot
+        observe          : @escaping @MainActor () async throws -> SceneSnapshot
     ) async throws -> ActOutcome {
 
         let before = windowSignature(of: processID)
+        var gestureEnded: ContinuousClock.Instant?
         // A refresh brings the application forward first, which redraws it: no reference then.
         if refresh == nil { await settling?.prepare(in: processID) }
         let (pressed, outcome, _, answer) = await runPrepared(
@@ -506,7 +516,14 @@ public enum MenuBarCommand {
                     closingRefusal   : closingRefusal
                 )
             },
-            press: { AXUIElementPerformAction($0, kAXPressAction as CFString) },
+            press: {
+                let answer = AXUIElementPerformAction($0, kAXPressAction as CFString)
+                if SecondLook.isEnabled {
+                    gestureEnded = .now
+                    if answer == .success || answer == .cannotComplete { InterruptibleWait.current?.open() }
+                }
+                return answer
+            },
             refresh: refresh
         )
         // The press is the call's fact before anything is observed (M05).
@@ -517,6 +534,7 @@ public enum MenuBarCommand {
             processID: processID,
             before   : before,
             settling : settling,
+            gestureEnded: gestureEnded ?? .now,
             observe  : observe
         )
     }
@@ -540,21 +558,48 @@ public enum MenuBarCommand {
         frontReturned: () -> Bool = { false },
         settling     : (any Settling)? = nil,
         signature    : @MainActor (pid_t) -> [String] = windowSignature,
-        observe      : () async throws -> SceneSnapshot
+        secondLookCap: Duration = .seconds(2),
+        gestureEnded : ContinuousClock.Instant = .now,
+        observe      : @escaping @MainActor () async throws -> SceneSnapshot
     ) async throws -> ActOutcome {
         guard let pressed else { return outcome }
-        if let settling {
-            await settling.settle(in: processID, cap: pressSettle)
-        } else {
-            try? await Task.sleep(for: pressSettle)
+        let enabled = SecondLook.isEnabled
+        if enabled { InterruptibleWait.current?.open() }
+        defer { if enabled { InterruptibleWait.current?.close() } }
+        var ended: SettleResult = .unavailable
+        func read() async throws -> SceneSnapshot? {
+            guard enabled, let wait = InterruptibleWait.current else { return try await observe() }
+            let result: Result<SceneSnapshot, any Error>? = await wait.reading {
+                do { return .success(try await observe()) } catch { return .failure(error) }
+            }
+            return try result?.get()
         }
-        let scene: SceneSnapshot
-        var after = signature(processID)
+        let interrupted = ActOutcome(.actedUnverified, outcome.message,
+                                     check: outcome.check ?? windowCheck(.unknown), cause: outcome.cause)
+        func observationFailure(_ error: any Error) -> ActOutcome {
+            ActOutcome(.actedUnverified, outcome.message
+                + OutcomeText.commandObservationFailure + String(describing: error)
+                + OutcomeText.commandObservationRecovery, check: windowCheck(.unknown, limits: [.noAfterScene]))
+        }
+        func changingWindows() -> ActOutcome {
+            ActOutcome(.actedUnverified, OutcomeText.changingWindows(afterPress: pressed),
+                check: windowCheck(.unknown, limits: [enabled ? .settleCapped : .noAfterScene]))
+        }
+        let scene: SceneSnapshot?
+        var firstFailure: ActOutcome?
+        var after: [String] = []
         do {
+            if let settling {
+                ended = await settling.settle(in: processID, cap: pressSettle)
+            } else {
+                if enabled { try await Task.sleep(for: pressSettle) }
+                else { try? await Task.sleep(for: pressSettle) }
+            }
+            after = signature(processID)
             var stable: SceneSnapshot?
             for _ in 0..<3 {
                 try Task.checkCancellation()
-                let candidate = try await observe()
+                guard let candidate = try await read() else { return SecondLook.cut(interrupted) }
                 let current = signature(processID)
                 if current == after {
                     stable = candidate
@@ -562,36 +607,108 @@ public enum MenuBarCommand {
                 }
                 after = current
             }
-            guard let stable else {
-                return ActOutcome(.actedUnverified,
-                    "pressed \(pressed): windows kept changing during observation. Do not repeat this command. "
-                        + "Observe the session before further input.",
-                    check: windowCheck(.unknown, limits: [.noAfterScene]))
+            if stable == nil {
+                firstFailure = changingWindows()
             }
             scene = stable
         } catch {
-            return ActOutcome(.actedUnverified, outcome.message
-                + " Observation after dispatch failed: \(error). Do not repeat this command. "
-                + "Observe the session before further input. If observation stays unavailable, "
-                + "stop and report this error.", check: windowCheck(.unknown, limits: [.noAfterScene]))
+            scene = nil
+            firstFailure = observationFailure(error)
         }
-        if outcome.kind == .actedUnverified, !(frontIssue != nil && frontReturned()) {
-            let check = outcome.check ?? windowCheck(.unknown, limits: [.deliveryUncertain], performed: .uncertain)
-            guard let frontIssue else { return ActOutcome(.actedUnverified, outcome.message, scene: scene, check: check) }
-            return ActOutcome(.actedUnverified, (pressed.hasSuffix(".") ? "pressed \(pressed)" : "pressed \(pressed).")
-                + " \(frontIssue) The scene is attached."
-                + " The seat accepts no input until the front is back with the person's window."
-                + " Do not repeat it blind.", scene: scene, check: check)
+        func judged(_ scene: SceneSnapshot?, after: [String]) -> ActOutcome {
+            if outcome.kind == .actedUnverified, !(frontIssue != nil && frontReturned()) {
+                let check = outcome.check ?? windowCheck(.unknown, limits: [.deliveryUncertain], performed: .uncertain)
+                guard let frontIssue else { return ActOutcome(.actedUnverified, outcome.message, scene: scene, check: check) }
+                return ActOutcome(.actedUnverified, (pressed.hasSuffix(".") ? "pressed \(pressed)" : "pressed \(pressed).")
+                    + " \(frontIssue) The scene is attached."
+                    + " The seat accepts no input until the front is back with the person's window."
+                    + " Do not repeat it blind.", scene: scene, check: check)
+            }
+            let changed = after != before
+            // A window that did not change does not show the command failed: its effect may be elsewhere, so it is unknown.
+            let check = windowCheck(changed ? .passed : .unknown)
+            return changed
+                ? ActOutcome(.foundActed, "pressed \(pressed): a window of the application opened, closed or was retitled",
+                             scene: scene, check: check)
+                : ActOutcome(.actedUnverified, "pressed \(pressed)" + unchangedWindows + "; "
+                             + "the scene shows whether it took effect. Do not press it again blind.",
+                             scene: scene, check: check)
         }
-        let changed = after != before
-        // A window that did not change does not show the command failed: its effect may be elsewhere, so it is unknown.
-        let check = windowCheck(changed ? .passed : .unknown)
-        return changed
-            ? ActOutcome(.foundActed, "pressed \(pressed): a window of the application opened, closed or was retitled",
-                         scene: scene, check: check)
-            : ActOutcome(.actedUnverified, "pressed \(pressed)" + unchangedWindows + "; "
-                         + "the scene shows whether it took effect. Do not press it again blind.",
-                         scene: scene, check: check)
+        var first = firstFailure ?? judged(scene, after: after)
+        if enabled, Task.isCancelled { return SecondLook.cut(first) }
+        if enabled, first.check?.verdict == .unknown, ended != .settled {
+            first = first.with(check: first.check?.adding([ended == .capped ? .settleCapped : .settleUnwatched]))
+        }
+        if enabled { first = first.with(lookedAgain: false, waited: gestureEnded.duration(to: .now)) }
+        guard enabled, let mode = SecondLook.mode(for: first.check, alreadyLooked: false) else { return first }
+        if Task.isCancelled || InterruptibleWait.current?.stopRequested == true { return SecondLook.cut(first) }
+        let cap = SecondLook.remaining(budget: secondLookCap, since: gestureEnded, now: .now)
+        var lastEnding = ended
+        var finalScene: SceneSnapshot?
+        var signatureAtRead = after
+        var windowsKeptChanging = false
+        if mode == .wait, let settling {
+            let waitForWindow: @Sendable () async -> SettleResult? = {
+                await settling.settle(in: processID, cap: cap)
+            }
+            if let wait = InterruptibleWait.current {
+                guard let ending = await wait.reading(waitForWindow) else { return SecondLook.cut(first) }
+                lastEnding = ending
+            } else { lastEnding = await settling.settle(in: processID, cap: cap) }
+        }
+        do {
+            if mode == .wait, settling == nil {
+                var remaining = cap
+                var previous = scene
+                var previousSignature = after
+                lastEnding = .capped
+                while remaining > .zero {
+                    let interval = min(remaining, .milliseconds(250))
+                    if let wait = InterruptibleWait.current {
+                        let result: Result<Bool, any Error>? = await wait.reading {
+                            do { try await Task.sleep(for: interval); return .success(true) }
+                            catch { return .failure(error) }
+                        }
+                        guard let result else { return SecondLook.cut(first) }
+                        _ = try result.get()
+                    } else { try await Task.sleep(for: interval) }
+                    remaining = SecondLook.remaining(budget: secondLookCap, since: gestureEnded, now: .now)
+                    guard let candidate = try await read() else { return SecondLook.cut(first) }
+                    let census = signature(processID)
+                    finalScene = candidate
+                    signatureAtRead = census
+                    windowsKeptChanging = census != previousSignature
+                    if candidate.elements == previous?.elements, candidate.windowTitle == previous?.windowTitle,
+                       census == previousSignature {
+                        lastEnding = .settled
+                        break
+                    }
+                    previous = candidate
+                    previousSignature = census
+                }
+            }
+            if finalScene == nil {
+                signatureAtRead = signature(processID)
+                finalScene = try await read()
+            }
+            guard let finalScene, !Task.isCancelled,
+                  InterruptibleWait.current?.stopRequested != true else { return SecondLook.cut(first) }
+            let census = signature(processID)
+            if Task.isCancelled || InterruptibleWait.current?.stopRequested == true { return SecondLook.cut(first) }
+            if census != signatureAtRead || (lastEnding != .settled && windowsKeptChanging) {
+                return changingWindows().with(lookedAgain: true, waited: gestureEnded.duration(to: .now))
+            }
+            var final = judged(finalScene, after: census)
+            if final.check?.verdict == .unknown, lastEnding != .settled {
+                final = final.with(check: final.check?.adding([lastEnding == .capped ? .settleCapped : .settleUnwatched]))
+            }
+            return final.with(lookedAgain: true, waited: gestureEnded.duration(to: .now))
+        } catch {
+            if Task.isCancelled || InterruptibleWait.current?.stopRequested == true { return SecondLook.cut(first) }
+            return first.with(scene: nil).with(check: first.check?.adding([.noAfterScene]))
+                .with(message: observationFailure(error).message)
+                .with(lookedAgain: true, waited: gestureEnded.duration(to: .now))
+        }
     }
 
     /// What a command whose windows did not change says right after naming what it pressed. `PerceivedCommand`

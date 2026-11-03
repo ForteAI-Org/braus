@@ -81,6 +81,7 @@ actor SQLiteReader {
         var cycle = SQLiteMemoryStore.WaitingCycle(configuration)
         defer { waited += cycle.waited }
         while true {
+            try BrainReadControl.current?.check()
             try pool.check()
             guard let connection else { throw MemoryStoreError.unavailable(.closed) }
             if Task.isCancelled { throw MemoryStoreError.cancelled(.begin) }

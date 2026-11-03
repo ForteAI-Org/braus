@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import PerceptionCore
 
 /// ActionPolicy is the safety rule a model cannot argue with: a target whose label reads as
 /// destructive or irreversible is refused unless the person opted in. Over-matching is the safe
@@ -138,12 +139,12 @@ public enum ActionPolicy {
         application  : String,
         alternatives : [String]
     ) -> String {
-        let name = window.isEmpty ? "its window" : "'\(window)'"
+        let name = window.isEmpty ? "its window" : OutcomeText.quoted(window)
         let controls = alternatives.isEmpty
             ? "a control of the window by name"
-            : "one of its controls by name (\(alternatives.joined(separator: ", ")))"
+            : "one of its controls by name (\(alternatives.map(OutcomeText.quoted).joined(separator: ", ")))"
         let sentence = what.prefix(1).uppercased() + what.dropFirst()
-        return "\(sentence) would close \(name), the only window of \(application), with nothing else open: "
+        return "\(sentence) would close \(name), the only window of \(OutcomeText.quoted(application)), with nothing else open: "
             + "the application may quit. Nothing was sent. Use \(controls), or close the session."
     }
 
@@ -218,5 +219,51 @@ public struct ActionPermissions: Sendable, Equatable, Codable {
             ?? false
         windowClosure                = try container.decodeIfPresent(WindowClosureGuard.self, forKey: .windowClosure)
             ?? WindowClosureGuard()
+    }
+}
+
+/// ComposeField recognizes fields for writing to someone, excluding searches before surface classification.
+public enum ComposeField {
+    public static func isCompose(_ field: SceneElement, onCorrespondenceSurface: Bool) -> Bool {
+        guard AccessibilityAugmentation.textEntryRoles.contains(field.role ?? "") || field.role == "AXTextArea"
+        else { return false }
+        let words = Set(field.label.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+        let search: Set<String> = ["search", "find", "filter", "cerca", "trova", "filtra"]
+        if field.role == "AXSearchField" || !words.isDisjoint(with: search) { return false }
+        if onCorrespondenceSurface { return true }
+        let compose: Set<String> = ["message", "reply", "comment", "chat", "messaggio", "rispondi", "commento"]
+        return !words.isDisjoint(with: compose)
+    }
+}
+
+/// CommittingInput recognizes Return, Command-Return and line breaks directed to a compose field.
+public enum CommittingInput {
+    /// The destination attested by the engine. Unidentified focus commits only on correspondence surfaces.
+    public enum Target: Sendable, Equatable {
+        case field(SceneElement)
+        case unidentified
+    }
+
+    public static func commits(
+        _ input: InputRequest.Input,
+        into target: Target,
+        onCorrespondenceSurface: Bool
+    ) -> Bool {
+        let commits: Bool
+        switch input {
+        case .pressKey(let chord, _):
+            commits = chord.key == .return && (chord.modifiers.isEmpty || chord.modifiers == .command)
+        case .typeText(let text, _, _), .insertText(let text, _):
+            commits = text.contains("\n") || text.contains("\r")
+        case .scroll, .drag, .contextMenu:
+            commits = false
+        }
+        guard commits else { return false }
+        switch target {
+        case .field(let field):
+            return ComposeField.isCompose(field, onCorrespondenceSurface: onCorrespondenceSurface)
+        case .unidentified:
+            return onCorrespondenceSurface
+        }
     }
 }

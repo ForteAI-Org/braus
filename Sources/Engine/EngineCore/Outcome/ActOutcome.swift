@@ -39,13 +39,18 @@ public struct ActOutcome: Sendable, Equatable {
     public let notSent: NotSentCause?
     public let noop: NoopKind?
     public let cause: String?
+    /// Whether this action completed its one additional reading.
+    public let lookedAgain: Bool
+    /// Elapsed time from the last gesture to completion of verification.
+    public let waited: Duration
 
     public var outcome: Outcome {
         Outcome.converting(kind, check: check, notSent: notSent, noop: noop, sceneAttached: scene != nil)
     }
 
     public init(_ kind: ActOutcomeKind, _ message: String, scene: SceneSnapshot? = nil, check: OperationCheck? = nil,
-                notSent: NotSentCause? = nil, noop: NoopKind? = nil, cause: String? = nil) {
+                notSent: NotSentCause? = nil, noop: NoopKind? = nil, cause: String? = nil,
+                lookedAgain: Bool = false, waited: Duration = .zero) {
         self.kind    = kind
         self.message = message
         self.scene   = scene
@@ -53,21 +58,32 @@ public struct ActOutcome: Sendable, Equatable {
         self.notSent = notSent
         self.noop = noop
         self.cause = OutcomeKey.stableCause(cause)
+        self.lookedAgain = lookedAgain
+        self.waited = waited
     }
 
     /// The same outcome with another scene, its check kept.
     public func with(scene: SceneSnapshot?) -> ActOutcome {
-        ActOutcome(kind, message, scene: scene, check: check, notSent: notSent, noop: noop, cause: cause)
+        ActOutcome(kind, message, scene: scene, check: check, notSent: notSent, noop: noop, cause: cause,
+                   lookedAgain: lookedAgain, waited: waited)
     }
 
     /// The same outcome with another message, its scene and check kept.
     public func with(message: String) -> ActOutcome {
-        ActOutcome(kind, message, scene: scene, check: check, notSent: notSent, noop: noop, cause: cause)
+        ActOutcome(kind, message, scene: scene, check: check, notSent: notSent, noop: noop, cause: cause,
+                   lookedAgain: lookedAgain, waited: waited)
     }
 
     /// The same outcome with this check, its kind, message and scene kept.
     public func with(check: OperationCheck?) -> ActOutcome {
-        ActOutcome(kind, message, scene: scene, check: check, notSent: notSent, noop: noop, cause: cause)
+        ActOutcome(kind, message, scene: scene, check: check, notSent: notSent, noop: noop, cause: cause,
+                   lookedAgain: lookedAgain, waited: waited)
+    }
+
+    /// The same evidence with the completed reading and elapsed verification time recorded.
+    public func with(lookedAgain: Bool, waited: Duration) -> ActOutcome {
+        ActOutcome(kind, message, scene: scene, check: check, notSent: notSent, noop: noop, cause: cause,
+                   lookedAgain: lookedAgain, waited: waited)
     }
 
     /// True for the one outcome that claims success. Everything else asks the caller to look again.

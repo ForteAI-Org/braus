@@ -58,6 +58,7 @@ actor MemoryCopyMaintenance {
                 return
             }
             let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            let retained = try SQLiteMigration22.retainedCopyNames(live: directory.appendingPathComponent(configuration.fileName))
             let sidecars = ["-wal", "-shm", "-journal"]
             let names = Set(files.map(\.lastPathComponent))
             let orphaned = Set(files.compactMap { file -> String? in
@@ -65,7 +66,7 @@ actor MemoryCopyMaintenance {
                 guard name.hasPrefix(configuration.fileName + "."),
                       let suffix = sidecars.first(where: name.hasSuffix) else { return nil }
                 let base = String(name.dropLast(suffix.count))
-                guard !names.contains(base), base.hasPrefix(configuration.fileName + ".backup-")
+                guard !names.contains(base), !retained.contains(base), base.hasPrefix(configuration.fileName + ".backup-")
                     || base.hasPrefix(configuration.fileName + ".schema-")
                     || base.contains(".refused") || base.contains(".abandoned") else { return nil }
                 return base
@@ -75,7 +76,8 @@ actor MemoryCopyMaintenance {
             }
             let copies = files.filter { file in
                 let name = file.lastPathComponent
-                return name.hasPrefix(configuration.fileName + ".") && !sidecars.contains(where: name.hasSuffix)
+                return name.hasPrefix(configuration.fileName + ".")
+                    && !sidecars.contains(where: name.hasSuffix)
             }
             for copy in copies where copy.lastPathComponent.hasPrefix(configuration.fileName + ".backup-")
                 && Self.copyDate(copy.lastPathComponent) == nil {
@@ -94,6 +96,7 @@ actor MemoryCopyMaintenance {
                 }
                 try SQLiteArchiveRetirement.protectFamily(copy)
                 try SQLiteArchiveRetirement.excludeFamily(copy)
+                if retained.contains(copy.lastPathComponent) { continue }
                 if index > 0 || now.timeIntervalSince(created) >= 30 * 86_400
                     || verifiedBackupAt.map({ $0 > created }) == true {
                     candidates.append(copy)

@@ -54,6 +54,6 @@ package struct SQLiteSnapshot {
         _ bindings: [SQLiteValue] = [],
         _ row     : (SQLiteStatement.Row) throws -> T
     ) throws -> [T] {
-        try connection.query(sql, bindings, row)
+        try connection.readQuery(sql, bindings, row)
     }
 }

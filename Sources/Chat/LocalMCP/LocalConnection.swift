@@ -20,6 +20,7 @@ final class MCPChannel {
     private var hasStarted = false
     private var isClosed = false
     private var startContinuation: CheckedContinuation<Void, any Error>?
+    private var writeContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
 
     init(_ connection: NWConnection) { self.connection = connection }
 
@@ -77,12 +78,18 @@ final class MCPChannel {
     }
 
     func write(_ value: JSONValue) async throws {
+        guard !isClosed else { throw CancellationError() }
         var data = try JSONValue.canonicalEncoder().encode(value)
         data.append(10)
+        let id = UUID()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            connection.send(content: data, completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume() }
+            writeContinuations[id] = continuation
+            connection.send(content: data, completion: .contentProcessed { [weak self] error in
+                Task { @MainActor in
+                    guard let continuation = self?.writeContinuations.removeValue(forKey: id) else { return }
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume() }
+                }
             })
         }
     }
@@ -94,5 +101,8 @@ final class MCPChannel {
         let pending = startContinuation
         startContinuation = nil
         pending?.resume(throwing: CancellationError())
+        let writes = Array(writeContinuations.values)
+        writeContinuations.removeAll()
+        for write in writes { write.resume(throwing: CancellationError()) }
     }
 }

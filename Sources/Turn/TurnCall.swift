@@ -1,4 +1,5 @@
 import AutomationRuntime
+import Capabilities
 import Foundation
 import LocalMCP
 import os
@@ -7,6 +8,7 @@ import os
 @MainActor
 struct TurnCall {
     let tool: String
+    let policy: InterruptionClass
     let task: Task<JSONValue, any Error>
     let interruption: AutomationCallInterruption
     private static let log = Logger(subsystem: "dev.forte.Braus", category: "HumanControl")

@@ -11,6 +11,7 @@ import EngineCore
 import Foundation
 import Memory
 import PerceptionCore
+@testable import SQLiteMemory
 import Testing
 
 /// The JSON Brains main left in a Knowledge directory come into the memory once, when an open creates
@@ -33,16 +34,9 @@ struct JSONBrainImportTests {
         )
     }
 
-    /// A Brain as learning makes it, from a window of the application's: observed in a memory of its own.
+    /// Builds a historical Brain through the pure learner, independently of the active store schema.
     private func learnedBrain(_ bundle: String, _ labels: [String]) async throws -> UIBrain {
-        let scratch = try W.service()
-        let recorder = CallRecorder(memory: scratch, brain: W.brain(scratch),
-                                    context: ActionContext(source: .app, streamID: "worker-1", traceID: nil, sessionID: nil))
-        _ = await recorder.observe(window(bundle, labels))
-        #expect(await scratch.flush(within: .seconds(10)))
-        let brain = try #require(try await scratch.brain(of: bundle))
-        await scratch.close()
-        return brain
+        W.legacyBrain(window(bundle, labels).scene.elements)
     }
 
     /// Writes the application's Brain as main's file store writes it, and answers the file.
@@ -53,7 +47,7 @@ struct JSONBrainImportTests {
         return file
     }
 
-    @Test("an archive created beside main's JSON files takes their Brains, exactly, and leaves every file as it was")
+    @Test("schema 22 keeps JSON Brains outside its frozen projection and leaves their files unchanged")
     func newArchiveImportsTheJSONBrains() async throws {
         let directory = try W.directory()
         let editor = try await learnedBrain(W.bundle, ["Open", "Format", "Save"])
@@ -70,27 +64,27 @@ struct JSONBrainImportTests {
         let service = MemoryService(directory: directory)
         _ = try await service.ready()
         let status = await service.status()
-        #expect(status.lastImport?.contains("2 of 2 JSON Brains imported") == true, "\(status.lastImport ?? "")")
-        #expect(try await service.brain(of: W.bundle) == editor)
-        #expect(try await service.brain(of: Self.other) == viewer)
+        #expect(status.lastImport?.contains("0 of 2 JSON Brains imported") == true, "\(status.lastImport ?? "")")
+        #expect(try await service.brain(of: W.bundle) == nil)
+        #expect(try await service.brain(of: Self.other) == nil)
         #expect(try await service.brain(of: "com.example.Copy") == nil, "main's daily copies are not applications")
         #expect(try files.map { try Data(contentsOf: $0) } == before, "the JSON files are only read")
         await service.close()
     }
 
-    @Test("the import comes before the first learning: what the agent observes first adds to the imported Brain")
+    @Test("schema 22 keeps its projection frozen during JSON import and the first observation")
     func importComesBeforeTheFirstLearning() async throws {
         let directory = try W.directory()
         let earlier = try await learnedBrain(W.bundle, ["Open", "Format"])
         try writeJSON(earlier, of: W.bundle, in: directory)
 
         let service  = MemoryService(directory: directory)
-        // The first write opens the archive: had it learned before the import, the JSON Brain would be kept out.
+        // The first observation opens the archive and attempts the import before recording its sample.
         _ = await W.recorder(service, session: nil).observe(W.window([W.save]))
         #expect(await service.flush(within: .seconds(10)))
         let labels = Set(try #require(try await service.brain(of: W.bundle)).objects.map(\.label))
-        #expect(labels.isSuperset(of: ["Open", "Format", "Save"]), "\(labels)")
-        #expect(await service.status().lastImport?.contains("1 of 1") == true)
+        #expect(labels.isEmpty, "schema 22 keeps its historical projection frozen: \(labels)")
+        #expect(await service.status().lastImport?.contains("0 of 1") == true)
         await service.close()
     }
 
@@ -133,25 +127,33 @@ struct JSONBrainImportTests {
         await service.close()
     }
 
-    @Test("review F02c: a credential in a JSON Brain beside a new archive is withheld from what is imported, and the import says so; the file is unchanged")
-    func credentialWithheldOnImport() async throws {
+    @Test("review F02c: a credential in a JSON Brain beside a new archive is withheld from what is imported, and the import says so; the file is unchanged", arguments: [false, true])
+    func credentialWithheldOnImport(schema22: Bool) async throws {
         let directory = try W.directory()
-        let scratch   = try W.service()
-        _ = await W.recorder(scratch).observe(W.window([W.save]))
-        #expect(await scratch.flush(within: .seconds(10)))
-        var legacy = try #require(try await scratch.brain(of: W.bundle))
-        await scratch.close()
+        var legacy = W.legacyBrain([W.save])
         let secret = "sk-brausReviewSynthetic0000123456789"
         #expect(ValueMinimization.hasCredentialShape(secret))
         legacy.objects[0].label = "Saved key \(secret)"
         let data = try KnowledgeCoding.makeEncoder().encode(AppKnowledge(bundleID: W.bundle, brain: legacy))
         let source = directory.appendingPathComponent("\(W.bundle).json")
         try data.write(to: source)
+        if !schema22 {
+            let store = SQLiteMemoryStore(url: directory.appendingPathComponent("memory.sqlite"), schema: .historical19)
+            try await store.open()
+            let brains = SQLiteBrainRepository(store: store)
+            let report = await JSONBrainImport.run(JSONBrainImport.applications(in: directory), into: brains, now: Date())
+            let imported = try #require(try await brains.brain(of: W.bundle))
+            #expect(imported.objects.map(\.label) == ["Saved key [withheld]"])
+            #expect(report.summary.contains("1 elements with a credential withheld or left out"))
+            await store.close()
+            #expect(try archiveOccurrences(of: secret, in: store.url).isEmpty)
+            #expect(try Data(contentsOf: source) == data)
+            return
+        }
         let memory = MemoryService(directory: directory)
         _ = try await memory.ready()
-        let imported = try #require(try await memory.brain(of: W.bundle))
-        #expect(imported.objects.map(\.label) == ["Saved key [withheld]"])
-        #expect(await memory.status().lastImport?.contains("1 elements with a credential withheld or left out") == true)
+        #expect(try await memory.brain(of: W.bundle) == nil)
+        #expect(await memory.status().lastImport?.contains("0 of 1 JSON Brains imported") == true)
         await memory.close()
         #expect(try archiveOccurrences(of: secret, in: memory.url).isEmpty)
         #expect(try Data(contentsOf: source) == data, "the earlier file is only read")

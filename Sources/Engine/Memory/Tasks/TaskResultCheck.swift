@@ -5,6 +5,7 @@
 //  Created by Tommaso Mazzarini on 14/10/2026.
 //
 
+import EngineCore
 import Foundation
 import PerceptionCore
 
@@ -53,6 +54,9 @@ public struct TaskResultCheck: Sendable, Equatable {
         case element(app: String?, label: String, expect: ElementExpectation)
         /// The task leaves nothing Braus can read, for the reason the agent gives: no evidence either way.
         case nothing(reason: String)
+        public static let noReadableResultReason = "No readable result was declared."
+        /// The archive retained the predicate kind but withheld its literal operands.
+        case withheld(kind: String)
 
         /// The path of a check on the disk.
         public var path: String? {
@@ -77,6 +81,7 @@ public struct TaskResultCheck: Sendable, Equatable {
                 case .window: "window"
                 case .element: "element"
                 case .nothing: "none"
+                case .withheld(let kind): kind
             }
         }
 
@@ -88,7 +93,7 @@ public struct TaskResultCheck: Sendable, Equatable {
                 case .element(_, _, .value): .controlValue
                 case .element(_, _, .state): .controlState
                 case .element: .sceneText
-                case .nothing: .none
+                case .nothing, .withheld: .none
             }
         }
 
@@ -103,7 +108,7 @@ public struct TaskResultCheck: Sendable, Equatable {
                 case .window(_, let title, _): [title]
                 case .element(_, let label, .value(let value)): [label, value]
                 case .element(_, let label, _): [label]
-                case .nothing: []
+                case .nothing, .withheld: []
             }
         }
 
@@ -121,19 +126,14 @@ public struct TaskResultCheck: Sendable, Equatable {
                 case .window(let app, let title, let open): .window(app: app, title: transform(title), open: open)
                 case .element(let app, let label, .value(let value)): .element(app: app, label: transform(label), expect: .value(transform(value)))
                 case .element(let app, let label, let expect): .element(app: app, label: transform(label), expect: expect)
-                case .nothing: self
+                case .nothing, .withheld: self
             }
         }
     }
 
     /// ElementExpectation is what an element must show: a value (a field's text, a pop-up's choice), a state (a
     /// switch or a checkbox), or only that it is there or not.
-    public enum ElementExpectation: Sendable, Equatable, Hashable {
-        case value(String)
-        case state(ControlState)
-        case present
-        case absent
-    }
+    public typealias ElementExpectation = EngineCore.ElementExpectation
 
     /// FileFacts is what the disk said of one path at one moment: whether something is there, when it was last
     /// written, its size and the digest of its content when it was read, and, for a text asked of it, whether
@@ -193,13 +193,52 @@ public struct TaskResultCheck: Sendable, Equatable {
               now: modifiedAtMS.map { FileFacts(exists: true, modifiedAtMS: $0) } ?? .missing)
     }
 
+    /// CheckWindow selects the historical task clock or evidence bounded by one row.
+    public enum CheckWindow: Sendable { case task, row }
+
     /// The verdict on a check of the disk, from what it said now and, when Braus read the path as the task began,
     /// then. Without a reading from the beginning, a change is judged by the time of last writing alone, and says so.
     /// `other` is the reading of the second path of a move or a copy, now.
     public static func judge(_ expectation: Expectation, attemptID: String, openedAtMS: Int64, before: FileFacts?,
-                             now: FileFacts, other: FileFacts? = nil) -> TaskResultCheck {
+                             now: FileFacts, other: FileFacts? = nil, window: CheckWindow = .task) -> TaskResultCheck {
         func verdict(_ verdict: VerificationVerdict, _ observed: String) -> TaskResultCheck {
             TaskResultCheck(attemptID: attemptID, expectation: expectation, verdict: verdict, observed: observed)
+        }
+        if window == .row {
+            if before == nil {
+                switch expectation {
+                case .fileChanged, .fileUnchanged, .fileMoved, .fileCopied, .noOtherFiles:
+                    return verdict(.unknown, "no reading at the row's start")
+                default: break
+                }
+            }
+            switch expectation {
+            case .fileWritten, .fileChanged, .fileContains:
+                guard now.exists else { return verdict(.failed, "no file at the path") }
+                let written: Bool
+                if let before {
+                    if !before.exists { written = true }
+                    else if let was = before.digest, let current = now.digest, was != current { written = true }
+                    else if let was = before.modifiedAtMS, let current = now.modifiedAtMS { written = was != current }
+                    else { return verdict(.unknown, "the file's writing time could not be compared") }
+                } else if let modified = now.modifiedAtMS {
+                    if modified < openedAtMS, modified >= openedAtMS - clockTolerance {
+                        return verdict(.unknown, "written around the row's start")
+                    }
+                    written = modified >= openedAtMS
+                } else { return verdict(.unknown, "the file's writing time could not be read") }
+                guard written else { return verdict(.failed, "the file was not written during the row") }
+                if case .fileChanged = expectation, let before, before.exists, before.sameContent(as: now) {
+                    return verdict(.failed, "written during the row with the same content it had")
+                }
+                if case .fileContains = expectation {
+                    guard let holds = now.holdsText else { return verdict(.unknown, "the file could not be read as text") }
+                    return verdict(holds ? .passed : .failed,
+                        holds ? "written during the row and holding the text" : "written during the row without the text")
+                }
+                return verdict(.passed, "written during the row")
+            default: break
+            }
         }
         let writtenDuring = now.modifiedAtMS.map { $0 + clockTolerance >= openedAtMS }
         switch expectation {
@@ -253,7 +292,7 @@ public struct TaskResultCheck: Sendable, Equatable {
                 let unexpected = Set(now).subtracting(was).subtracting(named)
                 return unexpected.isEmpty ? verdict(.passed, "no file appeared but those named")
                     : verdict(.failed, "\(unexpected.count) file(s) appeared that no check or output names")
-            case .window, .element, .nothing:
+            case .window, .element, .nothing, .withheld:
                 return verdict(.unknown, "not a check of the disk")
         }
     }
@@ -265,66 +304,18 @@ public struct TaskResultCheck: Sendable, Equatable {
         func verdict(_ verdict: VerificationVerdict, _ observed: String) -> TaskResultCheck {
             TaskResultCheck(attemptID: attemptID, expectation: expectation, verdict: verdict, observed: observed)
         }
+        let screen: ScreenExpectation
         switch expectation {
-            case .window(_, let title, let open):
-                guard let windows else {
-                    return open ? verdict(.failed, "the application is not running") : verdict(.passed, "the application is not running")
-                }
-                let found = windows.contains { $0.localizedCaseInsensitiveContains(title) || LabelText.normalize($0).contains(LabelText.normalize(title)) }
-                switch (open, found) {
-                    case (true, true): return verdict(.passed, "a window with that title is open")
-                    case (true, false): return verdict(.failed, "no window with that title")
-                    case (false, true): return verdict(.failed, "a window with that title is still open")
-                    case (false, false): return verdict(.passed, "no window with that title")
-                }
-            case .element(_, let label, let expect):
-                guard let scene else { return verdict(.unknown, "no session of the application to read the scene") }
-                let wanted = LabelText.normalize(label)
-                let matching = scene.elements.filter { element in
-                    !wanted.isEmpty && (LabelText.normalize(element.label) == wanted || element.id == label)
-                }
-                let fields = scene.outOfViewFields.filter {
-                    !wanted.isEmpty && LabelText.normalize($0.label) == wanted
-                }
-                let found = !matching.isEmpty || !fields.isEmpty
-                let location = matching.isEmpty && !fields.isEmpty ? " past the window's edge" : ""
-                switch expect {
-                    case .present:
-                        return found ? verdict(.passed, "the element is in the scene" + location)
-                            : verdict(.failed, "no element with that label in the scene")
-                    case .absent:
-                        return found ? verdict(.failed, "the element is still in the scene" + location)
-                            : verdict(.passed, "no element with that label in the scene")
-                    case .value(let value):
-                        guard found else { return verdict(.failed, "no element with that label in the scene") }
-                        let read = matching.compactMap(\.value)
-                        guard !read.isEmpty || !fields.isEmpty else {
-                            return verdict(.unknown, "the element shows no value Braus can read" + location)
-                        }
-                        let expected = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                        func same(_ shown: String) -> Bool {
-                            let shown = shown.trimmingCharacters(in: .whitespacesAndNewlines)
-                            return shown == expected || (!LabelText.normalize(expected).isEmpty
-                                                         && LabelText.normalize(shown) == LabelText.normalize(expected))
-                        }
-                        if read.contains(where: same) { return verdict(.passed, "the element shows the value expected") }
-                        if fields.contains(where: { same($0.value) }) {
-                            return verdict(.passed, "the element past the window's edge shows the value expected")
-                        }
-                        return verdict(.failed, "the element" + location + " shows another value")
-                    case .state(let state):
-                        guard found else { return verdict(.failed, "no element with that label in the scene") }
-                        let read = matching.compactMap(\.state).filter { $0 != .unknown }
-                        guard !read.isEmpty else {
-                            return verdict(.unknown, "the element" + location + " shows no state Braus can read")
-                        }
-                        return read.contains(state) ? verdict(.passed, "the element is in the state expected")
-                            : verdict(.failed, "the element is in another state")
-                }
-            case .nothing:
-                return verdict(.unknown, "the task leaves nothing to read")
-            default:
-                return verdict(.unknown, "not a check of the screen")
+        case .window(_, let title, let open): screen = .window(title: title, open: open)
+        case .element(_, let label, let expect): screen = .element(label: label, expect: expect)
+        case .nothing: return verdict(.unknown, "the task leaves nothing to read")
+        default: return verdict(.unknown, "not a check of the screen")
+        }
+        let result = screen.judge(windows: windows, scene: scene)
+        switch result.verdict {
+        case .passed: return verdict(.passed, result.observed)
+        case .failed: return verdict(.failed, result.observed)
+        case .unknown: return verdict(.unknown, result.observed)
         }
     }
 
@@ -453,6 +444,8 @@ extension TaskResultCheck.Expectation {
                 }
             case .nothing(let reason):
                 fields["reason"] = reason
+            case .withheld:
+                fields["withheld"] = "true"
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -468,6 +461,7 @@ extension TaskResultCheck.Expectation {
             self = .fileWritten(path: text)
             return
         }
+        if fields["withheld"] == "true" { self = .withheld(kind: kind); return }
         switch kind {
             case "file_written": guard let path = fields["path"] else { return nil }; self = .fileWritten(path: path)
             case "file_changed": guard let path = fields["path"] else { return nil }; self = .fileChanged(path: path)
@@ -515,6 +509,24 @@ extension TaskResultCheck.Expectation {
                     }
                 }()
             case .nothing(let reason): "none (\(reason))"
+            case .withheld(let kind): "\(kind) (literal operands withheld)"
         }
+    }
+}
+
+/// Encodes expectations using the existing lossless text form for transport, independently of SQL storage.
+extension TaskResultCheck.Expectation: Codable {
+    public init(from decoder: any Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        guard let expectation = Self(stored: value, method: .none) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                                                   debugDescription: "Invalid result expectation"))
+        }
+        self = expectation
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(stored)
     }
 }

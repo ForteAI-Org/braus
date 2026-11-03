@@ -1,5 +1,6 @@
 @_exported import Capabilities
 import CapabilityRegistrations
+import ChatCore
 import AppAdapters
 import AppKit
 import CryptoKit
@@ -7,7 +8,6 @@ import AutomationRuntime
 import EngineCore
 import Foundation
 import Switches
-import os
 import LocalMCP
 import Memory
 import PerceptionCore
@@ -40,6 +40,11 @@ public struct CallProducer: Sendable, Equatable {
 /// request before effects, requires the current ephemeral session ID, and records authoritative outcomes
 /// for the transcript.
 public final class AutomationTools {
+    public let profile: SessionProfile
+    private let switches: SwitchBoard
+    public let toolLoading: ToolLoading
+    public private(set) var guides: AppGuides?
+    private var guidesPrepared = false
     public let session: any AutomationSessionOperating
 
     /// The routes beyond the Seat this instance was composed with: they decide the tools it serves
@@ -85,7 +90,9 @@ public final class AutomationTools {
     private let sceneText: SceneTextPolicy
     private let formatter: ResultFormatter
     private let taskCycle: TaskCycleHandler
-    private let dispatcher: CallDispatcher
+    let dispatcher: CallDispatcher
+    private let harnessDefinitions: [JSONValue]?
+    private var cataloguePreparation: Task<Void, Never>?
 
     /// Retains providers and keeps capability contracts aligned with the adapters and routes served.
     /// Conflicting registered identifiers or inconsistent family ownership are composition errors and fail at startup.
@@ -94,12 +101,26 @@ public final class AutomationTools {
         channels: AutomationChannels = [],
         adapters: AppAdapters? = nil,
         offersWeb: Bool = false,
-        capabilities: [any CapabilityProviding] = RegisteredProviders.make(),
-        recording: (any CapabilityRecording)? = nil
+        capabilities: [any CapabilityProviding]? = nil,
+        profile requestedProfile: SessionProfile? = nil,
+        recording: (any CapabilityRecording)? = nil,
+        guardThreshold: GuardThreshold = .init(),
+        memoryAccess: MemoryAccess? = nil,
+        list: ToolList? = nil,
+        guides: AppGuides? = nil,
+        guideApp: (@MainActor (String) -> OpenedApp)? = nil,
+        resolveGuideApp: @escaping @MainActor @Sendable (String) -> OpenedApp = {
+            OpenedApp(bundleID: $0, version: nil, locale: Locale.current.identifier)
+        }
     ) {
+        // An omitted profile keeps the legacy status shape while using the app preset's permissions.
+        let profile = requestedProfile ?? .app
         var composed = channels
         if adapters != nil { composed.insert(.adapters) }
         if offersWeb { composed.insert(.web) }
+        self.guides = guides
+        self.profile = profile
+        self.switches = SwitchBoard(values: SwitchBoard.current.values.merging(profile.options.switches) { _, selected in selected })
         self.session = session
         self.channels = composed
         let adapters = adapters ?? (composed.contains(.adapters) ? AppAdapters.standard() : nil)
@@ -107,29 +128,94 @@ public final class AutomationTools {
         let secrets = ProducerSecrets()
         let sceneText = SceneTextPolicy()
         let formatter = ResultFormatter(session: session, secrets: secrets, sceneText: sceneText)
-        let taskCycle = TaskCycleHandler(session: session, secrets: secrets, formatter: formatter)
+        let taskCycle = TaskCycleHandler(session: session, secrets: secrets, formatter: formatter,
+            profile: profile, reportsProfile: requestedProfile != nil)
+        taskCycle.guardThreshold = guardThreshold
+        taskCycle.memoryAccess = memoryAccess ?? profile.memoryAccess
+        taskCycle.appGuides = guides
+        taskCycle.resolveGuideApp = guideApp ?? resolveGuideApp
         self.producerSecrets = secrets
         self.sceneText = sceneText
         self.formatter = formatter
         self.taskCycle = taskCycle
-        self.dispatcher = CallDispatcher(session: session, channels: composed, adapters: adapters, router: router,
+        let recording = recording ?? MemoryAccess.$current.withValue(taskCycle.memoryAccess) {
+            session.memoryDirectory.map { CapabilityCallRecorder(memory: .shared(for: $0)) }
+        }
+        let loading = switches.arm("tool_loading", default: ToolLoading.upfront)
+        self.toolLoading = loading
+        let dispatcher = SwitchBoard.$testing.withValue(switches) { CallDispatcher(session: session, channels: composed, adapters: adapters, router: router,
                                          secrets: secrets, sceneText: sceneText, taskCycle: taskCycle, formatter: formatter,
-                                         capabilities: capabilities, recording: recording)
+                                         capabilities: profile.catalogue == .open ? [] : (capabilities ?? RegisteredProviders.make()),
+                                         recording: recording, loading: loading,
+                                         list: list ?? ToolList(attendance: profile.attendance, level: profile.level), guides: guides,
+                                         resolveGuideApp: guideApp ?? resolveGuideApp) }
+        self.dispatcher = dispatcher
+        self.harnessDefinitions = loading == .harnessSearch ? ToolCatalogue.harnessDefinitions(
+            core: dispatcher.toolDefinitions, entries: dispatcher.entries, list: dispatcher.toolList
+        ) : nil
+        taskCycle.availableRecallChannels = { [weak dispatcher] in dispatcher?.registry.channelKeys ?? [] }
+        prepareCapabilitySearch()
+    }
+
+    private func prepareCapabilitySearch() {
+        cataloguePreparation?.cancel()
+        if switches.arm("tool_surface", default: ToolSurface.v1) == .v2, let directory = session.memoryDirectory {
+            let entries = dispatcher.entries
+            let dispatcher = self.dispatcher
+            cataloguePreparation = MemoryAccess.$current.withValue(taskCycle.memoryAccess) {
+                Task { [weak dispatcher] in
+                    if let search = await CatalogueEmbedding.prepareSearch(
+                        entries: entries, supportDirectory: directory.appendingPathComponent("Catalogue")
+                    ) {
+                        dispatcher?.installSearch(search)
+                    }
+                }
+            }
+        }
+    }
+
+    deinit { cataloguePreparation?.cancel() }
+
+    /// Resolves a delegated name before a host applies its admission policy.
+    public func resolvedCall(_ name: String, arguments: JSONValue) throws -> (name: String, arguments: JSONValue) {
+        try SwitchBoard.$testing.withValue(switches) { try dispatcher.resolvedCall(name, arguments: arguments) }
     }
 
     /// Runs one tool call. Before anything of it is written (its transcript line, its record), the texts it would
     /// type are classified on a fresh perception (`scope(of:_:)`, W1): what the call withholds and the field each
     /// text step is bound to are its `CallScope`, bound from there to its last output, the error it throws included.
     public func call(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
-        try await dispatcher.call(name, arguments)
+        try await SwitchBoard.$testing.withValue(switches) {
+            try await MemoryAccess.$current.withValue(taskCycle.memoryAccess) {
+                if profile.level == .observe, name != "open_session", effectClass(of: name, arguments: arguments) != .read {
+                    throw AutomationFailure(ModelText.text(.init(rawValue: "profile.observe_only.v1")))
+                }
+                try await prepareGuides()
+                return try await dispatcher.call(name, arguments)
+            }
+        }
     }
 
-    /// The tools this instance serves and accepts: `definitions(for:)` of what it can do now, with the
-    /// adapter tools while `adapters` is set and `open_session`'s `named` while `router` is.
-    public var toolDefinitions: [JSONValue] { dispatcher.toolDefinitions }
+    public var toolList: ToolList { dispatcher.toolList }
+    public var guidesEnabled: Bool { dispatcher.guidesEnabled }
+    public var groupIndex: String { ToolCatalogue.groupIndex(dispatcher.entries) }
+
+    /// Replaces only the search engine, retaining the frozen catalogue and authority.
+    public func installCapabilitySearch(_ search: CapabilitySearch) { dispatcher.installSearch(search) }
+
+    /// The fixed v2 list, or the legacy channel definitions in v1.
+    public var toolDefinitions: [JSONValue] { harnessDefinitions ?? dispatcher.toolDefinitions }
 
     /// This instance's instructions: those of the channels it serves, as `toolDefinitions`.
-    public var instructions: String { ToolCatalogue.instructions(for: dispatcher.served) }
+    public var instructions: String { instructions(seatLine: .v1) }
+
+    /// Freezes the seat text arm supplied by the runner for this turn.
+    public func instructions(seatLine arm: SeatLineArm) -> String {
+        SwitchBoard.$testing.withValue(switches) {
+            let fixed = ToolCatalogue.currentSurface == .v2 && TaskCycleArm.current == .v2
+            return Self.instructions(for: fixed ? channels : dispatcher.served, seatLine: arm)
+        }
+    }
 
     /// Marks an explicit Stop, not a temporary human suspension. The host drains admitted calls
     /// before finishing this task, so a call already in flight retains its original attribution.
@@ -137,10 +223,67 @@ public final class AutomationTools {
 
     /// Closes the stopped attempt without claiming success or interpreting a candidate.
     /// A failed write keeps both the task and the interruption pending for a later retry.
-    public func finishInterruptedTask() async throws { try await taskCycle.finishInterruptedTask() }
+    public func finishInterruptedTask() async throws {
+        try await SwitchBoard.$testing.withValue(switches) {
+            try await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { try await taskCycle.finishInterruptedTask() }
+        }
+    }
+
+    /// Closes an explicitly stopped task through the shared application and command line path.
+    public func closeStoppedTask(_ cause: StopCause) async throws -> StoppedTask? {
+        try await SwitchBoard.$testing.withValue(switches) {
+            try await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { try await taskCycle.closeStoppedTask(cause) }
+        }
+    }
+
+    /// Retains one sink. Committed changes are delivered synchronously on the main actor.
+    public func observeTodo(_ sink: @escaping @MainActor @Sendable (TodoEvent) -> Void) {
+        taskCycle.todoSink = sink
+    }
+
+    /// Retains one observer, called inline before each call returns or throws. Nil disables observation work.
+    public func observeTaskState(_ sink: TaskStateSink?) {
+        dispatcher.taskStateSink = sink
+    }
+
+    public func afterTurn() async {
+        await SwitchBoard.$testing.withValue(switches) {
+            await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { await taskCycle.afterTurn() }
+        }
+    }
+
+    /// Prepares profile guide files before calls use their indices and catalogue entry.
+    public func prepareGuides() async throws {
+        guard !guidesPrepared else { return }
+        if guides == nil, !profile.options.guides.isEmpty {
+            let prepared = try await AppGuides.load(sources: [GuideFiles(urls: profile.options.guides)],
+                arm: switches.arm("guide_delivery", default: GuideDeliveryArm.attached),
+                estimateTokens: { ($0.count + 3) / 4 }, similarity: { left, right in left == right ? 1 : 0 })
+            try dispatcher.installProfileGuides(prepared)
+            guides = prepared
+            taskCycle.appGuides = prepared
+            prepareCapabilitySearch()
+        }
+        guidesPrepared = true
+    }
+
+    public func forgetDeliveredMemory() { taskCycle.forgetDeliveredMemory() }
+
+    /// Supplies the last archived task named by a restored conversation, without replaying any actions.
+    public func restoreTaskReference(_ taskID: String?) { taskCycle.previousConversationTask = taskID }
 
     /// Supplies the next turn with the stopped task identity once, without replaying its action history.
     public func takeStoppedTaskNotice() -> String? { taskCycle.takeStoppedTaskNotice() }
+
+    /// Consumes the notice only when the caller successfully renders it.
+    public func withStoppedTaskNotice<T>(_ render: (String?) throws -> T) rethrows -> T {
+        try taskCycle.withStoppedTaskNotice(render)
+    }
+
+    /// Reads task facts without consuming notices or scanning stored procedures.
+    public func taskFacts(for bundleID: String?) async -> SeatTaskFacts {
+        await taskCycle.taskFacts(for: bundleID)
+    }
 
     /// What a host sends the agent after a turn that left a candidate it did not interpret, once per candidate;
     /// nil when there is none or it was asked already. Haiku 5.5 answered the person after an end and left the
@@ -151,7 +294,9 @@ public final class AutomationTools {
     /// (`ProcedureProducer.brausInterpretation`), through the same `memory_task interpret` as the agent's, so the
     /// transcript shows it. Answers the candidate and the answer, or nil when nothing was left or the task did not complete.
     public func interpretLeftCandidate() async -> (candidate: String, answer: JSONValue)? {
-        await taskCycle.interpretLeftCandidate(call: call)
+        await SwitchBoard.$testing.withValue(switches) {
+            await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { await taskCycle.interpretLeftCandidate(call: call) }
+        }
     }
 
     /// Forgets the candidate the last conversation left uninterpreted, so a new conversation is reminded only of its
@@ -159,9 +304,17 @@ public final class AutomationTools {
     /// stays in the archive, uninterpreted, as the earlier conversation's.
     public func forgetConversation() { taskCycle.forgetConversation() }
 
-    /// Forgets every scene the model read, so the next scene of any window is sent whole: for a new
-    /// turn or a compacted context, which may no longer hold those scenes.
-    public func forgetScene() { sceneText.forgetScene() }
+    /// Reports the revisions the model's context still holds.
+    public func contextHolds(_ hold: SceneContextHold) { sceneText.contextHolds(hold) }
+
+    /// Builds a context boundary from the policy's own revision, atomically with applying it.
+    @discardableResult
+    public func contextHolds(after reason: SceneContextReset, keeping keptRevision: Int? = nil) -> SceneContextHold {
+        sceneText.contextHolds(after: reason, keeping: keptRevision)
+    }
+
+    /// The latest whole scene sent to the model, for carrying into task state.
+    public var latestScene: SceneAnswer? { sceneText.latest }
 
     /// A text the host writes beside these records, such as what a command line's own web search asks or reads
     /// (`WebToolRecords`), with what they withhold withheld: the producer's secrets and the credential shapes (M07).
@@ -185,8 +338,18 @@ public final class AutomationTools {
     /// The base instructions every provider turn over these tools runs with, in the CLI and the app alike, for the
     /// channels composed (R09): where an app or a page is driven and how the web is reached say only what those
     /// channels do, in the words `open_session`'s description uses too (`routes(for:)`, `web(for:)`).
-    public static func instructions(for channels: AutomationChannels) -> String {
-        ToolCatalogue.instructions(for: channels)
+    public static func instructions(for channels: AutomationChannels, seatLine arm: SeatLineArm = .v1) -> String {
+        guard arm == .v2 else { return ToolCatalogue.instructions(for: channels) }
+        return ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1"))
+            + ToolCatalogue.routes(for: channels)
+            + ModelText.text(.init(rawValue: "seat_line.general.v2"))
+            + ToolCatalogue.web(for: channels)
+            + ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1.3"))
+            + ToolCatalogue.files(for: channels)
+            + ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1.4"))
+            + (channels.contains(.adapters) ? ModelText.text(.init(rawValue: "prompt.adapters.v1")) : "")
+            + ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1.5"))
+            + "\n" + ToolCatalogue.taskInstructions
     }
 
     /// The tools an instance composed with `channels` serves: `open_session` takes `named` only where the

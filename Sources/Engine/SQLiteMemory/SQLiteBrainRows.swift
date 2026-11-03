@@ -53,7 +53,7 @@ enum SQLiteBrainRows {
         var anchors = try anchorRows(handle, appID: appID)
         let aliases = try handle.query(
             """
-            SELECT al.anchor_id, al.alias FROM brain_anchor_aliases al
+            SELECT a.\(try DB2CIdentity.column(handle, "brain_anchors")), al.alias FROM brain_anchor_aliases al
             JOIN brain_anchors a ON a.anchor_id = al.anchor_id
             WHERE a.app_id = ? AND a.retired_at_ms IS NULL
             ORDER BY al.anchor_id, al.position
@@ -62,15 +62,19 @@ enum SQLiteBrainRows {
         ) { row in (try row.text(0) ?? "", try row.text(1) ?? "") }
         let states = try handle.query(
             """
-            SELECT s.anchor_id, s.state, s.seen_count FROM brain_anchor_states s
+            SELECT a.\(try DB2CIdentity.column(handle, "brain_anchors")), s.state, s.seen_count FROM brain_anchor_states s
             JOIN brain_anchors a ON a.anchor_id = s.anchor_id
             WHERE a.app_id = ? AND a.retired_at_ms IS NULL
             """,
             [.integer(appID)]
         ) { row in (try row.text(0) ?? "", try row.text(1) ?? "", Int(row.integer(2) ?? 0)) }
         var indexByKey: [String: Int] = [:]
-        for (index, anchor) in anchors.enumerated() { indexByKey[anchor.anchorKey] = index }
+        for (index, anchor) in anchors.enumerated() {
+            try BrainReadControl.current?.check()
+            indexByKey[anchor.anchorKey] = index
+        }
         for (anchorID, alias) in aliases {
+            try BrainReadControl.current?.check()
             if let index = indexByKey[anchorID] { anchors[index].aliases.append(alias) }
         }
         for (anchorID, state, count) in states {
@@ -79,11 +83,14 @@ enum SQLiteBrainRows {
 
         var groups = try groupRows(handle, appID: appID)
         var groupIndexByID: [UUID: Int] = [:]
-        for (index, group) in groups.enumerated() { groupIndexByID[group.id] = index }
+        for (index, group) in groups.enumerated() {
+            try BrainReadControl.current?.check()
+            groupIndexByID[group.id] = index
+        }
         // Memberships of active groups toward active anchors: the projection the algorithm left.
         let members = try handle.query(
             """
-            SELECT m.group_id, m.anchor_id FROM brain_group_members m
+            SELECT \(try DB2CIdentity.publicReference(handle, "brain_groups", "m.group_id")), a.\(try DB2CIdentity.column(handle, "brain_anchors")) FROM brain_group_members m
             JOIN brain_groups g ON g.group_id = m.group_id
             JOIN brain_anchors a ON a.anchor_id = m.anchor_id
             WHERE g.app_id = ? AND g.retired_at_ms IS NULL AND a.retired_at_ms IS NULL
@@ -92,12 +99,13 @@ enum SQLiteBrainRows {
             [.integer(appID)]
         ) { row in (try row.text(0) ?? "", try row.text(1) ?? "") }
         for (groupText, anchorID) in members {
-            guard let id = UUID(uuidString: groupText), let index = groupIndexByID[id] else { continue }
+            try BrainReadControl.current?.check()
+            guard let id = try DB2CIdentity.groupID(handle, groupText), let index = groupIndexByID[id] else { continue }
             groups[index].memberAnchors.append(anchorID)
         }
 
         let appScopeID = try handle.query(
-            "SELECT scene_id FROM brain_scenes WHERE app_id = ? AND scene_kind = 'app'", [.integer(appID)]
+            "SELECT \(try DB2CIdentity.column(handle, "brain_scenes")) FROM brain_scenes WHERE app_id = ? AND scene_kind = 'app'", [.integer(appID)]
         ) { try $0.text(0) ?? "" }.first
         let (transitions, transitionIDs) = try transitionRows(handle, appID: appID, appScopeID: appScopeID)
 
@@ -120,14 +128,14 @@ enum SQLiteBrainRows {
 
     private static func anchorRows(_ handle: some SQLiteQuerying, appID: Int64, only ids: [String]? = nil) throws -> [ObjectAnchor] {
         if let ids, ids.isEmpty { return [] }
-        let filter = ids.map { " AND anchor_id IN (\(placeholders($0.count)))" } ?? ""
+        let filter = try ids.map { " AND \(try DB2CIdentity.column(handle, "brain_anchors")) IN (\(placeholders($0.count)))" } ?? ""
         return try handle.query(
             """
-            SELECT anchor_id, kind, label, label_source, anchor_scope, typical_x, typical_y, typical_width, typical_height,
-                   window_family, first_seen_ms, last_seen_ms, seen_count, last_seen_epoch, current_group_id
+            SELECT \(try DB2CIdentity.column(handle, "brain_anchors")), kind, label, label_source, anchor_scope, typical_x, typical_y, typical_width, typical_height,
+                   window_family, first_seen_ms, last_seen_ms, seen_count, last_seen_epoch, \(try DB2CIdentity.publicReference(handle, "brain_groups", "brain_anchors.current_group_id"))
             FROM brain_anchors WHERE app_id = ? AND retired_at_ms IS NULL\(filter) ORDER BY insertion_order
             """,
-            [.integer(appID)] + (ids ?? []).map(SQLiteValue.text)
+            [.integer(appID)] + (try (ids ?? []).map { try DB2CIdentity.key(handle, "brain_anchors", $0) })
         ) { row in
             let id = try row.text(0) ?? ""
             let kindCode = try row.text(1) ?? ""
@@ -173,13 +181,13 @@ enum SQLiteBrainRows {
         let filter = ids.map { " AND group_id IN (\(placeholders($0.count)))" } ?? ""
         return try handle.query(
             """
-            SELECT group_id, axis, shared_kind, cell_width, cell_height, name, last_seen_ms, seen_count, last_seen_epoch
+            SELECT \(try DB2CIdentity.column(handle, "brain_groups")), axis, shared_kind, cell_width, cell_height, name, last_seen_ms, seen_count, last_seen_epoch
             FROM brain_groups WHERE app_id = ? AND retired_at_ms IS NULL\(filter) ORDER BY insertion_order
             """,
-            [.integer(appID)] + (ids ?? []).map(SQLiteValue.text)
+            [.integer(appID)] + (try (ids ?? []).map { try DB2CIdentity.key(handle, "brain_groups", $0) })
         ) { row in
             let text = try row.text(0) ?? ""
-            guard let id = UUID(uuidString: text) else {
+            guard let id = try DB2CIdentity.groupID(handle, text) else {
                 throw BrainProjectionError.malformedRow(table: "brain_groups", id: text, malformation: .notAUUID("group_id"))
             }
             let axisCode = try row.text(1) ?? ""
@@ -216,12 +224,12 @@ enum SQLiteBrainRows {
         let owned = "t.app_id = ? AND t.retired_at_ms IS NULL AND t.from_scene_id = ? AND t.scene_element_id IS NULL AND t.menu_command_id IS NULL"
         let items = try handle.query(
             """
-            SELECT i.transition_id, i.position, i.title FROM brain_transition_menu_items i
+            SELECT t.\(try DB2CIdentity.column(handle, "brain_transitions")), i.position, i.title FROM brain_transition_menu_items i
             JOIN brain_transitions t ON t.transition_id = i.transition_id
             WHERE \(owned)
             ORDER BY i.transition_id, i.position
             """,
-            [.integer(appID), .text(appScopeID)]
+            [.integer(appID), try DB2CIdentity.key(handle, "brain_scenes", appScopeID)]
         ) { row in (id: try row.text(0) ?? "", position: row.integer(1) ?? -1, title: try row.text(2) ?? "") }
         var itemsByID: [String: [String]] = [:]
         for item in items {
@@ -234,12 +242,12 @@ enum SQLiteBrainRows {
         var ids: [LearnedTransition.Key: String] = [:]
         let transitions = try handle.query(
             """
-            SELECT transition_id, from_scene_id, anchor_id, scene_element_id, menu_command_id, trigger_kind, effect_kind,
+            SELECT \(try DB2CIdentity.column(handle, "brain_transitions")), from_scene_id, \(try DB2CIdentity.publicReference(handle, "brain_anchors", "t.anchor_id")), scene_element_id, menu_command_id, trigger_kind, effect_kind,
                    effect_text, required_target_state, resulting_target_state, last_observed_epoch, status,
                    last_seen_ms, evidence_count, effect_label, effect_value
             FROM brain_transitions t WHERE \(owned) ORDER BY insertion_order
             """,
-            [.integer(appID), .text(appScopeID)]
+            [.integer(appID), try DB2CIdentity.key(handle, "brain_scenes", appScopeID)]
         ) { row in
             let id = try row.text(0) ?? ""
             guard let anchorKey = try row.text(2) else {
@@ -307,6 +315,7 @@ enum SQLiteBrainRows {
         makeTransitionID : () -> String,
         makeSceneID      : () -> String
     ) throws -> [LearnedTransition.Key: String] {
+        if try SQLiteRowIdentity(transaction).usesIntegerKeys { return before.transitionIDs }
         let old = before.brain
         var activeTransitionIDs: [LearnedTransition.Key: String] = [:]
         var nextAnchorOrder = before.nextAnchorOrder
@@ -583,6 +592,7 @@ enum SQLiteBrainRows {
     /// migration's transaction: what schema 4's text cannot derive, since it normalizes labels as the
     /// matcher does. Every anchor a later write changes gets its keys from `write`.
     static func fillLabelKeys(_ connection: SQLiteConnection) throws {
+        if try SQLiteRowIdentity(connection).usesIntegerKeys { return }
         let anchors = try connection.query(
             "SELECT anchor_id, app_id, label FROM brain_anchors WHERE retired_at_ms IS NULL ORDER BY app_id, insertion_order"
         ) { (id: try $0.text(0) ?? "", app: $0.integer(1) ?? 0, label: try $0.text(2) ?? "") }
@@ -598,6 +608,40 @@ enum SQLiteBrainRows {
                                        [.text(anchor.id), .integer(anchor.app), .text(key)])
             }
         }
+    }
+
+    /// All naming inputs in one read transaction. Unlike `load`, naming does not consult clocks,
+    /// states or transitions, exactly as the scene-specific slice does not consult them.
+    static func namingProjection(_ handle: some SQLiteQuerying, appID: Int64) throws -> UIBrain {
+        var anchors = try anchorRows(handle, appID: appID)
+        let indexByKey = Dictionary(uniqueKeysWithValues: anchors.enumerated().map { ($0.element.anchorKey, $0.offset) })
+        let aliases = try handle.query(
+            """
+            SELECT a.\(try DB2CIdentity.column(handle, "brain_anchors")), al.alias FROM brain_anchor_aliases al
+            JOIN brain_anchors a ON a.anchor_id = al.anchor_id
+            WHERE a.app_id = ? AND a.retired_at_ms IS NULL ORDER BY al.anchor_id, al.position
+            """, [.integer(appID)]
+        ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }
+        for (key, alias) in aliases {
+            if let index = indexByKey[key] { anchors[index].aliases.append(alias) }
+        }
+        var groups = try groupRows(handle, appID: appID)
+        let groupIndices = Dictionary(uniqueKeysWithValues: groups.enumerated().map { ($0.element.id, $0.offset) })
+        let members = try handle.query(
+            """
+            SELECT \(try DB2CIdentity.publicReference(handle, "brain_groups", "m.group_id")),
+                   a.\(try DB2CIdentity.column(handle, "brain_anchors")) FROM brain_group_members m
+            JOIN brain_groups g ON g.group_id = m.group_id
+            JOIN brain_anchors a ON a.anchor_id = m.anchor_id
+            WHERE g.app_id = ? AND g.retired_at_ms IS NULL AND a.retired_at_ms IS NULL
+            ORDER BY m.group_id, m.position
+            """, [.integer(appID)]
+        ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }
+        for (groupText, key) in members {
+            guard let id = try DB2CIdentity.groupID(handle, groupText), let index = groupIndices[id] else { continue }
+            groups[index].memberAnchors.append(key)
+        }
+        return UIBrain(objects: anchors, groups: groups)
     }
 
     // MARK: A part of the projection
@@ -617,18 +661,24 @@ enum SQLiteBrainRows {
     /// whole projection for those detections; transitions, states and the clock are left out, since naming
     /// a scene's elements reads none of them.
     static func slice(_ handle: some SQLiteQuerying, appID: Int64, detections: [BrainDetection]) throws -> UIBrain {
-        let keys = BrainProjectionKeys(detections)
-        let labels = keys.labels.sorted(), kindCodes = keys.kinds.map(\.rawValue).sorted()
+        let labels = try Set(detections.map {
+            try BrainReadControl.current?.check()
+            return LabelText.normalize($0.label)
+        }.filter { !$0.isEmpty }).sorted()
+        let kindCodes = try Set(detections.map {
+            try BrainReadControl.current?.check()
+            return $0.kind.rawValue
+        }).sorted()
         // Two indexed reads, never a scan of the application's anchors: by label key, and the anchors a
         // model named of the detections' kinds. `UNION ALL`, the set removing what both read: a `UNION`
         // would have the second read ordered by identity, by a scan.
         var anchorIDs = Set(try handle.query(
             """
-            SELECT k.anchor_id FROM brain_anchor_label_keys k
+            SELECT a.\(try DB2CIdentity.column(handle, "brain_anchors")) FROM brain_anchor_label_keys k
             JOIN brain_anchors a ON a.anchor_id = k.anchor_id AND a.retired_at_ms IS NULL
             WHERE k.app_id = ? AND k.label_key IN (\(placeholders(labels.count)))
             UNION ALL
-            SELECT a.anchor_id FROM brain_anchors a
+            SELECT a.\(try DB2CIdentity.column(handle, "brain_anchors")) FROM brain_anchors a
             WHERE a.app_id = ? AND a.retired_at_ms IS NULL AND a.label_source = 'llm' AND a.kind IN (\(placeholders(kindCodes.count)))
             """,
             [.integer(appID)] + labels.map(SQLiteValue.text) + [.integer(appID)] + kindCodes.map(SQLiteValue.text)
@@ -641,15 +691,28 @@ enum SQLiteBrainRows {
             abs(a.typical_x + a.typical_width / 2 - d.cx) <= max(max(ifnull(g.cell_width, 0), ifnull(g.cell_height, 0)) * 0.8, 0.015)
             AND abs(a.typical_y + a.typical_height / 2 - d.cy) <= max(max(ifnull(g.cell_width, 0), ifnull(g.cell_height, 0)) * 0.8, 0.015)
             """
-        let labeled = detections.filter { !LabelText.normalize($0.label).isEmpty }
-        let unlabeled = detections.filter { LabelText.normalize($0.label).isEmpty }
-        func points(_ detections: [BrainDetection]) -> (rows: String, values: [SQLiteValue]) {
-            (detections.map { _ in "(?, ?, ?)" }.joined(separator: ", "),
-             detections.flatMap { [.text($0.kind.rawValue), .real($0.bounds.midX), .real($0.bounds.midY)] })
+        let labeled = try detections.filter {
+            try BrainReadControl.current?.check()
+            return !LabelText.normalize($0.label).isEmpty
+        }
+        let unlabeled = try detections.filter {
+            try BrainReadControl.current?.check()
+            return LabelText.normalize($0.label).isEmpty
+        }
+        func points(_ detections: [BrainDetection]) throws -> (rows: String, values: [SQLiteValue]) {
+            let rows = try detections.map { _ in
+                try BrainReadControl.current?.check()
+                return "(?, ?, ?)"
+            }
+            let values = try detections.flatMap { detection -> [SQLiteValue] in
+                try BrainReadControl.current?.check()
+                return [.text(detection.kind.rawValue), .real(detection.bounds.midX), .real(detection.bounds.midY)]
+            }
+            return (rows.joined(separator: ", "), values)
         }
         var near: [(String, String)] = []
         if !labeled.isEmpty {
-            let (rows, values) = points(labeled)
+            let (rows, values) = try points(labeled)
             let kinds = Set(labeled.map(\.kind.rawValue)).sorted()
             // The unlabeled anchors are materialized first, so their index is the read's start.
             near += try handle.query(
@@ -658,7 +721,7 @@ enum SQLiteBrainRows {
                 a AS MATERIALIZED (
                     SELECT anchor_id, kind, typical_x, typical_y, typical_width, typical_height FROM brain_anchors
                     WHERE app_id = ? AND retired_at_ms IS NULL AND label = '' AND kind IN (\(placeholders(kinds.count))))
-                SELECT DISTINCT a.anchor_id, m.group_id FROM a
+                SELECT DISTINCT \(try DB2CIdentity.publicReference(handle, "brain_anchors", "a.anchor_id")), \(try DB2CIdentity.publicReference(handle, "brain_groups", "m.group_id")) FROM a
                 JOIN d ON d.kind = a.kind
                 JOIN brain_group_members m ON m.anchor_id = a.anchor_id
                 JOIN brain_groups g ON g.group_id = m.group_id AND g.retired_at_ms IS NULL AND g.shared_kind = d.kind
@@ -668,11 +731,11 @@ enum SQLiteBrainRows {
             ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }
         }
         if !unlabeled.isEmpty {
-            let (rows, values) = points(unlabeled)
+            let (rows, values) = try points(unlabeled)
             near += try handle.query(
                 """
                 WITH d(kind, cx, cy) AS (VALUES \(rows))
-                SELECT DISTINCT m.anchor_id, m.group_id FROM d
+                SELECT DISTINCT \(try DB2CIdentity.publicReference(handle, "brain_anchors", "m.anchor_id")), \(try DB2CIdentity.publicReference(handle, "brain_groups", "m.group_id")) FROM d
                 JOIN brain_groups g ON g.app_id = ? AND g.retired_at_ms IS NULL AND g.shared_kind = d.kind
                 JOIN brain_group_members m ON m.group_id = g.group_id
                 JOIN brain_anchors a ON a.anchor_id = m.anchor_id AND a.retired_at_ms IS NULL
@@ -682,19 +745,24 @@ enum SQLiteBrainRows {
             ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }
         }
         for (anchorID, groupID) in near {
+            try BrainReadControl.current?.check()
             anchorIDs.insert(anchorID)
             groupIDs.insert(groupID)
         }
         var anchors = try anchorRows(handle, appID: appID, only: anchorIDs.sorted())
         var indexByKey: [String: Int] = [:]
-        for (index, anchor) in anchors.enumerated() { indexByKey[anchor.anchorKey] = index }
+        for (index, anchor) in anchors.enumerated() {
+            try BrainReadControl.current?.check()
+            indexByKey[anchor.anchorKey] = index
+        }
         if !anchors.isEmpty {
             let ids = anchors.map(\.anchorKey)
             let aliases = try handle.query(
-                "SELECT anchor_id, alias FROM brain_anchor_aliases WHERE anchor_id IN (\(placeholders(ids.count))) ORDER BY anchor_id, position",
-                ids.map(SQLiteValue.text)
+                "SELECT \(try DB2CIdentity.publicReference(handle, "brain_anchors", "brain_anchor_aliases.anchor_id")), alias FROM brain_anchor_aliases WHERE anchor_id IN (\(placeholders(ids.count))) ORDER BY anchor_id, position",
+                try ids.map { try DB2CIdentity.key(handle, "brain_anchors", $0) }
             ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }
             for (anchorID, alias) in aliases {
+                try BrainReadControl.current?.check()
                 if let index = indexByKey[anchorID] { anchors[index].aliases.append(alias) }
             }
         }
@@ -703,25 +771,29 @@ enum SQLiteBrainRows {
         if !anchors.isEmpty {
             let ids = anchors.map(\.anchorKey)
             groupIDs.formUnion(try handle.query(
-                "SELECT DISTINCT group_id FROM brain_group_members WHERE anchor_id IN (\(placeholders(ids.count)))",
-                ids.map(SQLiteValue.text)
+                "SELECT DISTINCT \(try DB2CIdentity.publicReference(handle, "brain_groups", "brain_group_members.group_id")) FROM brain_group_members WHERE anchor_id IN (\(placeholders(ids.count)))",
+                try ids.map { try DB2CIdentity.key(handle, "brain_anchors", $0) }
             ) { try $0.text(0) ?? "" })
         }
         var groups = try groupRows(handle, appID: appID, only: groupIDs.sorted())
         var groupIndexByID: [UUID: Int] = [:]
-        for (index, group) in groups.enumerated() { groupIndexByID[group.id] = index }
+        for (index, group) in groups.enumerated() {
+            try BrainReadControl.current?.check()
+            groupIndexByID[group.id] = index
+        }
         if !groups.isEmpty {
             let ids = groups.map { $0.id.uuidString }
             let members = try handle.query(
                 """
-                SELECT m.group_id, m.anchor_id FROM brain_group_members m JOIN brain_anchors a ON a.anchor_id = m.anchor_id
+                SELECT \(try DB2CIdentity.publicReference(handle, "brain_groups", "m.group_id")), \(try DB2CIdentity.publicReference(handle, "brain_anchors", "m.anchor_id")) FROM brain_group_members m JOIN brain_anchors a ON a.anchor_id = m.anchor_id
                 WHERE m.app_id = ? AND m.group_id IN (\(placeholders(ids.count))) AND a.retired_at_ms IS NULL
                 ORDER BY m.group_id, m.position
                 """,
-                [.integer(appID)] + ids.map(SQLiteValue.text)
+                [.integer(appID)] + (try ids.map { try DB2CIdentity.key(handle, "brain_groups", $0) })
             ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }
             for (groupText, anchorID) in members {
-                guard let id = UUID(uuidString: groupText), let index = groupIndexByID[id] else { continue }
+                try BrainReadControl.current?.check()
+                guard let id = try DB2CIdentity.groupID(handle, groupText), let index = groupIndexByID[id] else { continue }
                 groups[index].memberAnchors.append(anchorID)
             }
         }

@@ -74,11 +74,17 @@ public actor SeatActuator: Actuating {
         }
     }
 
+    private enum SceneAfterUncertainArm: String, Sendable { case off, on }
+
     /// Preserves the historical error chain unless typed remote causes are selected.
     static func deliveryError(_ error: any Error) -> any Error {
         if usesMessagesV2, let refusal = error as? RemoteContentActuationRefusal, refusal.mayHaveTakenEffect {
             return GestureEffectUncertain(cause: "remote_content_refused." + refusal.code,
                                           description: refusal.description)
+        }
+        if SwitchBoard.current.arm("scene_after_uncertain", default: SceneAfterUncertainArm.off) == .on,
+           let refusal = error as? RemoteContentActuationRefusal, refusal.mayHaveTakenEffect {
+            return GestureMayHaveActed(sentence: refusal.description)
         }
         return unsent(error) ?? interrupted(error) ?? error
     }

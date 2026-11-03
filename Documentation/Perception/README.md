@@ -109,7 +109,13 @@ scene.resolve(target: "Export")               // .found, .ambiguous(n) or .none
   `region N`, and a group tag is memory's ordinal among every member it has learned. A changed id
   the model can target with is reported, and so is an element now in another section while its old
   section still stands, since a `section:` argument names it. Panel bounds within 0.02 are the same
-  layout. Whether to send the update, and against which scene, is the caller's (`AutomationMCP`).
+  layout. `SceneChanges.changes` returns a typed `SceneChangeSet`; `text` preserves the human reader's
+  existing bytes. `SceneRendering` owns whole and difference row syntax, with `compactSectionLine`
+  as the shared section heading writer.
+- `SceneTextPolicy` in `AutomationMCP` owns model scene answers, revisions and window bases. Its
+  default `chained` rule preserves the existing text; `hybrid75` alternates anchor and last bases.
+  `SceneContextHold` describes retained revisions after a context reset. Rendering runs concurrently;
+  the policy checks its state epoch before committing an answer and its UTF-8 provenance spans.
 - `WindowSurfaceClassifier` answers "is a pop-up open" and "which window do we drive" in one pass;
   a menu-layer window one row tall is a pop-up. The geometric fallback applies only to normal-layer
   windows, so an untitled floating palette does not become a dropdown merely because it is narrow.
@@ -253,6 +259,24 @@ scene.resolve(target: "Export")               // .found, .ambiguous(n) or .none
   when the window names its process and frame; a nil control state reader leaves the scene exactly
   as it was before that role existed. A recognizer that cannot run fails the perception; an empty
   window is a scene with no elements.
+
+## Native field identity
+
+Native text fields carry an ephemeral `SceneElement.nativeIdentity` from
+`AccessibilityTreeReading.physicalIdentity`. Readers without this support return nil.
+The live reader supplies tokens only with value classification enabled (`valueGuard`).
+The token survives native-to-pixel upgrades but is excluded from encoding, equality,
+hashing and scene tokens. `SeatSceneProvider` supplies it to `PerceivedWindow.identities`
+only for unique scene IDs; `SeatControls` uses the same token source for focus.
+
+`NativeAccessibilityIdentity` compares retained AX handles under a lock and assigns UUID
+strings, independently of labels, frames and values. It retains at most 4,096 handles.
+At capacity all tokens are discarded: a later focus gets a fresh identity, so an old text
+binding refuses. Handles are compared locally; identity lookup sends no AX messages.
+Focus classification reads only the focused element, role, subrole and, for other roles,
+`AXEditable`, off the caller's actor with the accessibility controller's time limits.
+Missing classification, cancellation or deadline exhaustion returns unknown.
+Secure roles and subroles take precedence and never require a value read.
 
 ## Failure
 

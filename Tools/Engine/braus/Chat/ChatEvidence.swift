@@ -70,7 +70,7 @@ final class ChatEvidence {
         let outcome = signal != nil ? "interrupted" : failure == nil ? "ok" : "error"
         var summary: [String: Any] = [
             "request": number, "conversation": transcript.conversation.id.uuidString, "continues_previous": continues,
-            "provider": transcript.conversation.provider.rawValue, "model": transcript.conversation.model ?? "provider default",
+            "provider": transcript.conversation.modelProvider ?? transcript.conversation.provider.rawValue, "model": transcript.conversation.model ?? "provider default",
             "started_at": formatter.string(from: started), "ended_at": formatter.string(from: ended),
             "duration_s": ended.timeIntervalSince(started), "outcome": outcome,
             "tasks": tasks, "memory_flushed": memoryFlushed, "tool_calls": toolCalls,

@@ -1,3 +1,5 @@
+import AutomationRuntime
+import AutomationMCP
 import EngineCore
 import Foundation
 
@@ -8,6 +10,7 @@ struct BatchPlan {
     let invocation: Invocation
     let application: String
     let steps: [BatchStep]
+    let expectations: [ScreenExpectation?]
 
     init(arguments: [String]) throws {
         guard let boundary = arguments.firstIndex(of: "--") else {
@@ -25,19 +28,24 @@ struct BatchPlan {
         self.invocation = invocation
         application = try invocation.positional(0, "<app>")
         let groups = arguments[(boundary + 1)...].split(separator: "--then", omittingEmptySubsequences: false)
-        steps = try groups.map { group in
+        let decoded = try groups.map { group -> (BatchStep, ScreenExpectation?) in
             let words = Array(group)
             guard let command = words.first, command == "select" || command == "act" else {
                 throw UsageError.missing("select <dropdown> <item> or act <target> after -- / --then")
             }
-            try Self.validateOptions(words, valued: command == "act" ? ["verb", "value", "section"] : [], flags: [])
-            let step = Invocation(arguments: words)
+            try Self.validateOptions(words, valued: command == "act" ? ["verb", "value", "section", "expect"] : ["expect"], flags: [])
+            let step = Invocation(arguments: words, additionalValueOptions: ["expect"])
+            let expectation: ScreenExpectation?
+            if let text = step.options["expect"] {
+                let value = try JSONSerialization.jsonObject(with: Data(text.utf8))
+                expectation = try ToolArguments.expectation(from: value)
+            } else { expectation = nil }
             switch command {
                 case "select":
                     guard step.positionals.count == 2 else {
                         throw UsageError.missing("select <dropdown> <item> (app is specified once for the batch)")
                     }
-                    return .select(control: step.positionals[0], item: step.positionals[1])
+                    return (.select(control: step.positionals[0], item: step.positionals[1]), expectation)
                 default:
                     guard step.positionals.count == 1 else {
                         throw UsageError.missing("act <target> (app is specified once for the batch)")
@@ -47,9 +55,11 @@ struct BatchPlan {
                         throw UsageError.invalid(option: "value", value: step.options["value"] ?? "",
                                                  expected: "--verb set_toggle")
                     }
-                    return .act(action)
+                    return (.act(action), expectation)
             }
         }
+        steps = decoded.map { $0.0 }
+        expectations = decoded.map { $0.1 }
     }
 
     /// Rejects misspellings, duplicate options, missing values and options in the wrong scope.
@@ -88,6 +98,15 @@ enum BatchStep {
         switch self {
             case .select(let control, let item): "select '\(control)' → '\(item)'"
             case .act(let action): "\(action.verb.rawValue) '\(action.target)'"
+        }
+    }
+
+    func facts(expectation: ScreenExpectation?) -> BatchPolicy.StepFacts {
+        switch self {
+        case .select(let control, let item): return .init(kind: .select, target: control, item: item, expectation: expectation)
+        case .act(let action):
+            return .init(kind: .act, target: action.target, section: action.section,
+                         verb: action.verb.rawValue, expectation: expectation)
         }
     }
 

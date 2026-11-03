@@ -1,19 +1,37 @@
 import AppKit
-import AutomationMCP
+@testable import AutomationMCP
 import AutomationRuntime
 import Capabilities
 import EngineCore
 import Foundation
 import LocalMCP
+import Memory
 import PerceptionCore
 import Testing
+import Switches
 
 @Suite("Automation MCP application boundary")
 struct AutomationToolsTests {
+    @Test func seatLineV2OnlyRemovesTheTwoOpeningInstructions() {
+        let original = ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1.2"))
+        let expected = original
+            .replacingOccurrences(of: "Before the first action on an app in a turn, call status and observe any existing session.\n", with: "")
+            .replacingOccurrences(of: "For a new app, discover exact names and window titles with windows, then open_session.\n", with: "")
+        #expect(ModelText.text(.init(rawValue: "seat_line.general.v2")) == expected)
+        for channels: AutomationChannels in [[], [.native], [.web], [.adapters], [.native, .web, .adapters]] {
+            let v1 = AutomationTools.instructions(for: channels)
+            #expect(AutomationTools.instructions(for: channels, seatLine: .v1) == v1)
+            let v2 = AutomationTools.instructions(for: channels, seatLine: .v2)
+            #expect(!v2.contains("call status"))
+            #expect(!v2.contains("windows, then open_session"))
+            #expect(v2 == v1.replacingOccurrences(of: original, with: expected))
+        }
+    }
+
     @Test("every served tool has an explicit interruption policy")
     @MainActor
     func interruptionClassification() {
-        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "human_step"]
+        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities"]
         let writes: Set<String> = ["act", "select", "type_text", "insert_text", "press_key", "scroll", "drag",
                                   "context_menu", "batch", "menu", "press", "app_call", "close_session",
                                   "collect_posts", "memory_task"]
@@ -752,7 +770,7 @@ extension AutomationToolsTests {
         let act = try #require(AutomationTools.definitions.first { $0["name"].string == "act" })
         #expect(act["inputSchema"]["properties"]["section"]["description"].string?.contains("{container}") == true)
         let opening = try #require(AutomationTools.definitions.first { $0["name"].string == "open_session" })
-        #expect(opening["description"].string?.contains("\"icons: id@x,y id×n\"") == true)
+        #expect(opening["description"].string?.contains("\"icons: id@x,y\"") == true)
         #expect(definition["description"].string?.contains("\"~ changed (was ...)\"") == true)
         #expect(definition["inputSchema"]["properties"]["full"]["type"] == .string("boolean"))
         #expect(definition["inputSchema"]["required"] == .array([.string("session")]))
@@ -861,7 +879,7 @@ extension AutomationToolsTests {
         session.scene = Self.scene(Self.rows)
         _ = try await tools.call("observe", .object(["session": id]))
 
-        tools.forgetScene()
+        tools.contextHolds(after: .compaction)
         let acted = try await tools.call("act", .object(["session": id, "target": .string("Track 1")]))
         #expect(acted.payload["observation"]["scene"].string == session.scene.text())
         #expect(acted.payload["observation"]["changes"] == .null)
@@ -977,4 +995,159 @@ private final class SyntheticSession: AutomationSessionOperating {
     }
 
     func close() async { calls.append("close"); id = nil }
+}
+
+@MainActor
+struct NoSessionArgumentTests {
+    @Test func legacyCallsMatchCapturedBytes() async throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/no-session-v1.json")
+        let expected = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: url))
+        for switches in [[:], ["tool_surface": "v1"]] {
+            try await SwitchBoard.$testing.withValue(SwitchBoard(values: switches)) {
+                for row in try #require(expected.array) {
+                    let session = SyntheticSession()
+                    session.id = UUID(uuidString: "00000000-0000-0000-0000-000000000001")
+                    let tools = AutomationTools(session: session)
+                    var lines: [String] = []
+                    tools.record = { lines.append($0) }
+                    var answer: JSONValue = .null
+                    do { answer = try await tools.call("observe", row["arguments"]) }
+                    catch { answer = .object(["error": .string(String(describing: error))]) }
+                    #expect(try JSONValue.canonicalEncoder().encode(answer)
+                        == JSONValue.canonicalEncoder().encode(row["answer"]))
+                    #expect(JSONValue.array(lines.map(JSONValue.string)) == row["transcript"])
+                }
+            }
+        }
+    }
+
+    @Test func currentSessionAndStaleArgument() async throws {
+        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2"])) {
+            let current = SyntheticSession()
+            var expectedText: String?
+            for arguments: JSONValue in [.object([:]), .object(["session": .string("stale")]),
+                                         .object(["session": .number(17)])] {
+                let session = current
+                let tools = AutomationTools(session: session)
+                var lines: [String] = []
+                tools.record = { lines.append($0) }
+                let result = try await tools.call("observe", arguments)
+                let text = result["content"].array?.first?["text"].string ?? ""
+                #expect(text.contains("<scene>"))
+                #expect(text.contains("\n"))
+                #expect(!text.contains("\\n"))
+                #expect(!text.contains("observedAt"))
+                #expect(!text.contains(try #require(session.id).uuidString))
+                #expect(lines.first == "→ observe {}")
+                if let expectedText { #expect(text == expectedText) }
+                else { expectedText = text }
+            }
+            let session = SyntheticSession()
+            let tools = AutomationTools(session: session)
+            do {
+                _ = try await tools.call("observe", .object(["foo": .number(1)]))
+                Issue.record("An unknown argument was accepted")
+            } catch {
+                #expect(String(describing: error) == "Unknown tool argument.")
+            }
+            session.id = nil
+            do {
+                _ = try await tools.call("observe", .object([:]))
+                Issue.record("An observation without a session was accepted")
+            } catch {
+                #expect((error as? AutomationFailure)?.cause == "no_session")
+            }
+        }
+    }
+}
+
+@MainActor
+struct ToolDescriptionCeilingTests {
+    @Test func servedDefinitions() throws {
+        try SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2"])) {
+            for tool in AutomationTools.definitions(for: [.native, .web, .adapters]) {
+                let schema = String(decoding: try JSONValue.canonicalEncoder().encode(tool["inputSchema"]), as: UTF8.self)
+                #expect((tool["description"].string ?? "").count + schema.count <= 4096,
+                        "\(tool["name"]): definition exceeds ceiling")
+                #expect(tool["inputSchema"]["properties"]["session"] == .null)
+                #expect(!(tool["inputSchema"]["required"].array ?? []).contains(.string("session")))
+            }
+        }
+    }
+}
+
+@MainActor
+struct SceneAsTextTests {
+    @Test(arguments: ["v1", "v2"])
+    func realSceneLines(outcome: String) async throws {
+        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2", "outcome": outcome])) {
+            let session = SyntheticSession()
+            let tools = AutomationTools(session: session)
+            let result = try await tools.call("observe", .object([:]))
+            let text = try #require(result["content"].array?.first?["text"].string)
+            #expect(text.contains("<scene>\n"))
+            #expect(text.contains(session.scene.text()))
+            #expect(!text.contains("\\n"))
+            #expect(!text.contains("observedAt"))
+            #expect(result["structuredContent"]["scene"].string == session.scene.text())
+        }
+    }
+}
+
+@MainActor
+struct BatchSurfaceDispatchTests {
+    @Test(arguments: ["v1", "v2"])
+    func stopsAfterTheSecondStep(outcome: String) async throws {
+        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2", "outcome": outcome])) {
+            let session = SyntheticSession()
+            session.results = [.foundActed, .actedUnverified]
+            let tools = AutomationTools(session: session)
+            let steps: [JSONValue] = ["First", "Second", "Third"].map {
+                .object(["operation": .string("act"), "target": .string($0)])
+            }
+            let answer = try await tools.call("batch", .object(["steps": .array(steps)]))
+            let text = try #require(answer["content"].array?.first?["text"].string)
+            #expect(session.calls == ["First", "Second"])
+            #expect(text.contains("Step 1\n") && text.contains("Step 2\n"))
+            #expect(!text.contains("Step 3\n"))
+            #expect(text.components(separatedBy: "<scene>").count == 3)
+            #expect(text.contains("First unexecuted step: 3"))
+            #expect(answer["structuredContent"]["steps"].array?.count == 2)
+            if outcome == "v2" { #expect(text.contains(" · ")) }
+        }
+    }
+}
+
+
+extension AutomationToolsTests {
+    @Test(arguments: ["v1", "v2", "invalid-scene-text", ""])
+    @MainActor
+    func sceneTextSwitchPreservesV1(_ arm: String) async throws {
+        try await SwitchBoard.$testing.withValue(SwitchBoard(values: arm.isEmpty ? [:] : ["scene_text": arm])) {
+            let session = SyntheticSession()
+            session.scene.elements = [SceneElement(
+                id: "field", kind: .control, label: "Folder A",
+                bounds: NormalizedRect(x: 0.1, y: 0.2, width: 0.2, height: 0.03),
+                role: "AXTextField", value: "abcdef",
+                selectedRange: NSRange(location: 3, length: 0)
+            ), SceneElement(
+                id: "caption", kind: .text, label: String(repeating: "Folder B ", count: 50),
+                bounds: NormalizedRect(x: 0.1, y: 0.5, width: 0.2, height: 0.03)
+            )]
+            let policy = SceneTextPolicy()
+            let shown = ValueMinimization()
+            let first = await policy.answer(session.scene, session: session, shown: shown).observation(nested: false)
+            let expected = session.scene.text(cuts: arm == "v2" ? .safe : [])
+            #expect(first["scene"].string == expected)
+            session.scene.elements[0].selectedRange = NSRange(location: 4, length: 0)
+            let next = await policy.answer(session.scene, changesOnly: true, session: session, shown: shown).observation(nested: false)
+            var before = session.scene
+            before.elements[0].selectedRange = NSRange(location: 3, length: 0)
+            #expect(next["changes"].string == SceneChanges.text(
+                from: before, to: session.scene, since: 1, cuts: arm == "v2" ? .safe : []
+            ))
+            if arm == "invalid-scene-text" { #expect(SwitchBoard.invalid["scene_text"] == arm) }
+        }
+    }
 }

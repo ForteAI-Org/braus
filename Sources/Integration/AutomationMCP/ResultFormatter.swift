@@ -104,7 +104,15 @@ final class ResultFormatter {
     }
 
     /// The answer of a call, with the memory's notice when part of it was not recorded, as the model reads it.
-    func finish(_ name: String, _ value: JSONValue, notice: String?, output: CallOutput) throws -> JSONValue {
+    func finish(
+        _ name: String,
+        _ value: JSONValue,
+        notice: String?,
+        output: CallOutput,
+        surface: ToolSurface = ToolCatalogue.currentSurface,
+        guideHead: GuideHead? = nil,
+        guideIndex: GuideIndex? = nil
+    ) throws -> JSONValue {
         #if BRAUS_PHASES
         let rendering = PhaseInterval.begin("render.result")
         defer { rendering.end() }
@@ -131,7 +139,8 @@ final class ResultFormatter {
         }
         let shown = secrets.shownMinimization
         if !shown.knowsNoText { answered = ProducerSecrets.minimized(answered, by: shown) }
-        let outcomeText = Self.usesOutcomeV2 ? try Self.outcomeText(answered) : nil
+        let outcomeText = Self.usesOutcomeV2 && surface == .v1
+            ? try Self.outcomeText(answered) : nil
         var transcribed = answered
         if case .object(var object) = answered, !output.transcriptOmits.isEmpty || !output.contentTexts.isEmpty {
             object["result"] = object["result"].map { Self.withholding(Set(output.transcriptOmits), in: $0) }
@@ -140,12 +149,170 @@ final class ResultFormatter {
         }
         if Self.usesOutcomeV2 { transcribed = Self.transcriptOutcome(transcribed) }
         try transcribe("← \(name)", transcribed)
-        if let outcomeText { return MCPRouter.textResult(outcomeText + (notice.map { "\nmemory: \($0)" } ?? "")) }
-        if let modelText = output.modelText {
-            return MCPRouter.textResult(shown.minimize(text: modelText).0 + (notice.map { "\nmemory: \($0)" } ?? ""))
+        if surface == .v2, Self.hasScene(answered), output.modelText == nil {
+            return MCPRouter.answerResult(try textAnswer(answered, notice: nil, guideHead: guideHead, guideIndex: guideIndex))
                 .adding("structuredContent", answered)
         }
+        if let outcomeText {
+            return MCPRouter.textResult(Self.appendingGuide(
+                to: outcomeText + (notice.map { "\nmemory: \($0)" } ?? ""),
+                head: guideHead, index: guideIndex, surface: surface))
+        }
+        if let modelText = output.modelText {
+            return MCPRouter.textResult(Self.appendingGuide(
+                to: shown.minimize(text: modelText).0 + (notice.map { "\nmemory: \($0)" } ?? ""),
+                head: guideHead, index: guideIndex, surface: surface))
+                .adding("structuredContent", answered)
+        }
+        let guide = Self.guideText(head: guideHead, index: guideIndex, surface: surface)
+        if !guide.isEmpty {
+            let text = String(decoding: try JSONValue.canonicalEncoder().encode(answered), as: UTF8.self)
+            return MCPRouter.textResult(text + "\n\n" + guide)
+        }
         return MCPRouter.toolResult(answered)
+    }
+
+    private static func hasScene(_ value: JSONValue) -> Bool {
+        if ["scene", "changes", "observation"].contains(where: { value[$0] != .null }) { return true }
+        return (value["steps"].array ?? []).contains(where: hasScene)
+    }
+
+    /// Renders outcome and scene blocks while retaining variable non-scene payload in canonical order.
+    func textAnswer(_ value: JSONValue, notice: String?,
+                    guideHead: GuideHead? = nil, guideIndex: GuideIndex? = nil) throws -> String {
+        try Self.renderAnswer(value, notice: notice, guideHead: guideHead, guideIndex: guideIndex)
+    }
+
+    static func renderAnswer(_ value: JSONValue, notice: String?,
+                             guideHead: GuideHead? = nil, guideIndex: GuideIndex? = nil) throws -> String {
+        var fields = value.object ?? ["result": value]
+        let memory = fields.removeValue(forKey: "memory")?.string
+        let rows = fields.removeValue(forKey: "steps")?.array
+        let attempted = fields["attemptedSteps"]
+        let steps: [JSONValue]? = rows.map { rows in
+            guard case .number(let count) = attempted, count >= 0, count < Double(rows.count) else { return rows }
+            return Array(rows.prefix(Int(count)))
+        }
+        let reason = steps == nil ? nil : fields.removeValue(forKey: "reason")
+        var parts: [String] = []
+        if steps != nil {
+            parts.append(ModelText.text(.init(rawValue: "answer.surface.v2.batch")))
+            // Batch scenes belong to their executed steps, never to the aggregate.
+            for key in ["scene", "changes", "observation"] { fields.removeValue(forKey: key) }
+        }
+        let blocks = try answerBlocks(.object(fields))
+        if !blocks.isEmpty { parts.append(blocks) }
+        if let steps {
+            for (index, step) in steps.enumerated() {
+                parts.append(ModelText.render(.init(rawValue: "answer.surface.v2.step"),
+                                              ["count": .count(index + 1)]))
+                let blocks = try answerBlocks(usesOutcomeV2 ? batchOutcome(step) : step)
+                if !blocks.isEmpty { parts.append(blocks) }
+            }
+            var stop: [String] = []
+            if fields["status"]?.string == "stopped",
+               case .number(let requested) = fields["requested"], Double(steps.count) < requested {
+                stop.append(ModelText.render(.init(rawValue: "answer.surface.v2.unexecuted"),
+                                             ["count": .count(steps.count + 1)]))
+            }
+            if let reason {
+                stop.append(ModelText.text(.init(rawValue: "answer.surface.v2.reason")) + (try display(reason)))
+            }
+            for row in (rows ?? []).dropFirst(steps.count) {
+                let detail = try answerBlocks(usesOutcomeV2 ? batchOutcome(row) : row)
+                if !detail.isEmpty { parts.append(detail) }
+            }
+            if !stop.isEmpty { parts.append(block(.outcome, stop.joined(separator: ModelText.text(.init(rawValue: "answer.surface.v2.rowSeparator"))))) }
+        }
+        if let notice = notice ?? memory, !notice.isEmpty {
+            parts.append(block(.outcome, ModelText.text(.init(rawValue: "answer.surface.v2.memory")) + notice))
+        }
+        let guide = guideText(head: guideHead, index: guideIndex, surface: .v2)
+        if !guide.isEmpty { parts.append(guide) }
+        return parts.joined(separator: ModelText.text(.init(rawValue: "answer.surface.v2.blockSeparator")))
+    }
+
+    private static func appendingGuide(to text: String, head: GuideHead?, index: GuideIndex?,
+                                       surface: ToolSurface) -> String {
+        let guide = guideText(head: head, index: index, surface: surface)
+        return guide.isEmpty ? text : text + "\n\n" + guide
+    }
+
+    /// Formats prepared guide values without consulting sources or the guide selector.
+    static func guideText(head: GuideHead?, index: GuideIndex?, surface: ToolSurface) -> String {
+        let content = ModelText.guideContent(head: head, index: index)
+        guard !content.isEmpty else { return "" }
+        guard surface == .v2 else { return content }
+        let escaped = content.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+        return ModelText.text(.init(rawValue: "guide.open")) + escaped
+            + ModelText.text(.init(rawValue: "guide.close"))
+    }
+
+    private static func answerBlocks(_ value: JSONValue) throws -> String {
+        var fields = value.object ?? ["result": value]
+        var scene: [String] = []
+        func collect(_ value: JSONValue) throws {
+            if let text = value.string { if !text.isEmpty { scene.append(text) }; return }
+            guard let object = value.object else {
+                scene.append(try display(value))
+                return
+            }
+            for key in object.keys.sorted() where !["session", "observedAt"].contains(key) {
+                if key == "scene" || key == "changes" { try collect(object[key] ?? .null) }
+                else {
+                    scene.append(key + ModelText.text(.init(rawValue: "answer.surface.v2.keySeparator"))
+                        + (try display(object[key] ?? .null)))
+                }
+            }
+        }
+        for key in ["scene", "changes", "observation"] {
+            if let value = fields.removeValue(forKey: key) { try collect(value) }
+        }
+        for key in ["session", "observedAt", "_failure_cause"] { fields.removeValue(forKey: key) }
+        var outcome: [String] = []
+        if let gesture = fields["gesture"]?.string, let effect = fields["effect"]?.string,
+           let recovery = fields["recovery"]?.string {
+            outcome.append([gesture, effect, recovery].joined(
+                separator: ModelText.text(.init(rawValue: "answer.surface.v2.outcomeSeparator"))))
+            for key in ["gesture", "effect", "recovery"] { fields.removeValue(forKey: key) }
+        } else if let row = fields.removeValue(forKey: "outcome")?.string {
+            outcome.append(row)
+        } else if let status = fields.removeValue(forKey: "status")?.string { outcome.append(status) }
+        if let message = fields.removeValue(forKey: "_outcome_message")?.string {
+            outcome.append(message)
+            fields.removeValue(forKey: "message")
+        } else if let message = fields.removeValue(forKey: "message")?.string, !message.isEmpty {
+            outcome.append(message)
+        }
+        for key in fields.keys.sorted() {
+            outcome.append(key + ModelText.text(.init(rawValue: "answer.surface.v2.keySeparator"))
+                + (try display(fields[key] ?? .null)))
+        }
+        return [outcome.isEmpty ? nil : block(.outcome, outcome.joined(separator: ModelText.text(.init(rawValue: "answer.surface.v2.rowSeparator")))),
+                scene.isEmpty ? nil : block(.scene, scene.joined(separator: ModelText.text(.init(rawValue: "answer.surface.v2.rowSeparator"))))]
+            .compactMap { $0 }.joined(separator: ModelText.text(.init(rawValue: "answer.surface.v2.blockSeparator")))
+    }
+
+    private static func display(_ value: JSONValue) throws -> String {
+        if let text = value.string { return text }
+        return String(decoding: try JSONValue.canonicalEncoder().encode(value), as: UTF8.self)
+    }
+
+    private enum AnswerBlock: String { case outcome, scene }
+
+    private static func block(_ tag: AnswerBlock, _ text: String) -> String {
+        let escaped = text.replacingOccurrences(
+            of: ModelText.text(.init(rawValue: "answer.surface.v2.ampersand")),
+            with: ModelText.text(.init(rawValue: "answer.surface.v2.escapedAmpersand")))
+            .replacingOccurrences(
+                of: ModelText.text(.init(rawValue: "answer.surface.v2.lessThan")),
+                with: ModelText.text(.init(rawValue: "answer.surface.v2.escapedLessThan")))
+            .replacingOccurrences(
+                of: ModelText.text(.init(rawValue: "answer.surface.v2.greaterThan")),
+                with: ModelText.text(.init(rawValue: "answer.surface.v2.escapedGreaterThan")))
+        return ModelText.text(.init(rawValue: "answer.surface.v2." + tag.rawValue + ".open"))
+            + escaped + ModelText.text(.init(rawValue: "answer.surface.v2." + tag.rawValue + ".close"))
     }
 
     /// Hands a line to the transcript with every value the memory withholds withheld here too: the
@@ -321,7 +488,22 @@ final class ResultFormatter {
     /// The evidence of a call as the agent reads it (P2-03): whether the route accepted the command, apart from what
     /// its own oracle found of the effect (condition, method and version, verdict, limits, what was performed). Whether
     /// the task's goal was reached is the task's result check, never this. Nil without a check.
-    static func evidence(_ check: OperationCheck?, kind: ActOutcomeKind) -> JSONValue? {
+    static func evidence(
+        _ check: OperationCheck?,
+        kind: ActOutcomeKind,
+        surface: ToolSurface = ToolCatalogue.currentSurface
+    ) -> JSONValue? {
+        guard let legacy = legacyEvidence(check, kind: kind) else { return nil }
+        guard surface == .v2, var fields = legacy.object,
+              var effect = fields["effect"]?.object else { return legacy }
+        fields.removeValue(forKey: "goal")
+        effect.removeValue(forKey: "version")
+        if check?.limits.isEmpty == true { effect.removeValue(forKey: "limits") }
+        fields["effect"] = .object(effect)
+        return .object(fields)
+    }
+
+    private static func legacyEvidence(_ check: OperationCheck?, kind: ActOutcomeKind) -> JSONValue? {
         guard let check else { return nil }
         let accepted: String = switch check.performed {
             case .requested, .substitute: "accepted"
@@ -341,7 +523,11 @@ final class ResultFormatter {
         ])
     }
 
-    func outcome(_ outcome: ActOutcome, refusal: RefusalContext? = nil) async -> JSONValue {
+    func outcome(
+        _ outcome: ActOutcome,
+        refusal: RefusalContext? = nil,
+        surface: ToolSurface = ToolCatalogue.currentSurface
+    ) async -> JSONValue {
         if let scene = outcome.scene, let id = session.id, let window = session.observedWindowNumber {
             noteScene(scene, sessionID: id, windowNumber: window)
         }
@@ -349,8 +535,8 @@ final class ResultFormatter {
             "status": .string(outcome.kind.rawValue), "message": .string(outcome.message),
             "session": session.id.map { .string($0.uuidString) } ?? .null
         ]
-        if let scene = outcome.scene { values["observation"] = await sceneText.observation(scene, changesOnly: true, nested: true,
-                                                                                          session: session, shown: secrets.shownMinimization) }
+        if let scene = outcome.scene { values["observation"] = await sceneText.answer(scene, changesOnly: true, nested: true,
+                                                                                          session: session, shown: secrets.shownMinimization).observation(nested: true) }
         if Self.usesOutcomeV2 {
             values.removeValue(forKey: "status")
             var typed = outcome.outcome
@@ -383,7 +569,7 @@ final class ResultFormatter {
             return .object(values)
         }
         // P2-03: what the operation's own oracle found, apart from the command's acceptance and the task's goal.
-        if let evidence = Self.evidence(outcome.withStatedCheck.check, kind: outcome.kind) { values["evidence"] = evidence }
+        if let evidence = Self.evidence(outcome.withStatedCheck.check, kind: outcome.kind, surface: surface) { values["evidence"] = evidence }
         return .object(values)
     }
 
@@ -446,7 +632,8 @@ final class ResultFormatter {
         _ name: String,
         arguments: JSONValue,
         request: AgentCallRequest?,
-        definitions: [JSONValue]
+        definitions: [JSONValue],
+        surface: ToolSurface = ToolCatalogue.currentSurface
     ) -> Bool {
         guard let request, request.tool.requiresConfirmedStart,
               let fields = arguments.object,
@@ -458,13 +645,21 @@ final class ResultFormatter {
             return false
         }
         if request.tool.takesSession {
-            return session.id.map { arguments["session"].string == $0.uuidString } == true
+            return session.id.map {
+                surface == .v2 || arguments["session"].string == $0.uuidString
+            } == true
         }
         return true
     }
 
     /// Answers a failure with catalogue context and the already minimized detail before any input was sent.
-    func thrown(_ error: any Error, tool: String, mayHaveActed: Bool, minimized: String? = nil) -> JSONValue {
+    func thrown(
+        _ error: any Error,
+        tool: String,
+        mayHaveActed: Bool,
+        minimized: String? = nil,
+        surface: ToolSurface = ToolCatalogue.currentSurface
+    ) -> JSONValue {
         let cause = (error as? AutomationFailure)?.cause ?? "thrown"
         let outcome = mayHaveActed
             ? Outcome.converting(.actedUnverified, check: .unchecked(performed: .uncertain),
@@ -475,6 +670,9 @@ final class ResultFormatter {
             OutcomeKey(outcome: outcome, verb: tool, cause: cause), label: nil
         )
         if !mayHaveActed, let minimized { text += "\n" + minimized }
+        if surface == .v2 {
+            return MCPRouter.answerResult(Self.block(.outcome, text), isError: true)
+        }
         return MCPRouter.textResult(text).adding("isError", .bool(true))
     }
 

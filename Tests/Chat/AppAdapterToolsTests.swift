@@ -7,10 +7,34 @@ import LocalMCP
 import PerceptionCore
 import Synchronization
 import Testing
+import Switches
 
 @Suite("The app adapters through the tools")
 @MainActor
 struct AppAdapterToolsTests {
+
+    @Test(arguments: ["v1", "v2"])
+    func keepsToolSurfaceCuratedAdapterAnswers(_ surface: String) async throws {
+        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": surface])) {
+            try await contentParametersWithheld()
+            try await contentResultsWithheldFromTheTranscriptOnly()
+            try await capabilitiesAsText()
+        }
+    }
+
+    @Test func discoveredAdapterUsesItsRealName() async throws {
+        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2", "task_cycle": "v2"])) {
+            let tools = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([ScribeAdapter()]))
+            var lines: [String] = []
+            tools.record = { lines.append($0) }
+            let answer = try await tools.call("call", .object([
+                "name": .string("scribe.read"), "arguments": .object(["path": .string("notes.txt")])]))
+            #expect(answer.answerText.contains("Read it."))
+            #expect(lines.first?.hasPrefix("→ scribe.read") == true)
+            #expect(lines.last?.hasPrefix("← scribe.read") == true)
+            #expect(!lines.contains { $0.hasPrefix("→ call") || $0.hasPrefix("→ app_call") })
+        }
+    }
 
     private static let adapterTools: Set<String> = ["app_capabilities", "app_call"]
     /// The memory's marker for a withheld value (`ValueMinimization.marker`).

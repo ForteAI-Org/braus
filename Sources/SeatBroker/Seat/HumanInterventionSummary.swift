@@ -127,7 +127,7 @@ nonisolated enum HumanInterventionSummary {
             (text, strings) = render(shown, level: Compaction.namesInDetails, more: body.count - shown.count)
         }
         if text.utf8.count > maximumBytes {
-            let lines = [header, "\(body.count) observed changes; \(unobserved.count) unobserved actions. Evidence in human_step."]
+            let lines = [header, "\(body.count) observed changes; \(unobserved.count) unobserved actions. Evidence in the handoff summary."]
                 + (details.map { [$0] } ?? [])
             strings = HumanInterventionStrings(tokens: lines.map { [.literal($0)] })
             text = strings.render(lines)
@@ -154,7 +154,7 @@ nonisolated enum HumanInterventionSummary {
     /// One span over the steps: each line already names its fact, so the worker needs only where to page.
     private static func detailReference(_ indexes: [Int]) -> String? {
         guard let first = indexes.min(), let last = indexes.max() else { return nil }
-        return first == last ? "human_step step \(first)" : "human_step steps \(first)-\(last)"
+        return first == last ? "handoff step \(first)" : "handoff steps \(first)-\(last)"
     }
 
     /// Rendering levels, tried in order until the digest fits.

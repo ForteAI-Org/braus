@@ -85,7 +85,14 @@ struct MCPExternalTransportTests {
                      "params": .object(["requestId": .number(Double(id))])])
         }
         #expect(await router.handle(cancel(41)) == nil)
-        #expect((await router.handle(request("tools/call", id: 43)))?["error"] != .null)
+        var enteredQueue = false
+        let queued = Task {
+            enteredQueue = true
+            return await router.handle(request("tools/call", id: 43))
+        }
+        while !enteredQueue { await Task.yield() }
+        #expect(await router.handle(cancel(43)) == nil)
+        #expect(await queued.value == nil)
         #expect(await router.handle(cancel(42)) == nil)
         #expect((await running.value)?["result"]["isError"] == .bool(true))
         #expect(router.isAcceptingTools)

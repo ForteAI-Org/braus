@@ -24,6 +24,8 @@ final class Probe {
     /// The commands, one per line, as `measure-memory-store.sh` and the tests send them.
     static let usage = """
         open <path> [lockBudgetMs] [retryPauseMs] [maximumRetryPauseMs]
+        open-historical19 <path> [lockBudgetMs] [retryPauseMs] [maximumRetryPauseMs]
+                                           open an explicit historical fixture without migration to schema 22
         waits                              print the store's wait events as `wait ...` lines
         record <id> <key> <occurredAtMs>   committed | alreadyApplied | identity
         record-and-die <id> <key> <occurredAtMs>   commit, then SIGKILL this process before answering
@@ -79,6 +81,7 @@ final class Probe {
         do {
             switch command {
             case "open"            : try await open(arguments)
+            case "open-historical19": try await open(arguments, historical19: true)
             case "waits"           : try await waits()
             case "record"          : try await record(arguments, die: false)
             case "record-and-die"  : try await record(arguments, die: true)
@@ -136,7 +139,7 @@ final class Probe {
 
     // MARK: Commands
 
-    private func open(_ arguments: [String]) async throws {
+    private func open(_ arguments: [String], historical19: Bool = false) async throws {
         guard let path = arguments.first else { emit("error usage open"); return }
         var configuration = SQLiteMemoryStore.Configuration()
         if arguments.count > 1, let budget = Int(arguments[1]) { configuration.lockBudget = .milliseconds(budget) }
@@ -146,7 +149,10 @@ final class Probe {
         if arguments.count > 3, let maximum = Int(arguments[3]) {
             configuration.maximumRetryPause = .milliseconds(maximum)
         }
-        let opened = SQLiteMemoryStore(url: URL(fileURLWithPath: path), configuration: configuration)
+        let url = URL(fileURLWithPath: path)
+        let opened = historical19
+            ? SQLiteMemoryStore(url: url, configuration: configuration, schema: .historical19)
+            : SQLiteMemoryStore(url: url, configuration: configuration)
         if printsWaits { await observeWaits(of: opened) }
         try await opened.open()
         store = opened
@@ -485,6 +491,7 @@ final class Probe {
         for index in 0..<count {
             let id = "\(getpid())-\(index)"
             last = try await store.write { transaction in
+                let identity = try Self.eventIdentity(in: transaction)
                 let highest = try transaction.query(
                     "SELECT coalesce(max(occurred_at_ms), 0) FROM memory_events WHERE source_stream_id = ?",
                     [.text(stream)]
@@ -492,7 +499,7 @@ final class Probe {
                 try transaction.execute(
                     """
                     INSERT INTO memory_events
-                        (event_id, source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
+                        (\(identity), source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     [.text(id), .text("app"), .text(stream), .text(id), .text("action"),
@@ -589,10 +596,11 @@ final class Probe {
             let key = "\(id)-\(padding)"
             let began = clock.now
             _ = try await store.write { transaction in
+                let identity = try Self.eventIdentity(in: transaction)
                 try transaction.execute(
                     """
                     INSERT INTO memory_events
-                        (event_id, source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
+                        (\(identity), source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     [.text(id), .text("app"), .text(stream), .text(key), .text("action"),
@@ -634,6 +642,11 @@ final class Probe {
         return store
     }
 
+    private static func eventIdentity(in transaction: SQLiteTransaction) throws -> String {
+        let version = try transaction.query("PRAGMA user_version") { $0.integer(0) }.first ?? nil
+        return version == 22 ? "event_uuid" : "event_id"
+    }
+
     /// The idempotent fixture writer of the tests, in this process too: the same identity with
     /// the same content is already applied, the same identity with other content is a conflict.
     /// The typed repositories will own this; until then it lives in the fixtures.
@@ -644,10 +657,11 @@ final class Probe {
         in store  : SQLiteMemoryStore
     ) async throws -> MemoryReceipt {
         try await store.write { transaction in
+            let identity = try Self.eventIdentity(in: transaction)
             let stored = try transaction.query(
                 """
                 SELECT source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status
-                FROM memory_events WHERE event_id = ?
+                FROM memory_events WHERE \(identity) = ?
                 """,
                 [.text(id)]
             ) { row in
@@ -668,7 +682,7 @@ final class Probe {
             try transaction.execute(
                 """
                 INSERT INTO memory_events
-                    (event_id, source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
+                    (\(identity), source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 [.text(id), .text("app"), .text("worker-1"), .text(key), .text("action"),

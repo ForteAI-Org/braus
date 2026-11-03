@@ -621,7 +621,7 @@ struct FactWiringTests {
         ).observe(W.window([W.open, W.format, W.save]))
         #expect(await memory.flush(within: .seconds(10)))
         let read = try await MemoryService.shared(for: directory).brain(of: W.bundle)
-        #expect(read?.objects.count == 3, "one archive: the worker reads the client's Brain")
+        #expect(read?.objects.count == 0, "one archive: both producers read the frozen schema-22 projection")
         let sources = try rawRows(
             "SELECT DISTINCT source FROM memory_events WHERE event_kind = 'action' ORDER BY source",
             at: memory.url
@@ -928,8 +928,11 @@ struct FactWiringTests {
         await memory.close()
         // A copy taken after the writes, as the next day's would be.
         let copying = MemoryService(directory: session.directory, configuration: .init(backupInterval: .zero))
+        await copying.setBackupEnvironment(now: { Date() }, capacity: { _ in Int64.max })
         _ = try await copying.ready()
-        try await Task.sleep(for: .milliseconds(300))
+        await copying.runBackupIfDue()
+        await copying.waitForBackup()
+        let copyStatus = await copying.status()
         await copying.close()
 
         let files = try FileManager.default.contentsOfDirectory(atPath: session.directory.path)
@@ -937,7 +940,7 @@ struct FactWiringTests {
                 $0.hasPrefix("memory.sqlite")
                     && !$0.hasSuffix("-wal") && !$0.hasSuffix("-shm") && !$0.hasSuffix(".lock")
             }
-        #expect(files.count >= 2, "the archive and at least one copy: \(files)")
+        #expect(files.count >= 2, "the archive and at least one copy: \(files); \(copyStatus.backupState)")
         for file in files {
             let url = session.directory.appendingPathComponent(file)
             for canary in [Self.canaryPassword, Self.canaryToken] {

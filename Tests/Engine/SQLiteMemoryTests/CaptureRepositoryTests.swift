@@ -21,7 +21,7 @@ struct CaptureRepositoryTests {
 
     @Test("an event is recorded once: the same identity and content is already applied, other content is a conflict, and so is a reused source key")
     func eventIdempotency() async throws {
-        let memory = try await SceneFixtures.open()
+        let memory = try await SceneFixtures.open22()
         let event  = SceneFixtures.event("e1")
         #expect(try await memory.captures.record(event) == .committed)
         #expect(try await memory.captures.record(event) == .alreadyApplied)
@@ -55,7 +55,7 @@ struct CaptureRepositoryTests {
 
     @Test("an unknown version or locale stays unknown through the store, and two contexts of one app are two rows")
     func contexts() async throws {
-        let memory = try await SceneFixtures.open()
+        let memory = try await SceneFixtures.open22()
         _ = try await memory.captures.record(SceneFixtures.event("a", app: AppContextIdentity(bundleID: "x.app")))
         _ = try await memory.captures.record(SceneFixtures.event("b", app: AppContextIdentity(bundleID: "x.app", version: "2")))
         #expect(try await memory.captures.event("a")?.app == AppContextIdentity(bundleID: "x.app"))
@@ -68,7 +68,7 @@ struct CaptureRepositoryTests {
 
     @Test("a sample needs its event, is written with its eight fields and its elements, and reads back equal after the file is closed and reopened")
     func sampleRoundTrip() async throws {
-        let memory = try await SceneFixtures.open()
+        let memory = try await SceneFixtures.open22()
         let window = SceneFixtures.perceive(SceneFixtures.window("Inbox", [
             SceneFixtures.table("People", rows: ["Alice", "Bruno"]),
             SceneFixtures.button("Compose", y: 700),
@@ -96,7 +96,7 @@ struct CaptureRepositoryTests {
         #expect(try await memory.captures.event("e1")?.captureStatus == .complete)
         await memory.store.close()
 
-        let reopened = try await SceneFixtures.open(at: memory.url)
+        let reopened = try await SceneFixtures.open22(at: memory.url)
         let back = try await reopened.captures.sample(sample.key)
         #expect(back == sample)
         #expect(back?.fingerprint == sample.fingerprint)
@@ -107,7 +107,7 @@ struct CaptureRepositoryTests {
 
     @Test("the same sample again is already applied and moves nothing; a different payload under the same key is a conflict and the stored one stays")
     func sampleIdempotency() async throws {
-        let memory = try await SceneFixtures.open()
+        let memory = try await SceneFixtures.open22()
         _ = try await memory.captures.record(SceneFixtures.event("e1"))
         let first  = SceneFixtures.sample("e1", of: SceneFixtures.perceive(SceneFixtures.window("W", [SceneFixtures.button("OK", y: 300)])))
         let second = SceneFixtures.sample("e1", of: SceneFixtures.perceive(SceneFixtures.window("W", [SceneFixtures.button("Cancel", y: 300)])))
@@ -132,7 +132,7 @@ struct CaptureRepositoryTests {
 
     @Test("the event's capture summary is the worst of its samples and moves only when they do")
     func captureSummary() async throws {
-        let memory = try await SceneFixtures.open()
+        let memory = try await SceneFixtures.open22()
         _ = try await memory.captures.record(SceneFixtures.event("e1"))
         let complete = SceneFixtures.perceive(SceneFixtures.window("W", [SceneFixtures.button("OK", y: 300)]))
         let partial  = SceneFixtures.perceive(SceneFixtures.window("W", [SceneFixtures.button("OK", y: 300)]),
@@ -149,7 +149,7 @@ struct CaptureRepositoryTests {
 
     @Test("a sample the file refuses part way is rolled back whole: no capture, no field, no element, the event unchanged, the store usable")
     func rollback() async throws {
-        let memory = try await SceneFixtures.open()
+        let memory = try await SceneFixtures.open22()
         _ = try await memory.captures.record(SceneFixtures.event("e1"))
         let pages = try await memory.store.read { try $0.query("PRAGMA page_count") { $0.integer(0) ?? 0 }.first ?? 0 }
         _ = try await memory.store.write { transaction in
@@ -179,7 +179,7 @@ struct CaptureRepositoryTests {
 
     @Test("a record is refused before any transaction when it has no identity or an element has no label")
     func validation() async throws {
-        let memory = try await SceneFixtures.open()
+        let memory = try await SceneFixtures.open22()
         await #expect(throws: ObservationContractError.invalidRecord(.emptyEventID)) {
             _ = try await memory.captures.record(SceneFixtures.event(""))
         }

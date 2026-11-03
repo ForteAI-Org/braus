@@ -44,46 +44,12 @@ actor HumanInterventionEmbeddings {
         let role: EmbeddingRole
     }
 
-    /// ModelCache shares one immutable model across episodes. Every caller awaits the same load, which may start
-    /// before any episode needs it (`prepare`) and keeps running past an episode's deadline for later episodes.
-    nonisolated final class ModelCache: Sendable {
-
-        private let loader: @Sendable () throws -> (any TextEmbedding)?
-        private let loading = Mutex<Task<(any TextEmbedding)?, Never>?>(nil)
-
-        init(loader: @escaping @Sendable () throws -> (any TextEmbedding)?) {
-            self.loader = loader
-        }
-
-        /// Starts the load without waiting for it.
-        func prepare() {
-            _ = load()
-        }
-
-        func model() async -> (any TextEmbedding)? {
-            await load().value
-        }
-
-        private func load() -> Task<(any TextEmbedding)?, Never> {
-            loading.withLock { loading in
-                if let loading { return loading }
-                let loader = self.loader
-                // A missing or refused installation stays unavailable until the process restarts.
-                let task = Task.detached(priority: .utility) { (try? loader()) ?? nil }
-                loading = task
-                return task
-            }
-        }
-    }
-
-    /// The pinned model from the shared models folder; only the folder comes from the recall configuration. The
-    /// synchronized cache retains at most one model; installing another revision requires a process restart.
-    nonisolated private static let installedModel: ModelCache = {
-        let directory = RecallConfiguration.resolved().modelsDirectory
-        return ModelCache {
-            guard let directory else { return nil }
-            return try LocalEmbeddingModel(manifest: manifest, directory: directory.appendingPathComponent(manifest.directoryName))
-        }
+    nonisolated private static let source: EmbeddingService.Source? = {
+        guard let directory = RecallConfiguration.resolved().modelsDirectory else { return nil }
+        return EmbeddingService.Source(
+            manifest: manifest,
+            directory: directory.appendingPathComponent(manifest.directoryName)
+        )
     }()
 
     private let loader: @Sendable () async throws -> (any TextEmbedding)?
@@ -95,12 +61,16 @@ actor HumanInterventionEmbeddings {
 
     /// Loads the pinned model in the background, so the episode's digest does not pay for it.
     nonisolated static func prepareLocal() {
-        installedModel.prepare()
+        guard let source else { return }
+        EmbeddingService.shared.prepare(.eager, source: source)
     }
 
     /// Uses the pinned model shared across episodes, without downloading missing files.
     nonisolated static func local() -> HumanInterventionEmbeddings {
-        HumanInterventionEmbeddings { await installedModel.model() }
+        HumanInterventionEmbeddings {
+            guard let source, await EmbeddingService.shared.ready(source) == nil else { return nil }
+            return EmbeddingService.shared.embedding(for: source.space)
+        }
     }
 
     /// Embeds at most 96 texts of 1,024 UTF-8 bytes each, about 3 ms a text once the model is loaded. The first accepted request owns the episode's job;

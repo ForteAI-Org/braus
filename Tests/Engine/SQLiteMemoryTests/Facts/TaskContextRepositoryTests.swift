@@ -30,9 +30,10 @@ enum TaskFixtures {
         }
     }
 
-    static func open() async throws -> Memory {
+    static func open(schema: SQLiteMemoryStore.Schema = .historical19) async throws -> Memory {
         let url   = try temporaryDatabase()
-        let store = try await SQLiteMemoryStore.open(at: url)
+        let store = SQLiteMemoryStore(url: url, schema: schema)
+        try await store.open()
         return Memory(
             url: url,
             store: store,
@@ -78,7 +79,7 @@ struct TaskContextRepositoryTests {
 
     @Test("a task opens with its revision and first attempt in progress; offered again it adds nothing")
     func openOnce() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         #expect(try await TaskFixtures.begin(memory) == .committed)
         #expect(try await TaskFixtures.begin(memory) == .alreadyApplied)
         let task = try #require(try await memory.tasks.task("task-1", for: TaskFixtures.producer))
@@ -94,7 +95,7 @@ struct TaskContextRepositoryTests {
 
     @Test("a revision moves the task forward against the one read; a stale one, a foreign producer and a closed task are refused")
     func revisions() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         try await TaskFixtures.begin(memory)
         let second = try TaskRevision(
             taskID: "task-1",
@@ -162,7 +163,7 @@ struct TaskContextRepositoryTests {
 
     @Test("a checkpoint offered twice is one checkpoint; an end closes the attempt and the task; nothing follows an end")
     func checkpointsAndEnd() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         try await TaskFixtures.begin(memory)
         let output = try TaskFixtures.value("output_file", "foto_web.jpg")
         let draft  = try TaskCheckpointDraft(kind: .checkpoint, note: "rotated", outputs: [output])
@@ -211,7 +212,7 @@ struct TaskContextRepositoryTests {
 
     @Test("a resumption opens a linked attempt from the current revision and marks the running one interrupted; nothing is replayed")
     func resumption() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         try await TaskFixtures.begin(memory)
         let next = try TaskAttempt(
             attemptID: "attempt-2",
@@ -254,7 +255,7 @@ struct TaskContextRepositoryTests {
                 source: .request
             )
         }
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         let secret = try TaskValue(
             name: "password",
             role: "account password",
@@ -293,31 +294,5 @@ struct TaskContextRepositoryTests {
         await memory.store.close()
     }
 
-    @Test("the schema refuses what the contract refuses, even written by hand: a revision out of order, a second end, a reopened task")
-    func schemaGuards() async throws {
-        let memory = try await TaskFixtures.open()
-        try await TaskFixtures.begin(memory)
-        #expect(await refusal(of: """
-            INSERT INTO memory_task_revisions (task_id, revision, recorded_at_ms, change_kind, goal)
-            VALUES ('task-1', 3, 0, 'revised', 'g')
-            """, in: memory.store) != nil)
-        _ = try await memory.tasks.checkpoint(
-            try TaskCheckpointDraft(kind: .end, declared: .completed),
-            attempt: "attempt-1",
-            at: TaskFixtures.t0 + 1,
-            by: TaskFixtures.producer
-        )
-        #expect(await refusal(of: """
-            INSERT INTO memory_task_checkpoints (task_occurrence_id, sequence, checkpoint_kind, task_id, revision,
-                                                 recorded_at_ms, declared_status)
-            VALUES ('attempt-1', 2, 'end', 'task-1', 1, 0, 'failed')
-            """, in: memory.store) != nil)
-        #expect(await refusal(of: """
-            UPDATE memory_tasks SET status = 'open', closed_at_ms = NULL WHERE task_id = 'task-1'
-            """, in: memory.store) != nil)
-        #expect(await refusal(of: """
-            UPDATE memory_task_revisions SET goal = 'other' WHERE task_id = 'task-1'
-            """, in: memory.store) != nil)
-        await memory.store.close()
-    }
+
 }

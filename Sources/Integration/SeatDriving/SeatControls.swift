@@ -6,6 +6,8 @@
 //
 
 import AccessibilityActions
+import AccessibilityFacts
+import ApplicationServices
 import AppKit
 import CoreGraphics
 import EngineCore
@@ -19,9 +21,81 @@ import PerceptionCore
 /// the window the application's child frames still name its old place.
 public struct SeatControls: ControlPressing {
 
-    private let accessibility = AccessibilityController()
+    private let accessibility: AccessibilityController
 
-    public init() {}
+    private let copyAttributeValue: @Sendable (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError
+
+    public init() {
+        accessibility = AccessibilityController()
+        copyAttributeValue = AXUIElementCopyAttributeValue
+    }
+
+    package init(
+        budget: AccessibilityController.WalkBudget = .standard,
+        copyAttributeValue: @escaping @Sendable (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError
+    ) {
+        self.accessibility = AccessibilityController(budget: budget)
+        self.copyAttributeValue = copyAttributeValue
+    }
+
+    /// Reads focus classification without requesting the field's value or labels.
+    public func focusedField(in processID: pid_t) async -> FocusedField {
+        await Self.readFocusedField(in: processID, budget: accessibility.budget, copy: copyAttributeValue)
+    }
+
+    @concurrent
+    private static func readFocusedField(
+        in processID: pid_t,
+        budget: AccessibilityController.WalkBudget,
+        copy: @Sendable (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError
+    ) async -> FocusedField {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: budget.deadline)
+        func canRead() -> Bool { !Task.isCancelled && clock.now < deadline }
+        guard processID > 0, budget.elements > 0, canRead() else { return .unknown }
+        let application = AXUIElementCreateApplication(processID)
+        AXUIElementSetMessagingTimeout(application, budget.applicationTimeout)
+        var focused: CFTypeRef?
+        guard copy(application, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let focused, CFGetTypeID(focused) == AXUIElementGetTypeID(), canRead() else { return .unknown }
+        // The CF type was checked above; AX handles stay on this executor throughout the read.
+        let field = unsafeDowncast(focused, to: AXUIElement.self)
+        AXUIElementSetMessagingTimeout(field, budget.elementTimeout)
+        func attribute(_ name: String) -> (AXError, CFTypeRef?) {
+            guard canRead() else { return (.cannotComplete, nil) }
+            var value: CFTypeRef?
+            let error = copy(field, name as CFString, &value)
+            return (error, value)
+        }
+        let (roleError, roleValue) = attribute(kAXRoleAttribute)
+        let (subroleError, subroleValue) = attribute(kAXSubroleAttribute)
+        let role = roleError == .success ? roleValue as? String : nil
+        let subrole = subroleError == .success ? subroleValue as? String : nil
+        guard canRead() else { return .unknown }
+        if role == "AXSecureTextField" || subrole == "AXSecureTextField" {
+            return .secure(TargetIdentity(NativeAccessibilityIdentity.token(for: field)))
+        }
+        guard let role,
+              subrole != nil || subroleError == .attributeUnsupported || subroleError == .noValue
+        else { return .unknown }
+        let ordinaryRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox"]
+        if !ordinaryRoles.contains(role) {
+            let (error, editable) = attribute("AXEditable")
+            guard error == .success, let editable, CFGetTypeID(editable) == CFBooleanGetTypeID(),
+                  CFEqual(editable, kCFBooleanTrue), canRead() else { return .unknown }
+        }
+        return .ordinary(TargetIdentity(NativeAccessibilityIdentity.token(for: field)))
+    }
+
+    /// Only a unique scene ID can bind a native field. Pixel-only elements attest no identity.
+    package static func identities(in scene: SceneSnapshot) -> [String: TargetIdentity] {
+        let grouped = Dictionary(grouping: scene.elements, by: \.id)
+        return grouped.compactMapValues { elements in
+            guard elements.count == 1, let element = elements.first,
+                  let token = element.nativeIdentity else { return nil }
+            return TargetIdentity(token)
+        }
+    }
 
     public func pressControl(labelled label: String, in processID: pid_t) async -> Bool {
         // Pro Tools repeats labels across tracks. Its seat resolves the observed window and point.

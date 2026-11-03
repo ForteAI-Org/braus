@@ -192,7 +192,7 @@ struct InputDeliveryTests {
             .deliver(request(.typeText("braus-ps-test", into: "Project Name", replacing: true)))
         #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
         #expect(outcome.message
-            == "typed into 'Project Name' (kept the extension .psd): the field reads 'braus-ps-test.psd'")
+            == "typed into 'Project Name' (kept the extension '.psd'): the field reads 'braus-ps-test.psd'")
         #expect(actuator.gestures == [.click(at: fieldPoint, count: 3), .type("braus-ps-test.psd")])
 
         // Anything else is typed as given, and nothing is added without the panel's rule.
@@ -324,6 +324,20 @@ struct InputDeliveryTests {
         #expect(actuator.gestures.isEmpty)
     }
 
+    @Test("delivery errors retain their complete system description")
+    func deliveryErrorIsNotTruncated() async {
+        struct Failure: Error, CustomStringConvertible {
+            let description = "Synthetic system failure: " + String(repeating: "detail-", count: 20) + "end"
+        }
+        let failure = Failure()
+        let actuator = RecordingActuator()
+        actuator.failure = failure
+        let result = await engine(scenes: ScriptedScenes([scene([])]), actuator: actuator)
+            .deliver(request(.insertText("synthetic")))
+        #expect(result.message.contains("delivery failed: " + failure.description))
+        #expect(!result.message.contains("…"))
+    }
+
     // MARK: insert_text
 
     @Test("inserting preserves focus and selection, and exact native readback verifies the complete value")
@@ -392,7 +406,8 @@ struct InputDeliveryTests {
         let result = await engine(scenes: ScriptedScenes([scene([])]), actuator: actuator)
             .deliver(request(.insertText("Braus", expecting: "Braus")))
         #expect(result.kind == .actedUnverified)
-        #expect(result.message.contains("delivery failed"))
+        #expect(result.outcome.gesture == .uncertain)
+        if result.scene == nil { #expect(result.message.contains("delivery failed")) }
         #expect(actuator.gestures.isEmpty)
         #expect(actuator.confirmations == [.unknown])
     }
@@ -518,7 +533,7 @@ struct InputDeliveryTests {
                                   actuator: actuator)
             .deliver(request(.pressKey(KeyChord(.return), times: 1)))
         #expect(landed.kind == .foundActed)
-        #expect(landed.message == "pressed return: navigates to Render Queue")
+        #expect(landed.message == "pressed return: navigates to 'Render Queue'")
         #expect(actuator.gestures == [.key(code: Key.return)])
 
         let repeated = RecordingActuator()
@@ -642,7 +657,7 @@ struct InputDeliveryTests {
         let outcome = await engine(scenes: ScriptedScenes([scene([notes]), scene([typed])]), actuator: actuator)
             .deliver(request(.pressKey(KeyChord(.tab), times: 1)))
         #expect(outcome.kind == .foundActed, Comment(rawValue: outcome.message))
-        #expect(outcome.message == "pressed tab: 'Notes' now reads 'hello\t'")
+        #expect(outcome.message == "pressed tab: 'Notes' now reads 'hello '")
         #expect(actuator.confirmations == [.observed])
     }
 
@@ -747,7 +762,7 @@ struct InputDeliveryTests {
             .deliver(request(.pressKey(KeyChord(.character("n"), modifiers: [.command, .shift]), times: 1),
                              dryRun: true))
         #expect(outcome.kind == .dryRun)
-        #expect(outcome.message == "would press shift+cmd+n into X's window")
+        #expect(outcome.message == "would press shift+cmd+n into the window of 'X'")
         #expect(actuator.gestures.isEmpty)
     }
 

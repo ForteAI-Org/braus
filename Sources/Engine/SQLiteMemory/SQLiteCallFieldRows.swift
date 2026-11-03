@@ -20,6 +20,9 @@ enum SQLiteCallFieldRows {
 
     static func record(_ transaction: SQLiteTransaction, results: [StructuredField], of eventID: String) throws -> MemoryReceipt {
         guard !results.isEmpty else { return .alreadyApplied }
+        let identities = try SQLiteRowIdentity(transaction)
+        try requireConcluded(transaction, identities, eventID, "memory_call_result_fields_concluded_call",
+                             SchemaCoherence.memoryCallResultFieldsConcludedCall)
         let stored = try self.results(transaction, eventID)
         if !stored.isEmpty {
             guard stored == results.sorted(by: { $0.path < $1.path }) else {
@@ -33,16 +36,17 @@ enum SQLiteCallFieldRows {
                 INSERT INTO memory_call_result_fields (event_id, field_path, value_kind, text_value, withheld_reason)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                [.text(eventID), .text(field.path), .text(field.kind.rawValue), text(field.text), text(field.withheld?.rawValue)]
+                [identities.key(.event, eventID), .text(field.path), .text(field.kind.rawValue), text(field.text), text(field.withheld?.rawValue)]
             )
         }
         return .committed
     }
 
     static func results(_ handle: some SQLiteQuerying, _ eventID: String) throws -> [StructuredField] {
-        try handle.query(
+        let identities = try SQLiteRowIdentity(handle)
+        return try handle.query(
             "SELECT field_path, value_kind, text_value, withheld_reason FROM memory_call_result_fields WHERE event_id = ? ORDER BY field_path",
-            [.text(eventID)]
+            [identities.key(.event, eventID)]
         ) { row in
             try StructuredField(path: try row.text(0) ?? "", kind: StructuredField.ValueKind(rawValue: try row.text(1) ?? "") ?? .null,
                                 text: try row.text(2), withheld: try row.text(3).flatMap(WithholdingReason.init(rawValue:)))
@@ -53,6 +57,9 @@ enum SQLiteCallFieldRows {
 
     static func record(_ transaction: SQLiteTransaction, arguments: [CallArgumentField], of eventID: String) throws -> MemoryReceipt {
         guard !arguments.isEmpty else { return .alreadyApplied }
+        let identities = try SQLiteRowIdentity(transaction)
+        try requireConcluded(transaction, identities, eventID, "memory_call_argument_fields_concluded_call",
+                             SchemaCoherence.memoryCallArgumentFieldsConcludedCall)
         let resolved = try arguments.map { try resolve($0, of: eventID, in: transaction) }
         let stored = try self.arguments(transaction, eventID)
         if !stored.isEmpty {
@@ -63,13 +70,26 @@ enum SQLiteCallFieldRows {
         }
         for argument in resolved {
             let field = argument.field
+            if identities.usesIntegerKeys {
+                let earlier = try transaction.query("""
+                    SELECT EXISTS(SELECT 1 FROM memory_call_result_fields r
+                        JOIN memory_task_events s ON s.event_id=r.event_id AND s.role='action'
+                        JOIN memory_task_events c ON c.event_id=? AND c.role='action' AND c.task_occurrence_id=s.task_occurrence_id
+                        WHERE r.event_id=? AND r.field_path=? AND r.withheld_reason IS NULL AND s.position<c.position)
+                    """, [identities.key(.event, eventID), identities.key(.event, argument.sourceEventID), text(argument.sourcePath)]) {
+                        $0.integer(0) == 1
+                    }.first == true
+                guard SchemaCoherence.memoryCallArgumentFieldsReference(argument.kind.rawValue, earlier) else {
+                    throw SQLiteMigration22.Refusal.verificationFailed(["memory_call_argument_fields_reference"])
+                }
+            }
             try transaction.execute(
                 """
                 INSERT INTO memory_call_argument_fields (event_id, field_path, value_kind, field_kind, text_value,
                     withheld_reason, source_event_id, source_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                [.text(eventID), .text(field.path), .text(field.kind.rawValue), .text(argument.kind.rawValue), text(field.text),
-                 text(field.withheld?.rawValue), text(argument.sourceEventID), text(argument.sourcePath)]
+                [identities.key(.event, eventID), .text(field.path), .text(field.kind.rawValue), .text(argument.kind.rawValue), text(field.text),
+                 text(field.withheld?.rawValue), identities.key(.event, argument.sourceEventID), text(argument.sourcePath)]
             )
         }
         return .committed
@@ -95,15 +115,16 @@ enum SQLiteCallFieldRows {
     /// The kept result leaves of the calls before `eventID` in its attempt that hold exactly `value`, in call order.
     static func earlierResults(holding value: String, kind: StructuredField.ValueKind, before eventID: String,
                                in handle: some SQLiteQuerying) throws -> [(eventID: String, field: StructuredField)] {
-        try handle.query(
+        let identities = try SQLiteRowIdentity(handle)
+        return try handle.query(
             """
-            SELECT r.event_id, r.field_path, r.value_kind, r.text_value FROM memory_call_result_fields r
+            SELECT \(identities.publicReference(.event, column: "r.event_id")), r.field_path, r.value_kind, r.text_value FROM memory_call_result_fields r
             JOIN memory_task_events s ON s.event_id = r.event_id AND s.role = 'action'
             JOIN memory_task_events c ON c.event_id = ? AND c.role = 'action' AND c.task_occurrence_id = s.task_occurrence_id
             WHERE r.text_value = ? AND r.value_kind = ? AND r.withheld_reason IS NULL AND s.position < c.position
             ORDER BY s.position, r.field_path
             """,
-            [.text(eventID), .text(value), .text(kind.rawValue)]
+            [identities.key(.event, eventID), .text(value), .text(kind.rawValue)]
         ) { row in
             (try row.text(0) ?? "", try StructuredField(path: try row.text(1) ?? "", kind: kind, text: try row.text(3)))
         }
@@ -112,13 +133,14 @@ enum SQLiteCallFieldRows {
     /// The values among `values` that are identifiers another attempt's results produced and that neither a result of
     /// `attemptID` nor an input of its task holds (P2-02): a value a run would take from the history, not from itself.
     static func historicalValues(_ handle: some SQLiteQuerying, _ values: [String], attemptID: String) throws -> [String] {
-        try values.filter { value in
+        let identities = try SQLiteRowIdentity(handle)
+        return try values.filter { value in
             let elsewhere = try handle.query(
                 """
                 SELECT r.field_path FROM memory_call_result_fields r JOIN memory_task_events t ON t.event_id = r.event_id
-                WHERE r.text_value = ? AND r.withheld_reason IS NULL AND t.task_occurrence_id <> ?
+                WHERE r.text_value = ? AND r.withheld_reason IS NULL AND (t.task_occurrence_id <> ? OR ? IS NULL)
                 """,
-                [.text(value), .text(attemptID)]
+                [.text(value), identities.key(.attempt, attemptID), identities.key(.attempt, attemptID)]
             ) { try $0.text(0) ?? "" }
             guard elsewhere.contains(where: { (try? StructuredField(path: $0, kind: .text, text: value).namesAnItem) == true })
             else { return false }
@@ -127,26 +149,28 @@ enum SQLiteCallFieldRows {
                 SELECT count(*) FROM memory_call_result_fields r JOIN memory_task_events t ON t.event_id = r.event_id
                 WHERE r.text_value = ? AND r.withheld_reason IS NULL AND t.task_occurrence_id = ?
                 """,
-                [.text(value), .text(attemptID)]
+                [.text(value), identities.key(.attempt, attemptID)]
             ) { $0.integer(0) ?? 0 }.first ?? 0
             let input = try handle.query(
                 """
                 SELECT count(*) FROM memory_task_values v JOIN memory_task_attempts a ON a.task_id = v.task_id
                 WHERE a.task_occurrence_id = ? AND v.text_value = ?
                 """,
-                [.text(attemptID), .text(value)]
+                [identities.key(.attempt, attemptID), .text(value)]
             ) { $0.integer(0) ?? 0 }.first ?? 0
             return here == 0 && input == 0
         }
     }
 
     static func arguments(_ handle: some SQLiteQuerying, _ eventID: String) throws -> [CallArgumentField] {
-        try handle.query(
+        let identities = try SQLiteRowIdentity(handle)
+        return try handle.query(
             """
-            SELECT field_path, value_kind, field_kind, text_value, withheld_reason, source_event_id, source_path
-            FROM memory_call_argument_fields WHERE event_id = ? ORDER BY field_path
+            SELECT field_path, value_kind, field_kind, text_value, withheld_reason,
+                   \(identities.publicReference(.event, column: "f.source_event_id")), source_path
+            FROM memory_call_argument_fields f WHERE event_id = ? ORDER BY field_path
             """,
-            [.text(eventID)]
+            [identities.key(.event, eventID)]
         ) { row in
             let field = try StructuredField(path: try row.text(0) ?? "", kind: StructuredField.ValueKind(rawValue: try row.text(1) ?? "") ?? .null,
                                             text: try row.text(3), withheld: try row.text(4).flatMap(WithholdingReason.init(rawValue:)))
@@ -180,6 +204,9 @@ enum SQLiteCallFieldRows {
     // MARK: Data context
 
     static func record(_ transaction: SQLiteTransaction, context: CallDataContext, of eventID: String) throws -> MemoryReceipt {
+        let identities = try SQLiteRowIdentity(transaction)
+        try requireConcluded(transaction, identities, eventID, "memory_call_data_contexts_concluded_call",
+                             SchemaCoherence.memoryCallDataContextsConcludedCall)
         let accountRef = try context.account.map { try self.accountRef($0, in: transaction) }
         let offered = StoredContext(service: context.service, route: context.route.rawValue, profile: context.profile,
                                     accountRef: accountRef, accountSource: context.accountSource.rawValue,
@@ -195,7 +222,7 @@ enum SQLiteCallFieldRows {
             INSERT INTO memory_call_data_contexts (event_id, service, route, profile_ref, account_ref, account_source,
                 resource_kind, resource_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [.text(eventID), .text(offered.service), .text(offered.route), text(offered.profile), text(offered.accountRef),
+            [identities.key(.event, eventID), .text(offered.service), .text(offered.route), text(offered.profile), text(offered.accountRef),
              .text(offered.accountSource), text(offered.resourceKind), text(offered.resource)]
         )
         return .committed
@@ -213,12 +240,13 @@ enum SQLiteCallFieldRows {
     }
 
     static func context(_ handle: some SQLiteQuerying, _ eventID: String) throws -> StoredContext? {
-        try handle.query(
+        let identities = try SQLiteRowIdentity(handle)
+        return try handle.query(
             """
             SELECT service, route, profile_ref, account_ref, account_source, resource_kind, resource_ref
             FROM memory_call_data_contexts WHERE event_id = ?
             """,
-            [.text(eventID)]
+            [identities.key(.event, eventID)]
         ) { row in
             StoredContext(service: try row.text(0) ?? "", route: try row.text(1) ?? "", profile: try row.text(2),
                           accountRef: try row.text(3), accountSource: try row.text(4) ?? "unknown",
@@ -238,6 +266,19 @@ enum SQLiteCallFieldRows {
         return digest.map { String(format: "%02x", $0) }.joined().prefix(16).description
     }
 
+
+    private static func requireConcluded(
+        _ transaction: SQLiteTransaction,
+        _ identities: SQLiteRowIdentity<SQLiteTransaction>,
+        _ eventID: String,
+        _ trigger: String,
+        _ accepts: (String?) -> Bool
+    ) throws {
+        guard identities.usesIntegerKeys else { return }
+        let status = try transaction.query("SELECT execution_status FROM memory_agent_actions WHERE event_id=?",
+                                           [identities.key(.event, eventID)]) { try $0.text(0) }.first ?? nil
+        guard accepts(status) else { throw SQLiteMigration22.Refusal.verificationFailed([trigger]) }
+    }
 
     private static func text(_ value: String?) -> SQLiteValue { value.map(SQLiteValue.text) ?? .null }
 }

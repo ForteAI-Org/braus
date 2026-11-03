@@ -169,7 +169,8 @@ public struct SeatSceneProvider: SceneProviding {
             let surface = popups.isEmpty
                 ? CaptureSurface.classified(role: capture.quality.windowRole, subrole: capture.quality.windowSubrole)
                 : CaptureSurface.popupUnion
-            return PerceivedWindow(scene: capture.scene, frame: frame, capture: capture.quality, surface: surface)
+            return PerceivedWindow(scene: capture.scene, frame: frame, capture: capture.quality, surface: surface,
+                                   identities: SeatControls.identities(in: capture.scene))
         }
         // Equal pixels can reuse recognition, never the native facts merged into the previous scene.
         if let still = comparable, let kept = await lastScene.kept, kept.window == window,

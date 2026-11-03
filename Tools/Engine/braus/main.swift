@@ -11,6 +11,7 @@ import AutomationRuntime
 import Darwin
 import Foundation
 import LocalMCP
+import SQLiteMemory
 
 // The foreground command line over the Perception and Engine layers: what a model host will do
 // through the tool registry, done by hand from a terminal. One subcommand per verb; every one exits
@@ -43,6 +44,8 @@ let application = NSApplication.shared
 application.setActivationPolicy(.prohibited)
 Task { @MainActor in
     do {
+        try await MemoryService.shared(for: Runtime.knowledgeDirectory(invocation))
+            .setMigrationPolicy(.onlyWithFlag(false))
         switch command {
             case "chat": try await ChatCommand.run(arguments: Array(normalizedArguments.dropFirst()))
             case "peek": try await PeekCommand.run(arguments: Array(normalizedArguments.dropFirst()))

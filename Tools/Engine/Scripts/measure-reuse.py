@@ -24,7 +24,7 @@ mode=ro in one read transaction (the observatory's reader does the same and is c
            correctness the tester verified independently. Writes O/compare.md: every sample, then the median and range
            per pair kind with their counts; the observed reduction (first − reuse) / first only for pairs both correct;
            no percentile from fewer than 20 samples. A descriptive comparison, not a causal claim: the control and the
-           ablations (BRAUS_MEASURE_ABLATION) are what attribute a difference to the knowledge.
+           profile memory and switches.brain_enrichment are what attribute a difference to the knowledge.
 """
 import argparse
 import json

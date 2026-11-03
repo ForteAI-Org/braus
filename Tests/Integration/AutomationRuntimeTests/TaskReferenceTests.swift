@@ -35,7 +35,8 @@ struct TaskReferenceTests {
     static func references(_ session: LearningSession, task: String) throws -> [String] {
         try P.rows("""
             SELECT v.name || '=' || ifnull(v.source_ref, '-') || '@' || ifnull(v.source_version, '-') FROM memory_task_values v
-            WHERE v.task_id = '\(task)' AND v.revision IS NOT NULL ORDER BY v.revision, v.position
+            WHERE v.task_id = (SELECT task_id FROM memory_tasks WHERE task_uuid = '\(task)')
+              AND v.revision IS NOT NULL ORDER BY v.revision, v.position
             """, in: session)
     }
 
@@ -103,8 +104,10 @@ struct TaskReferenceTests {
         let credential = "sk-ant-1234567890abcdefghijklmnopqrstuvwxyz"
         let begun = try await P.task(tools, #"{"operation":"begin","goal":"Email the invoice","recall":false,"inputs":[{"name":"pin","value":"731942","secret":true},{"name":"token_ref","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(earlier.task)/\#(credential)"},{"name":"pin_ref","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(earlier.task)/invoice_731942"}]}"#)
         let task = try #require(begun["task"].string)
-        let everything = try P.rows("SELECT ifnull(source_ref, '') || ' ' || ifnull(text_value, '') FROM memory_task_values WHERE task_id = '\(task)'",
-                                    in: session).joined(separator: " ")
+        let everything = try P.rows("""
+            SELECT ifnull(source_ref, '') || ' ' || ifnull(text_value, '') FROM memory_task_values
+            WHERE task_id = (SELECT task_id FROM memory_tasks WHERE task_uuid = '\(task)')
+            """, in: session).joined(separator: " ")
         #expect(!everything.contains(credential) && !everything.contains("731942"), "\(everything)")
         await RecallLifecycleTests.close(session)
     }
@@ -116,8 +119,10 @@ struct TaskReferenceTests {
         let begun = try await P.task(tools, #"{"operation":"begin","goal":"Download and rename the invoice","recall":false}"#)
         let task = try #require(begun["task"].string)
         _ = try await P.task(tools, #"{"operation":"checkpoint","outputs":[{"name":"invoice_file","kind":"file","value":"/tmp/inv.pdf","source":"observation"},{"name":"renamed","kind":"file","value":"/tmp/renamed.pdf","source":"derived","source_ref":"\#(task)/invoice_file"},{"name":"stray","kind":"file","value":"/tmp/x.pdf","source":"derived","source_ref":"\#(task)/never_declared"}]}"#)
-        let stored = try P.rows("SELECT name || '=' || ifnull(source_ref, '-') FROM memory_task_values WHERE task_id = '\(task)' ORDER BY position",
-                                in: session)
+        let stored = try P.rows("""
+            SELECT name || '=' || ifnull(source_ref, '-') FROM memory_task_values
+            WHERE task_id = (SELECT task_id FROM memory_tasks WHERE task_uuid = '\(task)') ORDER BY position
+            """, in: session)
         #expect(stored == ["invoice_file=-", "renamed=\(task)/invoice_file", "stray=[withheld]"], "\(stored)")
         await RecallLifecycleTests.close(session)
     }

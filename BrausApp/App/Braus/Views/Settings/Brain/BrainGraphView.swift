@@ -55,8 +55,8 @@ struct BrainGraphView: View {
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .accessibilityElement()
-        .accessibilityLabel("Brain Graph")
-        .accessibilityValue("\(simulation.physics.isPresent.count { $0 }) nodes")
+        .accessibilityLabel(String(localized: "Brain Graph"))
+        .accessibilityValue(String(localized: "\(simulation.physics.isPresent.count { $0 }) nodes"))
         .overlay(alignment: .bottomTrailing) {
             BrainZoomControls(
                 zoomIn : { zoom(by: 1.5) },

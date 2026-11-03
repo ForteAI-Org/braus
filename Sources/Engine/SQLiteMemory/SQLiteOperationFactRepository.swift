@@ -24,11 +24,28 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
         self.store = store
     }
 
+    /// Allocates the archive identity before a producer creates its external liveness lock.
+    public func allocateExecutor(source: String, processID: Int32, startedAtMS: Int64) async throws -> ExecutorRecord {
+        try await store.db2BWrite { transaction in
+            let id: String
+            if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+                try transaction.execute("INSERT INTO memory_executors(source,process_id,started_at_ms) VALUES (?,?,?)",
+                    [.text(source), .integer(Int64(processID)), .integer(startedAtMS)])
+                id = String(try SQLiteIdentityRows.lastInsertedRow(transaction))
+            } else {
+                id = UUID().uuidString.lowercased()
+                try transaction.execute("INSERT INTO memory_executors(executor_id,source,process_id,started_at_ms) VALUES (?,?,?,?)",
+                    [.text(id), .text(source), .integer(Int64(processID)), .integer(startedAtMS)])
+            }
+            return ExecutorRecord(executorID: id, source: source, processID: processID, startedAtMS: startedAtMS)
+        }
+    }
+
     public func open(_ opening: OperationOpening) async throws -> MemoryReceipt {
         let call = opening.call
         guard call.event.parentEventID == nil else { throw AgentCallError.invalidRequest(.stepOutsideBatch) }
         guard call.request.tool != .batch else { throw AgentCallError.invalidRequest(.batchOutsideBatchRecord) }
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             var receipts = [try SQLiteAgentCallRows.record(transaction, call, requestedSteps: nil)]
             let start = AgentCallTransition(call.event.eventID, .started(atMS: opening.startedAtMS))
             receipts.append(try SQLiteAgentCallRows.advance(transaction, start) ? .committed : .alreadyApplied)
@@ -49,7 +66,7 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
 
     public func open(batch opening: BatchOpening) async throws -> MemoryReceipt {
         try SQLiteAgentCallRows.validate(batch: opening.batch, steps: opening.steps)
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             let batch = opening.batch
             var receipts = [try SQLiteAgentCallRows.record(transaction, batch, requestedSteps: opening.steps.count)]
             for step in opening.steps {
@@ -79,7 +96,7 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
         atMS        : Int64,
         attribution : TaskCallAttribution?
     ) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             var receipts = [
                 try SQLiteAgentCallRows.advance(transaction, AgentCallTransition(eventID, .started(atMS: atMS)))
                     ? MemoryReceipt.committed : .alreadyApplied
@@ -93,7 +110,7 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
 
     public func record(samples: [CaptureSample], redactions: [ValueRedaction] = []) async throws -> MemoryReceipt {
         for sample in samples { try sample.validate() }
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             var receipts: [MemoryReceipt] = []
             for sample in samples { receipts.append(try SQLiteOperationFactRows.record(transaction, sample)) }
             for redaction in redactions { receipts.append(try SQLiteOperationFactRows.record(transaction, redaction)) }
@@ -104,15 +121,18 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
     public func conclude(_ conclusion: OperationConclusion) async throws -> MemoryReceipt {
         for sample in conclusion.samples { try sample.validate() }
         for verification in conclusion.verifications { _ = try verification.record() }
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             var receipts: [MemoryReceipt] = []
             for sample in conclusion.samples {
                 receipts.append(try SQLiteOperationFactRows.record(transaction, sample))
             }
+            if let evidence = conclusion.gestureEvidence {
+                receipts.append(try SQLiteOperationFactRows.record(transaction, evidence, of: conclusion.end.eventID))
+            }
             for withdrawal in conclusion.withdrawn {
                 receipts.append(try SQLiteOperationFactRows.withdraw(transaction, withdrawal))
             }
-            receipts.append(try SQLiteAgentCallRows.advance(transaction, conclusion.end) ? .committed : .alreadyApplied)
+            receipts.append(try SQLiteAgentCallRows.advance(transaction, conclusion.end, conclusion: conclusion) ? .committed : .alreadyApplied)
             if let effect = conclusion.effect {
                 receipts.append(try SQLiteOperationFactRows.record(transaction, effect))
             }
@@ -155,8 +175,8 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
     public func verifications(of callEventID: String) async throws -> [OperationVerification] {
         try await store.read { snapshot in
             let ids = try snapshot.query(
-                "SELECT event_id FROM memory_operation_verifications WHERE call_event_id = ? ORDER BY event_id",
-                [.text(callEventID)]
+                "SELECT \(try SQLiteRowIdentity(snapshot).publicReference(.event, column: "memory_operation_verifications.event_id")) FROM memory_operation_verifications WHERE call_event_id = ? ORDER BY \(try SQLiteRowIdentity(snapshot).publicReference(.event, column: "memory_operation_verifications.event_id"))",
+                [try SQLiteRowIdentity(snapshot).key(.event, callEventID)]
             ) { try $0.text(0) ?? "" }
             return try ids.compactMap { try SQLiteOperationFactRows.verification(snapshot, $0) }
         }
@@ -205,7 +225,7 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
     }
 
     public func reconcile(_ reconciliation: CallReconciliation) async throws -> MemoryReceipt {
-        try await store.write { transaction in try SQLiteReconciliationRows.append(transaction, reconciliation) }
+        try await store.db2BWrite { transaction in try SQLiteReconciliationRows.append(transaction, reconciliation) }
     }
 
     public func reconciliations(of callEventID: String) async throws -> [CallReconciliation] {
@@ -244,6 +264,73 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
 /// transaction or snapshot.
 enum SQLiteOperationFactRows {
 
+    /// Writes only structural subjects and closed codes; the learned effect's values never enter these rows.
+    static func record(_ transaction: SQLiteTransaction, _ evidence: GestureEvidence, of eventID: String) throws -> MemoryReceipt {
+        let eventKey = try SQLiteRowIdentity(transaction).key(.event, eventID)
+        let waited = evidence.waited.map { duration -> SQLiteValue in
+            let parts = duration.components
+            return .integer(max(0, parts.seconds * 1_000 + parts.attoseconds / 1_000_000_000_000_000))
+        } ?? .null
+        let ending = evidence.settleEnding.map { $0 == .unavailable ? "unwatched" : $0.rawValue }
+        let changeLimit = 64
+        let dropped = max(0, evidence.changes.count - changeLimit)
+        if dropped > 0 {
+            let gap = try OperationRecordingGap(callEventID: eventID, part: .samples, reason: .refused,
+                detail: "Gesture changes truncated: \(dropped) omitted.")
+            _ = try record(transaction, gap)
+        }
+        let verdict = evidence.verdictChangePosition.flatMap {
+            $0 < min(changeLimit, evidence.changes.count) ? SQLiteValue.integer(Int64($0)) : nil
+        } ?? .null
+        let header: [SQLiteValue] = [.integer(evidence.comparable ? 1 : 0), .integer(evidence.lookedAgain ? 1 : 0),
+                                     text(ending), waited, verdict, .integer(0)]
+        let changes: [[SQLiteValue]] = evidence.changes.prefix(changeLimit).enumerated().map { position, change in
+            [.integer(Int64(position)), .text(change.kind.rawValue), .text(change.subject), .text(change.scope.rawValue),
+             .text(change.stability.rawValue), .text(change.family)]
+        }
+        let stored = try transaction.query(
+            """
+            SELECT comparable, looked_again, settle_ending, settle_waited_ms, verdict_change_position,
+                   verdict_differs_from_learning FROM memory_gesture_evidence WHERE event_id = ?
+            """, [eventKey]
+        ) { row -> [SQLiteValue] in
+            [row.integer(0).map(SQLiteValue.integer) ?? .null, row.integer(1).map(SQLiteValue.integer) ?? .null,
+             text(try row.text(2)), row.integer(3).map(SQLiteValue.integer) ?? .null,
+             row.integer(4).map(SQLiteValue.integer) ?? .null, row.integer(5).map(SQLiteValue.integer) ?? .null]
+        }.first
+        if let stored {
+            let storedChanges = try transaction.query(
+                """
+                SELECT position, kind, subject_key, scope, stability, family FROM memory_gesture_changes
+                WHERE event_id = ? ORDER BY position
+                """, [eventKey]
+            ) { row -> [SQLiteValue] in
+                [row.integer(0).map(SQLiteValue.integer) ?? .null, text(try row.text(1)), text(try row.text(2)),
+                 text(try row.text(3)), text(try row.text(4)), text(try row.text(5))]
+            }
+            guard stored == header, storedChanges == changes else {
+                throw SQLiteFactRows.conflict("\(eventID):gesture_evidence", stored: "different evidence", offered: "different evidence")
+            }
+            return .alreadyApplied
+        }
+        try transaction.execute(
+            """
+            INSERT INTO memory_gesture_evidence
+                (event_id, comparable, looked_again, settle_ending, settle_waited_ms, verdict_change_position,
+                 verdict_differs_from_learning) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, [eventKey] + header
+        )
+        for change in changes {
+            try transaction.execute(
+                """
+                INSERT INTO memory_gesture_changes (event_id, position, kind, subject_key, scope, stability, family)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, [eventKey] + change
+            )
+        }
+        return .committed
+    }
+
     // MARK: Attribution
 
     /// Places a call in the attempt at the next position, with the revision it began under, once: a
@@ -266,26 +353,26 @@ enum SQLiteOperationFactRows {
         }
         let next = try transaction.query(
             "SELECT ifnull(max(position) + 1, 0) FROM memory_task_events WHERE task_occurrence_id = ?",
-            [.text(attribution.attemptID)]
+            [try SQLiteRowIdentity(transaction).key(.attempt, attribution.attemptID)]
         ) { $0.integer(0) ?? 0 }.first ?? 0
         _ = try SQLiteTaskRows.record(transaction, try TaskMembership(
             taskOccurrenceID: attribution.attemptID, eventID: eventID, position: next, role: role
         ))
         try transaction.execute(
             """
-            INSERT INTO memory_task_call_revisions (event_id, task_occurrence_id, task_id, revision)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO memory_task_call_revisions (event_id, task_occurrence_id, task_id, revision\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", task_revision_id" : ""))
+            VALUES (?, ?, ?, ?\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", ?" : ""))
             """,
-            [.text(eventID), .text(attribution.attemptID), .text(attribution.taskID),
-             .integer(Int64(attribution.revision))]
+            [try SQLiteRowIdentity(transaction).key(.event, eventID), try SQLiteRowIdentity(transaction).key(.attempt, attribution.attemptID), try DB2BKeys.task(transaction, attribution.taskID),
+             .integer(Int64(attribution.revision))] + (try SQLiteRowIdentity(transaction).usesIntegerKeys ? [DB2BKeys.revision(transaction, task: attribution.taskID, number: attribution.revision)] : [])
         )
         return .committed
     }
 
     static func attribution(_ handle: some SQLiteQuerying, _ eventID: String) throws -> TaskCallAttribution? {
         try handle.query(
-            "SELECT task_id, task_occurrence_id, revision FROM memory_task_call_revisions WHERE event_id = ?",
-            [.text(eventID)]
+            "SELECT \(try DB2BKeys.taskReference(handle, "memory_task_call_revisions.task_id")), \(try SQLiteRowIdentity(handle).publicReference(.attempt, column: "task_occurrence_id")), revision FROM memory_task_call_revisions WHERE event_id = ?",
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) {
             try TaskCallAttribution(
                 taskID: try $0.text(0) ?? "",
@@ -333,7 +420,7 @@ enum SQLiteOperationFactRows {
                                              target_role, target_label, target_section, checked)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [.text(effect.callEventID), .text(effect.performed.rawValue), text(effect.substitute),
+            [try SQLiteRowIdentity(transaction).key(.event, effect.callEventID), .text(effect.performed.rawValue), text(effect.substitute),
              text(effect.notSentReason)]
                 + target(effect.target) + [.integer(effect.checked ? 1 : 0)]
         )
@@ -354,7 +441,7 @@ enum SQLiteOperationFactRows {
         }
         try transaction.execute(
             "INSERT INTO memory_call_routes (event_id, route, handoff_reason) VALUES (?, ?, ?)",
-            [.text(eventID), .text(route.route.rawValue), text(route.handoffReason)]
+            [try SQLiteRowIdentity(transaction).key(.event, eventID), .text(route.route.rawValue), text(route.handoffReason)]
         )
         return .committed
     }
@@ -362,7 +449,7 @@ enum SQLiteOperationFactRows {
     static func route(_ handle: some SQLiteQuerying, _ eventID: String) throws -> CallRoute? {
         try handle.query(
             "SELECT route, handoff_reason FROM memory_call_routes WHERE event_id = ?",
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row in
             guard let route = CallRoute.Route(rawValue: try row.text(0) ?? "") else {
                 throw malformed("memory_call_routes", eventID, "route")
@@ -382,7 +469,7 @@ enum SQLiteOperationFactRows {
         }
         try transaction.execute(
             "INSERT INTO memory_call_adapter_dispatches (event_id, adapter, verb) VALUES (?, ?, ?)",
-            [.text(eventID), .text(dispatch.adapter), .text(dispatch.verb)]
+            [try SQLiteRowIdentity(transaction).key(.event, eventID), .text(dispatch.adapter), .text(dispatch.verb)]
         )
         return .committed
     }
@@ -402,7 +489,7 @@ enum SQLiteOperationFactRows {
         let skipped = rung.skipped.isEmpty ? nil : rung.skipped.joined(separator: rungReasonSeparator)
         try transaction.execute(
             "INSERT INTO memory_call_rungs (event_id, rung, how, skipped) VALUES (?, ?, ?, ?)",
-            [.text(eventID), .text(rung.rung.rawValue), .text(rung.how), text(skipped)]
+            [try SQLiteRowIdentity(transaction).key(.event, eventID), .text(rung.rung.rawValue), .text(rung.how), text(skipped)]
         )
         return .committed
     }
@@ -410,7 +497,7 @@ enum SQLiteOperationFactRows {
     static func rung(_ handle: some SQLiteQuerying, _ eventID: String) throws -> CallRung? {
         try handle.query(
             "SELECT rung, how, skipped FROM memory_call_rungs WHERE event_id = ?",
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row in
             guard let rawRung = try row.text(0), let rung = CallRung.Rung(rawValue: rawRung), let how = try row.text(1) else {
                 throw malformed("memory_call_rungs", eventID, "rung")
@@ -431,7 +518,7 @@ enum SQLiteOperationFactRows {
         }
         try transaction.execute(
             "INSERT INTO memory_call_route_advice (event_id, decision, route, message) VALUES (?, ?, ?, ?)",
-            [.text(eventID), .text(advice.decision.rawValue), text(advice.route), .text(advice.message)]
+            [try SQLiteRowIdentity(transaction).key(.event, eventID), .text(advice.decision.rawValue), text(advice.route), .text(advice.message)]
         )
         return .committed
     }
@@ -439,7 +526,7 @@ enum SQLiteOperationFactRows {
     static func advice(_ handle: some SQLiteQuerying, _ eventID: String) throws -> CallRouteAdvice? {
         try handle.query(
             "SELECT decision, route, message FROM memory_call_route_advice WHERE event_id = ?",
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row in
             guard let raw = try row.text(0), let decision = CallRouteAdvice.Decision(rawValue: raw),
                   let message = try row.text(2) else {
@@ -452,7 +539,7 @@ enum SQLiteOperationFactRows {
     static func adapterDispatch(_ handle: some SQLiteQuerying, _ eventID: String) throws -> AdapterDispatch? {
         try handle.query(
             "SELECT adapter, verb FROM memory_call_adapter_dispatches WHERE event_id = ?",
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row in
             guard let adapter = try row.text(0), let verb = try row.text(1) else {
                 throw malformed("memory_call_adapter_dispatches", eventID, "adapter")
@@ -470,7 +557,7 @@ enum SQLiteOperationFactRows {
                    target_section, checked
             FROM memory_call_effects WHERE event_id = ?
             """,
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row in
             let code = try row.text(0) ?? ""
             guard let performed = OperationCheck.Performed(rawValue: code) else {
@@ -505,7 +592,7 @@ enum SQLiteOperationFactRows {
             INSERT INTO memory_verifications (event_id, scope, method, verdict, expected_text, observed_text)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            [.text(eventID), .text(base.scope.rawValue), .text(base.method.rawValue), .text(base.verdict.rawValue),
+            [try SQLiteRowIdentity(transaction).key(.event, eventID), .text(base.scope.rawValue), .text(base.method.rawValue), .text(base.verdict.rawValue),
              text(base.expectedText), text(base.observedText)]
         )
         let check = verification.check
@@ -516,7 +603,7 @@ enum SQLiteOperationFactRows {
                                                         target_role, target_label, target_section)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [.text(eventID), .text(verification.callEventID), .integer(Int64(OperationFactContract.version)),
+            [try SQLiteRowIdentity(transaction).key(.event, eventID), try SQLiteRowIdentity(transaction).key(.event, verification.callEventID), .integer(Int64(OperationFactContract.version)),
              .text(check.condition.rawValue), .text(check.methodVersion), .text(check.performed.rawValue),
              text(check.substitute)]
                 + target(check.target)
@@ -524,7 +611,7 @@ enum SQLiteOperationFactRows {
         for (position, limit) in check.limits.enumerated() {
             try transaction.execute(
                 "INSERT INTO memory_operation_verification_limits (event_id, position, limit_kind) VALUES (?, ?, ?)",
-                [.text(eventID), .integer(Int64(position)), .text(limit.rawValue)]
+                [try SQLiteRowIdentity(transaction).key(.event, eventID), .integer(Int64(position)), .text(limit.rawValue)]
             )
         }
         for (position, sample) in verification.samples.enumerated() {
@@ -533,7 +620,7 @@ enum SQLiteOperationFactRows {
                 SELECT observation_id FROM memory_event_observations
                 WHERE event_id = ? AND phase = ? AND sample_ordinal = ? AND observation_kind = 'capture'
                 """,
-                [.text(sample.eventID), .text(sample.phase.rawValue), .integer(Int64(sample.ordinal))],
+                [try SQLiteRowIdentity(transaction).key(.event, sample.eventID), .text(sample.phase.rawValue), .integer(Int64(sample.ordinal))],
                 { $0.integer(0) }
             )
             guard let observation = found.first ?? nil else {
@@ -545,7 +632,7 @@ enum SQLiteOperationFactRows {
                                                                    sample_event_id, sample_phase, sample_ordinal)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                [.text(eventID), .integer(Int64(position)), .integer(observation), .text(sample.eventID),
+                [try SQLiteRowIdentity(transaction).key(.event, eventID), .integer(Int64(position)), .integer(observation), try SQLiteRowIdentity(transaction).key(.event, sample.eventID),
                  .text(sample.phase.rawValue), .integer(Int64(sample.ordinal))]
             )
         }
@@ -555,13 +642,13 @@ enum SQLiteOperationFactRows {
     static func verification(_ handle: some SQLiteQuerying, _ eventID: String) throws -> OperationVerification? {
         guard let row = try handle.query(
             """
-            SELECT v.call_event_id, v.condition_kind, v.method_version, v.performed, v.substitute, v.target_element_id,
+            SELECT \(try SQLiteRowIdentity(handle).publicReference(.event, column: "v.call_event_id")), v.condition_kind, v.method_version, v.performed, v.substitute, v.target_element_id,
                    v.target_role, v.target_label, v.target_section, b.method, b.verdict, b.expected_text,
                    b.observed_text
             FROM memory_operation_verifications v JOIN memory_verifications b ON b.event_id = v.event_id
             WHERE v.event_id = ?
             """,
-            [.text(eventID)],
+            [try SQLiteRowIdentity(handle).key(.event, eventID)],
             { row in
                 (call: try row.text(0) ?? "", condition: try row.text(1) ?? "", version: try row.text(2) ?? "",
                  performed: try row.text(3) ?? "", substitute: try row.text(4), target: try target(row, from: 5),
@@ -577,7 +664,7 @@ enum SQLiteOperationFactRows {
         }
         let limits = try handle.query(
             "SELECT limit_kind FROM memory_operation_verification_limits WHERE event_id = ? ORDER BY position",
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row -> OperationCheck.Limit in
             let code = try row.text(0) ?? ""
             guard let limit = OperationCheck.Limit(rawValue: code) else {
@@ -587,10 +674,10 @@ enum SQLiteOperationFactRows {
         }
         let samples = try handle.query(
             """
-            SELECT sample_event_id, sample_phase, sample_ordinal FROM memory_operation_verification_samples
+            SELECT \(try SQLiteRowIdentity(handle).publicReference(.event, column: "sample_event_id")), sample_phase, sample_ordinal FROM memory_operation_verification_samples
             WHERE event_id = ? ORDER BY position
             """,
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row -> CaptureSampleKey in
             let phase = try row.text(1) ?? ""
             guard let known = CapturePhase(rawValue: phase) else {
@@ -616,7 +703,7 @@ enum SQLiteOperationFactRows {
               AND argument_name IS ? AND argument_position IS ? AND condition_kind IS ? AND sample_phase IS ?
               AND sample_ordinal IS ? AND element_position IS ?
             """,
-            [.text(redaction.eventID)] + location
+            [try SQLiteRowIdentity(transaction).key(.event, redaction.eventID)] + location
         ) { $0.integer(0) ?? 0 }.first ?? 0
         if exists > 0 { return .alreadyApplied }
         try transaction.execute(
@@ -625,7 +712,7 @@ enum SQLiteOperationFactRows {
                                                  condition_kind, sample_phase, sample_ordinal, element_position, reason)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [.text(redaction.eventID)] + location + [.text(redaction.reason.rawValue)]
+            [try SQLiteRowIdentity(transaction).key(.event, redaction.eventID)] + location + [.text(redaction.reason.rawValue)]
         )
         return .committed
     }
@@ -646,7 +733,7 @@ enum SQLiteOperationFactRows {
         }
         try transaction.execute(
             "INSERT INTO memory_call_recording_gaps (event_id, part, reason, detail) VALUES (?, ?, ?, ?)",
-            [.text(gap.callEventID), .text(gap.part.rawValue), .text(gap.reason.rawValue),
+            [try SQLiteRowIdentity(transaction).key(.event, gap.callEventID), .text(gap.part.rawValue), .text(gap.reason.rawValue),
              gap.detail.map(SQLiteValue.text) ?? .null]
         )
         return .committed
@@ -656,7 +743,7 @@ enum SQLiteOperationFactRows {
     static func recordingGaps(_ handle: some SQLiteQuerying, _ callEventID: String) throws -> [OperationRecordingGap] {
         let rows = try handle.query(
             "SELECT part, reason, detail FROM memory_call_recording_gaps WHERE event_id = ?",
-            [.text(callEventID)]
+            [try SQLiteRowIdentity(handle).key(.event, callEventID)]
         ) { row -> OperationRecordingGap in
             guard let part = OperationRecordingGap.Part(rawValue: try row.text(0) ?? ""),
                   let reason = OperationRecordingGap.Reason(rawValue: try row.text(1) ?? "") else {
@@ -684,7 +771,7 @@ enum SQLiteOperationFactRows {
             SELECT text_value FROM memory_operation_arguments
             WHERE event_id = ? AND argument_name = ? AND position = ? AND value_kind = 'text'
             """,
-            [.text(redaction.eventID), .text(name), .integer(Int64(position))]
+            [try SQLiteRowIdentity(transaction).key(.event, redaction.eventID), .text(name), .integer(Int64(position))]
         ) { try $0.text(0) }.first
         guard let current = stored else {
             throw OperationFactError.missingArgument(eventID: redaction.eventID, name: name, position: position)
@@ -696,7 +783,7 @@ enum SQLiteOperationFactRows {
                 UPDATE memory_operation_arguments SET text_value = ?
                 WHERE event_id = ? AND argument_name = ? AND position = ?
                 """,
-                [.text(marker), .text(redaction.eventID), .text(name), .integer(Int64(position))]
+                [.text(marker), try SQLiteRowIdentity(transaction).key(.event, redaction.eventID), .text(name), .integer(Int64(position))]
             )
             receipt = .committed
         }
@@ -710,7 +797,7 @@ enum SQLiteOperationFactRows {
                    element_position, reason
             FROM memory_value_redactions WHERE event_id = ? ORDER BY redaction_id
             """,
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row in
             let kind = try row.text(0) ?? "", reasonCode = try row.text(7) ?? ""
             guard let reason = WithholdingReason(rawValue: reasonCode) else {

@@ -35,12 +35,22 @@ struct BrainImportTests {
         return brain
     }
 
-    @Test("a Brain from a JSON file becomes the projection and reads back with its anchors, groups and transitions")
-    func importsOnce() async throws {
-        let store   = try await SQLiteMemoryStore.open(at: try temporaryDatabase())
+    @Test("a Brain from a JSON file becomes the projection and reads back with its anchors, groups and transitions", arguments: [false, true])
+    func importsOnce(schema22: Bool) async throws {
+        let url = try temporaryDatabase()
+        let store = schema22 ? SQLiteMemoryStore(url: url, schema: .version22) : SQLiteMemoryStore(url: url, schema: .historical19)
+        try await store.open()
         let brains  = SQLiteBrainRepository(store: store)
         let earlier = brain()
         let now     = Date(timeIntervalSince1970: 1_790_000_100)
+        if schema22 {
+            let result = try await brains.importProjectionResult(earlier, into: "com.example.Editor", now: now)
+            if case .frozen = result {} else { Issue.record("expected frozen projection") }
+            #expect(try await brains.importProjection(earlier, into: "com.example.Editor", now: now) == false)
+            #expect(try await store.read { try $0.query("SELECT count(*) FROM brain_anchors") { $0.integer(0) }.first ?? nil } == 0)
+            await store.close()
+            return
+        }
         #expect(try await brains.importProjection(earlier, into: "com.example.Editor", now: now))
         let read = try #require(try await brains.brain(of: "com.example.Editor"))
         #expect(Set(read.objects.map(\.label)) == Set(earlier.objects.map(\.label)))
@@ -52,4 +62,38 @@ struct BrainImportTests {
         #expect(try await store.read { try $0.query("PRAGMA foreign_key_check") { _ in () } }.isEmpty)
         await store.close()
     }
+    @Test func readsFrozenHistory() async throws {
+        let source = try temporaryDatabase()
+        let old = SQLiteMemoryStore(url: source, schema: .historical19)
+        try await old.open()
+        let earlier = brain()
+        let bundle = "com.example.Editor"
+        _ = try await SQLiteBrainRepository(store: old).importProjection(earlier, into: bundle, now: Date(timeIntervalSince1970: 1_790_000_100))
+        await old.close()
+        let target = URL(fileURLWithPath: source.path + ".migrating-22-c")
+        _ = try await SQLiteMigration22.build(from: source, shape: .unified19, into: target,
+                                              availableSpace: { _ in Int64.max }, progress: { _ in })
+        let store = SQLiteMemoryStore(url: target, schema: .version22)
+        try await store.open()
+        let read = try #require(try await SQLiteBrainRepository(store: store).brain(of: bundle))
+        let anchorIDs = Dictionary(uniqueKeysWithValues: zip(earlier.objects, read.objects).map { ($0.anchorKey, $1.anchorKey) })
+        let groupIDs = Dictionary(uniqueKeysWithValues: zip(earlier.groups, read.groups).map { ($0.id, $1.id) })
+        var expected = earlier
+        for index in expected.objects.indices {
+            expected.objects[index].anchorKey = try #require(anchorIDs[expected.objects[index].anchorKey])
+            expected.objects[index].groupID = expected.objects[index].groupID.flatMap { groupIDs[$0] }
+        }
+        for index in expected.groups.indices {
+            expected.groups[index].id = try #require(groupIDs[expected.groups[index].id])
+            expected.groups[index].memberAnchors = try expected.groups[index].memberAnchors.map { try #require(anchorIDs[$0]) }
+        }
+        for index in expected.transitions.indices {
+            expected.transitions[index].anchorKey = try #require(anchorIDs[expected.transitions[index].anchorKey])
+        }
+        #expect(read.objects == expected.objects)
+        #expect(read.groups == expected.groups)
+        #expect(read.transitions == expected.transitions)
+        await store.close()
+    }
+
 }

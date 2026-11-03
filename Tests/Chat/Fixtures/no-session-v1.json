@@ -1,0 +1,34 @@
+[
+  {
+    "answer": {
+      "error": "A required argument is missing."
+    },
+    "arguments": {},
+    "transcript": [
+      "← observe error: A required argument is missing.. Observe before any retry."
+    ]
+  },
+  {
+    "answer": {
+      "error": "Session ID is missing or stale. Use status; open a session if necessary and observe again."
+    },
+    "arguments": {
+      "session": "stale"
+    },
+    "transcript": [
+      "→ observe {\"session\":\"stale\"}",
+      "← observe error: Session ID is missing or stale. Use status; open a session if necessary and observe again.. Observe before any retry."
+    ]
+  },
+  {
+    "answer": {
+      "error": "Unknown tool argument."
+    },
+    "arguments": {
+      "foo": 1
+    },
+    "transcript": [
+      "← observe error: Unknown tool argument.. Observe before any retry."
+    ]
+  }
+]

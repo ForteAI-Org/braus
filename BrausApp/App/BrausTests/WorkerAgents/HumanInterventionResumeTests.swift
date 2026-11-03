@@ -10,6 +10,8 @@ import ChatCore
 import ModelTransports
 import AutomationRuntime
 import SeatBroker
+import AutomationMCP
+import Turn
 import Testing
 @testable import Braus
 
@@ -18,6 +20,10 @@ import Testing
 struct HumanInterventionResumeTests {
     @Test(arguments: ["yes", "stop", "preparation failure"])
     func newTurnUsesTheSameConversationOnlyForYes(ending: String) async throws {
+        try await checkResume(ending: ending, summary: "Human control ended.\nclicked New Track\nFinal state: Stereo track")
+    }
+
+    func checkResume(ending: String, summary: String) async throws {
         let resumes = ending == "yes"
         let standIn = try WorkerContextIsolationTests.StandIn()
         let suite = "braus-handoff-\(UUID().uuidString)"
@@ -74,7 +80,8 @@ struct HumanInterventionResumeTests {
             #expect(try await store.conversation(conversation)?.resumableSession(for: .claudeCode) == "s1")
             let old = try #require(team.agentContext(of: conversation))
             try team.suspendHumanIntervention(of: worker)
-            let summary = "Human control ended.\nclicked New Track\nFinal state: Stereo track"
+            let expected = ModelText.text(.init(rawValue: "handoff.returned")) + "\n"
+                + DataBlock.wrap(summary, tag: "human_handoff")
             var entered = 0
             if ending != "stop" {
                 let resume = Task {
@@ -107,11 +114,11 @@ struct HumanInterventionResumeTests {
                     contentsOf: standIn.root.appending(path: "args-1"),
                     encoding  : .utf8
                 )
-                #expect(prompt.components(separatedBy: summary).count == 2, "the summary is sent once")
+                #expect(prompt.components(separatedBy: expected).count == 2, "the summary is sent once")
                 #expect(arguments.contains("s1"))
                 let messages = try await store.messages(in: conversation)
-                #expect(messages.filter { $0.text == summary && $0.authorWorkerID == nil }.count == 1)
-                #expect(messages.filter(\.endsHumanControl).map(\.text) == [summary])
+                #expect(messages.filter { $0.text == expected && $0.authorWorkerID == nil }.count == 1)
+                #expect(messages.filter(\.endsHumanControl).map(\.text) == [expected])
                 let rows = ConversationProjection.items(
                     messages: messages,
                     events  : [],

@@ -125,7 +125,7 @@ struct SQLiteLifecycleTests {
         let done = try await store.diagnostics()
         #expect(done.retainedWrites == 0)
         #expect(done.commits == 1)
-        #expect(try await count("SELECT count(*) FROM memory_events WHERE event_id = 'act-1'", in: store) == 1)
+        #expect(try await count("SELECT count(*) FROM memory_events WHERE event_uuid = 'act-1'", in: store) == 1)
         await store.close()
     }
 

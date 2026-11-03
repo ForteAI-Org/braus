@@ -224,7 +224,7 @@ struct ProcedureLearningTests {
             SELECT a.tool_kind || ':' || r.outcome || ':' || ifnull(r.reason, '-') FROM brain_relation_evaluations r
             JOIN memory_agent_actions a ON a.event_id = r.call_event_id JOIN memory_events e ON e.event_id = r.call_event_id
             WHERE r.sequence = (SELECT max(v.sequence) FROM brain_relation_evaluations v WHERE v.call_event_id = r.call_event_id)
-            ORDER BY e.local_order
+            ORDER BY e.event_id
             """, in: session)
         #expect(applications == ["type_text:supported:-", "act:supported:-", "act:supported:-", "menu:supported:-",
                                  "type_text:supported:-", "select:supported:-", "press:supported:-", "act:supported:-"],
@@ -647,7 +647,7 @@ extension ProcedureLearningTests {
         await memory.close()
         MemoryService.forget(session.directory)
         // The diagnosis says what was proved of each prefix.
-        let taskID = try #require(try Self.rows("SELECT task_id FROM memory_procedure_candidates WHERE candidate_id = '\(candidate)'",
+        let taskID = try #require(try Self.rows("SELECT t.task_uuid FROM memory_procedure_candidates c JOIN memory_tasks t ON t.task_id = c.task_id WHERE candidate_id = '\(candidate)'",
                                                 in: session).first)
         let text = try ProcedureInspectionTests.inspection(taskID, session).text
         #expect(text.contains { $0.contains("revision 1 ") && $0.hasSuffix("variant of \(original) from step 3, prefix verified over 3 steps") },

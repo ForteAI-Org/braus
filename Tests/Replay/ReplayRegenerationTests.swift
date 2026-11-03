@@ -1,6 +1,7 @@
 import EngineCore
 import Foundation
 import LocalMCP
+import Switches
 import Testing
 
 @Suite
@@ -8,7 +9,9 @@ struct ReplayRegenerationTests {
     @Test(arguments: try ReplayCorpus.load().filter { $0.input != nil })
     @MainActor
     func golden(_ item: ReplayCase) async throws {
-        let actual = try replayBytes(await regenerate(#require(item.input)))
+        let actual = try await SwitchBoard.$testing.withValue(
+            SwitchBoard(values: ["scene_after_uncertain": "off"])
+        ) { try replayBytes(await regenerate(#require(item.input))) }
         let expected = try Data(contentsOf: ReplayCorpus.fixtures.appending(path: "golden/\(item.id).txt"))
         #expect(actual == expected, "\(item.id): golden bytes differ")
     }

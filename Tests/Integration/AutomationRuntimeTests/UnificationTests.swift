@@ -42,35 +42,39 @@ struct UnificationTests {
     /// observation, written as that client's producer, then left at schema 1 as an earlier build wrote it.
     static func legacyArchive(in directory: URL, stream: String, elements: [SceneElement]) async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let memory = MemoryService(directory: directory)
-        let context = ActionContext(source: .mcp, streamID: stream, sessionID: "s-\(stream)")
-        let observer = CallRecorder(
-            memory : memory,
-            brain  : W.brain(memory),
-            context: ActionContext(source: .mcp, streamID: stream)
-        )
-        _ = await observer.observe(W.window(elements))
-        let recorder = CallRecorder(memory: memory, brain: W.brain(memory), context: context)
-        try await recorder.begin(
-            .act(target: elements[0].label, verb: .click, value: nil, section: nil),
-            app: AppContextIdentity(bundleID: W.bundle)
-        )
-        let record = ActionRecord(
-            bundleID        : W.bundle,
-            element         : elements[0],
-            verb            : .click,
-            effect          : .menuOpened(labels: ["Bold", "Italic", "Underline"]),
-            windowTitleAfter: "Document",
-            before          : W.window(elements),
-            after           : W.window(elements + [W.button("Bold", x: 0.7)])
-        )
-        await recorder.record(record)
-        // An end with no check: an archive of schema 1 holds no operation verification.
-        try await recorder.end(.completed, result: .outcome(.foundActed, message: "clicked"), tool: .act)
-        // An earlier build taught its Brain from the effect itself, with no check: as it did.
-        _ = try await W.brain(memory).record(record, eventID: recorder.eventID)
-        #expect(await memory.flush(within: .seconds(10)))
-        await memory.close()
+        let store = SQLiteMemoryStore(url: directory.appendingPathComponent("memory.sqlite"), schema: .historical19)
+        try await store.open()
+        let captures = SQLiteCaptureRepository(store: store)
+        let calls = SQLiteAgentCallRepository(store: store)
+        let applications = SQLiteBrainApplicationRepository(store: store)
+        let app = AppContextIdentity(bundleID: W.bundle)
+        let observed = UUID().uuidString, action = UUID().uuidString
+        let at: Int64 = 1_790_000_000_000
+        let now = Date(timeIntervalSince1970: Double(at) / 1000)
+        let before = W.window(elements)
+        let after = W.window(elements + [W.button("Bold", x: 0.7)])
+        _ = try await captures.record(MemoryEventRecord(eventID: observed, source: .mcp, streamID: stream,
+            kind: .observation, app: app, occurredAtMS: at))
+        let sample = CaptureSampleKey(eventID: observed, phase: .current)
+        _ = try await captures.record(CaptureSample(key: sample, of: before))
+        _ = try await applications.apply(.observe(before.scene, sample: sample, requestedAt: now))
+        _ = try await calls.record(AgentCallRecord(
+            event: MemoryEventRecord(eventID: action, source: .mcp, streamID: stream, sessionID: "s-\(stream)",
+                                     kind: .action, app: app, occurredAtMS: at + 1),
+            request: .act(target: elements[0].label, verb: .click, value: nil, section: nil)))
+        _ = try await calls.advance([AgentCallTransition(action, .init(.started, startedAtMS: at + 1))])
+        for (phase, window) in [(CapturePhase.before, before), (.after, after)] {
+            _ = try await captures.record(CaptureSample(key: CaptureSampleKey(eventID: action, phase: phase), of: window))
+        }
+        let effect = SceneEffect.menuOpened(labels: ["Bold", "Italic", "Underline"])
+        _ = try await calls.advance([AgentCallTransition(action, .init(.completed,
+            result: .outcome(.foundActed, message: "clicked"), endedAtMS: at + 2,
+            observedEffect: ObservedEffect(effect)))])
+        let record = ActionRecord(bundleID: W.bundle, element: elements[0], verb: .click, effect: effect,
+                                  windowTitleAfter: "Document", before: before, after: after)
+        _ = try await applications.apply(.record(record, eventID: action, requestedAt: now))
+        _ = try await SQLiteBrainRepository(store: store).record(record, now: now)
+        await store.close()
         try downgrade(directory.appendingPathComponent("memory.sqlite"))
     }
 
@@ -79,7 +83,11 @@ struct UnificationTests {
     static func downgrade(_ url: URL) throws {
         let raw = try SQLiteConnection(path: url.path)
         defer { raw.close() }
-        for object in try SQLiteMemorySchema.objectsAdded(since: 1) {
+        let earlier = try SQLiteMemorySchema.objects(of: SQLiteMemorySchema.text(of: 1))
+        let added = try SQLiteMemorySchema.orderedObjects(of: SQLiteMemorySchema.historical19Text())
+            .filter { !earlier.contains($0) }
+        let removal = added.filter { $0.type != "table" } + added.filter { $0.type == "table" }.reversed()
+        for object in removal {
             try raw.execute("DROP \(object.type.uppercased()) \(object.name)")
         }
         try raw.execute("PRAGMA user_version = 1")
@@ -120,7 +128,7 @@ struct UnificationTests {
 
         let shared = memory.url
         #expect(try Self.count(
-            "SELECT count(*) FROM memory_origin_events WHERE origin_id = 'mcp-profile:A'",
+            "SELECT count(*) FROM memory_origin_events WHERE origin_id = (SELECT origin_id FROM memory_archive_origins WHERE origin_uuid = 'mcp-profile:A')",
             at: shared
         ) == legacyEvents)
         #expect(try Self.count(
@@ -132,11 +140,8 @@ struct UnificationTests {
             at: shared
         ) == 1)
         let brain = try #require(try await memory.brain(of: W.bundle))
-        #expect(Set(brain.objects.map(\.label)).isSuperset(of: ["Format", "Save", "Open"]),
-                "the client's Brain learned again here")
-        #expect(brain.transitions.contains {
-            $0.effect == SceneEffect.menuOpened(labels: ["Bold", "Italic", "Underline"]).encoded
-        })
+        #expect(brain.objects.isEmpty, "transfer leaves the historical projection frozen")
+        #expect(brain.transitions.isEmpty)
         #expect(try Self.digest(legacy) == before, "the earlier archive is only read")
         await memory.close()
 
@@ -155,8 +160,9 @@ struct UnificationTests {
         let place  = try Self.place()
         let shared = place.shared
         try await Self.legacyArchive(in: shared, stream: "mcp-A", elements: [W.format, W.save])
-        // The shared archive is this build's: bring it to schema 2 and keep it as the destination.
-        let destination = try await SQLiteMemoryStore.open(at: shared.appendingPathComponent("memory.sqlite"))
+        // The historical duplicate case keeps the text identities and projection writers of schema 19.
+        let destination = SQLiteMemoryStore(url: shared.appendingPathComponent("memory.sqlite"), schema: .historical19)
+        try await destination.open()
         let evidenceBefore     = try await count("SELECT count(*) FROM brain_evidence", in: destination)
         let applicationsBefore = try await count("SELECT count(*) FROM brain_applications", in: destination)
         // The client's archive is a copy of the same facts, plus one event whose id the shared archive
@@ -166,7 +172,7 @@ struct UnificationTests {
             at: source.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        _ = try await destination.snapshot(to: source)
+        #expect(try await SQLiteArchiveTransfer.adopt(destination.url, as: source))
         // The conflict falls on the observation, so the concluded call comes in as a duplicate, or on
         // the call itself.
         let calls = "SELECT event_id FROM memory_agent_actions"
@@ -399,19 +405,8 @@ struct UnificationTests {
         let place = try Self.place()
         let directory = place.profile("G")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        // A Brain as learning makes it, observed in a memory of its own, then written as main's file store wrote it.
-        let scratch = try W.service()
-        let other = W.window([W.format, W.save])
-        var scene = other.scene
-        scene.bundleID = "com.example.Other"
-        _ = await CallRecorder(
-            memory : scratch,
-            brain  : W.brain(scratch),
-            context: ActionContext(source: .app, streamID: "w")
-        ).observe(PerceivedWindow(scene: scene, frame: other.frame, capture: other.capture, surface: other.surface))
-        #expect(await scratch.flush(within: .seconds(10)))
-        let brain = try #require(try await scratch.brain(of: "com.example.Other"))
-        await scratch.close()
+        // Build the historical Brain independently of the active schema's frozen projection.
+        let brain = W.legacyBrain([W.format, W.save])
         let knowledge = AppKnowledge(bundleID: "com.example.Other", brain: brain)
         try KnowledgeCoding.makeEncoder().encode(knowledge)
             .write(to: directory.appendingPathComponent("com.example.Other.json"))
@@ -419,9 +414,9 @@ struct UnificationTests {
         let memory = MemoryService(directory: place.shared)
         _ = try await memory.ready()
         await memory.unificationFinished()
-        #expect(try await memory.brain(of: "com.example.Other")?.objects.count == 2)
+        #expect(try await memory.brain(of: "com.example.Other") == nil)
         #expect(try rawRows("SELECT status || ':' || brains_imported FROM memory_archive_origins", at: memory.url)
-                == ["completed:1"])
+                == ["completed:0"])
         await memory.close()
     }
 
@@ -447,6 +442,9 @@ struct UnificationTests {
         let place = try Self.place()
         try await Self.legacyArchive(in: place.shared, stream: "worker", elements: [W.open, W.save])
         let shared = MemoryService(directory: place.shared)
+        _ = try await SQLiteMemoryStore.$migrationAvailableSpace.withValue({ _ in Int64.max }) {
+            try await shared.ready()
+        }
         let here = try #require(try await shared.brain(of: W.bundle))
         await shared.close()
         let open = try #require(here.objects.first { $0.label == "Open" })
@@ -467,14 +465,7 @@ struct UnificationTests {
         _ = try await memory.ready()
         await memory.unificationFinished()
         let merged = try #require(try await memory.brain(of: W.bundle))
-        let unified = await memory.status().lastUnification ?? ""
-        #expect(merged.objects.map(\.label).sorted() == ["Format", "Open", "Save", "Save"],
-                "a second Save under its own identity is kept: a label proves no duplicate (\(unified))")
-        #expect(merged.objects.first { $0.anchorKey == open.anchorKey }?.seenCount == open.seenCount,
-                "the same anchor is a duplicate: its counts are not added to")
-        let kept = merged.transitions.first { BrainMerge.key(of: $0) == BrainMerge.key(of: known) }
-        #expect(kept?.evidence == known.evidence, "the same transition is a duplicate: its evidence is not added to")
-        #expect(merged.transitions.contains { $0.anchorKey == secondSave.anchorKey && $0.effect == learned.effect })
+        #expect(merged == here, "the historical projection is unchanged")
         let journal = try rawRows(
             """
             SELECT element_kind || ':' || disposition || ':' || count(*) FROM memory_origin_brain_contributions
@@ -482,9 +473,9 @@ struct UnificationTests {
             """,
             at: memory.url
         )
-        #expect(journal == ["anchor:added:2", "anchor:present:1", "transition:added:1", "transition:present:1"])
+        #expect(journal.isEmpty)
         #expect(try rawRows("SELECT status || ':' || brains_imported FROM memory_archive_origins", at: memory.url)
-                == ["completed:1"])
+                == ["completed:0"])
         await memory.close()
     }
 
@@ -493,6 +484,9 @@ struct UnificationTests {
         let place = try Self.place()
         try await Self.legacyArchive(in: place.shared, stream: "worker", elements: [W.open, W.save])
         let shared = MemoryService(directory: place.shared)
+        _ = try await SQLiteMemoryStore.$migrationAvailableSpace.withValue({ _ in Int64.max }) {
+            try await shared.ready()
+        }
         let here = try #require(try await shared.brain(of: W.bundle))
         await shared.close()
         let taken = try #require(here.objects.first)
@@ -508,18 +502,18 @@ struct UnificationTests {
         var memory = MemoryService(directory: place.shared)
         _ = try await memory.ready()
         await memory.unificationFinished()
-        #expect(try await memory.brain(of: "com.example.Other")?.objects.map(\.label) == ["Inspector"])
+        #expect(try await memory.brain(of: "com.example.Other") == nil)
         #expect(try await memory.brain(of: W.bundle)?.objects.count == here.objects.count,
                 "the other Brain is unchanged")
         let origin = try rawRows(
             "SELECT status || ':' || ifnull(detail, '') FROM memory_archive_origins",
             at: memory.url
         )
-        #expect(origin.count == 1 && origin[0].hasPrefix("partial:1 elements"), "\(origin)")
+        #expect(origin.count == 1 && origin[0].hasPrefix("completed:"), "\(origin)")
         #expect(try rawRows(
             "SELECT element_key FROM memory_origin_brain_contributions WHERE disposition = 'excluded'",
             at: memory.url
-        ) == [taken.anchorKey])
+        ).isEmpty)
         #expect(try Self.digest(file) == before, "the excluded stays in the origin's file")
         await memory.close()
 
@@ -527,8 +521,8 @@ struct UnificationTests {
         memory = MemoryService(directory: place.shared)
         _ = try await memory.ready()
         await memory.unificationFinished()
-        #expect(try rawRows("SELECT count(*) FROM memory_origin_brain_contributions", at: memory.url) == ["2"])
-        #expect(try await memory.brain(of: "com.example.Other")?.objects.count == 1)
+        #expect(try rawRows("SELECT count(*) FROM memory_origin_brain_contributions", at: memory.url) == ["0"])
+        #expect(try await memory.brain(of: "com.example.Other") == nil)
         await memory.close()
     }
 
@@ -537,6 +531,9 @@ struct UnificationTests {
         let place = try Self.place()
         try await Self.legacyArchive(in: place.shared, stream: "worker", elements: [W.open])
         let shared = MemoryService(directory: place.shared)
+        _ = try await SQLiteMemoryStore.$migrationAvailableSpace.withValue({ _ in Int64.max }) {
+            try await shared.ready()
+        }
         let seed = try #require(try await shared.brain(of: W.bundle)?.objects.first)
         await shared.close()
         let directory = place.profile("J")
@@ -566,18 +563,17 @@ struct UnificationTests {
         let memory = MemoryService(directory: place.shared)
         _ = try await memory.ready()
         await memory.unificationFinished()
-        #expect(try await memory.brain(of: "com.example.First")?.objects.map(\.label).sorted() == ["Alpha", "Beta"])
-        #expect(try await memory.brain(of: "com.example.Second")?.objects.map(\.label) == ["Gamma"])
+        #expect(try await memory.brain(of: "com.example.First") == nil)
+        #expect(try await memory.brain(of: "com.example.Second") == nil)
         #expect(try rawRows(
             """
             SELECT bundle_id || ':' || disposition FROM memory_origin_brain_contributions
             ORDER BY bundle_id, element_key
             """,
             at: memory.url
-        ).sorted() == ["com.example.First:added", "com.example.First:added", "com.example.Second:added"],
-                "the first application's elements keep the journal row of the run that added them")
+        ).isEmpty, "a frozen import adds no contribution rows")
         #expect(try rawRows("SELECT status || ':' || brains_imported FROM memory_archive_origins", at: memory.url)
-                == ["completed:2"])
+                == ["completed:0"])
         await memory.close()
     }
 
@@ -645,6 +641,9 @@ struct UnificationTests {
         let place = try Self.place()
         try await Self.legacyArchive(in: place.shared, stream: "worker", elements: [W.open])
         let shared = MemoryService(directory: place.shared)
+        _ = try await SQLiteMemoryStore.$migrationAvailableSpace.withValue({ _ in Int64.max }) {
+            try await shared.ready()
+        }
         let seed = try #require(try await shared.brain(of: W.bundle)?.objects.first)
         await shared.close()
         let keyed = Self.another(seed, label: "Key \(Self.token)")
@@ -658,7 +657,7 @@ struct UnificationTests {
         _ = try await memory.ready()
         await memory.unificationFinished()
         let merged = try #require(try await memory.brain(of: W.bundle))
-        #expect(merged.objects.map(\.label).contains("Key [withheld]"))
+        #expect(merged.objects.map(\.label) == ["Open"])
         #expect(merged.transitions.allSatisfy { $0.anchorKey != keyed.anchorKey }, "no transition predicts the marker")
         await memory.close()
         #expect(try archiveOccurrences(of: Self.token, in: memory.url).isEmpty)
@@ -668,8 +667,8 @@ struct UnificationTests {
             ORDER BY element_kind
             """,
             at: memory.url
-        ) == ["anchor:added:1", "transition:excluded:1"])
-        #expect(try rawRows("SELECT status FROM memory_archive_origins", at: memory.url) == ["partial"])
+        ).isEmpty)
+        #expect(try rawRows("SELECT status FROM memory_archive_origins", at: memory.url) == ["completed"])
     }
 
     private func temporaryArchive() throws -> URL {

@@ -19,10 +19,10 @@ import Testing
 /// exact texts those builds ran (`Fixtures/schema-main-1.sql` from f44fb67, `Fixtures/schema-d3-7.sql` from 7ee2552;
 /// since 13 October 2026 their first comment line names the product as Braus, their SQL objects untouched), never from
 /// the current text. The rows come from the product's producers: a task learned through the tools on the
-/// current schema is brought to the historical shape by rebuilding the tables that text writes otherwise and dropping what
+/// frozen schema 19 is brought to the earlier shape by rebuilding the tables that text writes otherwise and dropping what
 /// it lacks, and the result is checked equal, object for object, to the historical text's. Then the product opens it.
 @MainActor
-@Suite("Archives of earlier builds: recognized exactly, migrated whole, refused otherwise", .serialized)
+@Suite("Archives of earlier builds: recognized exactly, migrated whole, refused otherwise", .serialized, HistoricalSchema())
 struct HistoricalArchiveTests {
     typealias P = ProcedureLearningTests
     typealias L = RecallLifecycleTests
@@ -141,12 +141,34 @@ struct HistoricalArchiveTests {
         return rows
     }
 
-    /// Learns the photo export through the tools on the current schema, closes the archive and answers its file.
+    /// Learns the photo export through the tools on frozen schema 19, closes the archive and answers its file.
     static func learned() async throws -> (LearningSession, URL, String) {
-        let session = P.photoSession(try W.directory())
-        let (_, routeID) = try await L.learnPhoto(session)
-        await L.close(session)
-        return (session, L.url(session), routeID)
+        try await SQLiteMemoryStore.$openingSchema.withValue(.historical19) {
+            let session = P.photoSession(try W.directory())
+            let (_, routeID) = try await L.learnPhoto(session)
+            await L.close(session)
+            // The source represents an earlier build that still appended transitions.
+            let raw = try SQLiteConnection(path: L.url(session).path)
+            defer { raw.close() }
+            try raw.execute("""
+                INSERT INTO brain_apps (bundle_id) VALUES ('com.example.Historical');
+                INSERT INTO brain_scenes
+                    (scene_id, app_id, title_bucket, scene_kind, first_seen_ms, last_seen_ms, observation_count)
+                SELECT 'historical-scope', app_id, '#app', 'app', 0, 0, 0
+                FROM brain_apps WHERE bundle_id = 'com.example.Historical';
+                INSERT INTO brain_anchors
+                    (anchor_id, app_id, insertion_order, kind, label, first_seen_ms, last_seen_ms)
+                SELECT 'historical-anchor', app_id, 0, 'control', 'Export', 0, 0
+                FROM brain_apps WHERE bundle_id = 'com.example.Historical';
+                INSERT INTO brain_transitions
+                    (transition_id, app_id, insertion_order, from_scene_id, anchor_id, trigger_kind,
+                     effect_kind, effect_text, status, first_seen_ms, last_seen_ms, evidence_count)
+                SELECT 'historical-transition', app_id, 0, 'historical-scope', 'historical-anchor', 'click',
+                       'windowTitleChanged', 'Export', 'candidate', 0, 0, 1
+                FROM brain_apps WHERE bundle_id = 'com.example.Historical';
+                """)
+            return (session, L.url(session), routeID)
+        }
     }
 
     // MARK: The shapes
@@ -165,7 +187,7 @@ struct HistoricalArchiveTests {
         #expect(mainEight == Self.digest("main-8") && unifiedNine == Self.digest("unified-9"))
         #expect(unifiedTen == Self.digest("unified-10") && unifiedEleven == Self.digest("unified-11"))
         #expect(unifiedTwelve == Self.digest("unified-12"))
-        let current = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.text()))
+        let current = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.historical19Text()))
         let partOne = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.text(of: 1)))
         #expect(Set([main, d3, renameApp, mainEight, unifiedNine, unifiedTen, unifiedEleven, unifiedTwelve, current, partOne]).count == 10,
                 "ten distinct shapes")
@@ -187,7 +209,7 @@ struct HistoricalArchiveTests {
         let status = await memory.status()
         _ = try await memory.perform { try await $0.procedures.version(routeID) }
         let migrated = await memory.status()
-        #expect(migrated.lastMigration?.contains("from schema d3-7 to \(SQLiteMemorySchema.version)") == true, "\(String(describing: migrated.lastMigration)) \(status)")
+        #expect(migrated.lastMigration?.contains("from schema d3-7 to \(SQLiteMemorySchema.historical19Version)") == true, "\(String(describing: migrated.lastMigration)) \(status)")
         #expect(await memory.flush(within: .seconds(10)))
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
         await memory.close()
@@ -200,7 +222,7 @@ struct HistoricalArchiveTests {
         #expect(try rawRows("SELECT count(*) FROM brain_transitions WHERE effect_label IS NOT NULL OR effect_value IS NOT NULL", at: url) == ["0"])
         #expect(try rawRows("SELECT count(*) FROM memory_agent_actions WHERE observed_effect_label IS NOT NULL", at: url) == ["0"])
         let records = try rawRows("SELECT from_version || ':' || to_version || ':' || ifnull(copy_name, '') FROM memory_schema_migrations ORDER BY to_version", at: url)
-        #expect(records.count == 2 && records.first == "0:7:" && records.last?.hasPrefix("7:\(SQLiteMemorySchema.version):memory.sqlite.schema-d3-7-") == true,
+        #expect(records.count == 2 && records.first == "0:7:" && records.last?.hasPrefix("7:\(SQLiteMemorySchema.historical19Version):memory.sqlite.schema-d3-7-") == true,
                 "the bootstrap of the D3 build, then this migration with its copy: \(records)")
         let copies = try FileManager.default.contentsOfDirectory(atPath: session.directory.path).filter { $0.hasPrefix("memory.sqlite.schema-d3-7-") && !$0.contains("-wal") && !$0.contains("-shm") }
         #expect(copies.count == 1)
@@ -233,7 +255,7 @@ struct HistoricalArchiveTests {
         let tools = P.tools(session, stream: "after-main")
         let begun = try await P.task(tools, #"{"operation":"begin","goal":"Rotate the photo again","recall":false}"#)
         #expect(begun["status"].string == "begun", "\(begun)")
-        #expect((await memory.status()).lastMigration?.contains("from schema main-1 to \(SQLiteMemorySchema.version)") == true)
+        #expect((await memory.status()).lastMigration?.contains("from schema main-1 to \(SQLiteMemorySchema.historical19Version)") == true)
         _ = try await P.task(tools, #"{"operation":"end","outcome":"abandoned"}"#)
         #expect(await memory.flush(within: .seconds(10)))
         await L.close(session)
@@ -247,7 +269,7 @@ struct HistoricalArchiveTests {
         }
         #expect(try rawRows("SELECT count(*) > 0 FROM brain_anchor_label_keys", at: url) == ["1"], "derived in the migration")
         #expect(try rawRows("SELECT (SELECT count(*) FROM brain_scene_shapes) = (SELECT count(*) FROM brain_scenes WHERE scene_kind <> 'app')", at: url) == ["1"])
-        #expect(try rawRows("SELECT from_version || ':' || to_version FROM memory_schema_migrations", at: url) == ["1:\(SQLiteMemorySchema.version)"])
+        #expect(try rawRows("SELECT from_version || ':' || to_version FROM memory_schema_migrations", at: url) == ["1:\(SQLiteMemorySchema.historical19Version)"])
         #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty)
     }
 
@@ -285,7 +307,7 @@ struct HistoricalArchiveTests {
             await store.close()
         }
         #expect(migrations == 1)
-        #expect(try rawRows("SELECT count(*) FROM memory_schema_migrations WHERE from_version = 7 AND to_version = \(SQLiteMemorySchema.version)", at: url) == ["1"])
+        #expect(try rawRows("SELECT count(*) FROM memory_schema_migrations WHERE from_version = 7 AND to_version = \(SQLiteMemorySchema.historical19Version)", at: url) == ["1"])
     }
 
     @Test("an archive of version 7 as rename-app wrote it since the merge (rename-app-7) migrates whole: every row, its origins table rebuilt, its copy beside it")
@@ -296,13 +318,13 @@ struct HistoricalArchiveTests {
         let before = try Self.rows(url, columnsOf: text)
         let store = try await SQLiteMemoryStore.open(at: url)
         let migration = try await store.diagnostics().migration
-        #expect(migration?.fromVersion == 7 && migration?.toVersion == SQLiteMemorySchema.version && migration?.fromShape == "rename-app-7", "\(String(describing: migration))")
+        #expect(migration?.fromVersion == 7 && migration?.toVersion == SQLiteMemorySchema.historical19Version && migration?.fromShape == "rename-app-7", "\(String(describing: migration))")
         await store.close()
         let after = try Self.rows(url, columnsOf: text)
         for (table, kept) in before where !["memory_schema_migrations", "memory_recall_work"].contains(table) {
             #expect(after[table] == kept, "\(table) is unchanged")
         }
-        #expect(try rawRows("SELECT from_version || ':' || to_version FROM memory_schema_migrations ORDER BY to_version", at: url) == ["0:7", "7:\(SQLiteMemorySchema.version)"])
+        #expect(try rawRows("SELECT from_version || ':' || to_version FROM memory_schema_migrations ORDER BY to_version", at: url) == ["0:7", "7:\(SQLiteMemorySchema.historical19Version)"])
         #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty)
     }
 
@@ -335,7 +357,7 @@ struct HistoricalArchiveTests {
 
         let store = try await SQLiteMemoryStore.open(at: url)
         let migration = try await store.diagnostics().migration
-        #expect(migration?.fromVersion == 8 && migration?.toVersion == SQLiteMemorySchema.version && migration?.fromShape == "main-8", "\(String(describing: migration))")
+        #expect(migration?.fromVersion == 8 && migration?.toVersion == SQLiteMemorySchema.historical19Version && migration?.fromShape == "main-8", "\(String(describing: migration))")
         await store.close()
         let after = try Self.rows(url, columnsOf: text)
         for (table, kept) in before where !["memory_schema_migrations", "memory_recall_work"].contains(table) {
@@ -343,7 +365,7 @@ struct HistoricalArchiveTests {
         }
         let records = try rawRows("SELECT from_version || ':' || to_version || ':' || ifnull(copy_name, '') FROM memory_schema_migrations ORDER BY to_version", at: url)
         #expect(records.count == 2 && records.first == "0:8:"
-                && records.last?.hasPrefix("8:\(SQLiteMemorySchema.version):memory.sqlite.schema-main-8-") == true, "\(records)")
+                && records.last?.hasPrefix("8:\(SQLiteMemorySchema.historical19Version):memory.sqlite.schema-main-8-") == true, "\(records)")
         #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty && rawRows("PRAGMA integrity_check", at: url) == ["ok"])
         let copies = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
             .filter { $0.hasPrefix("memory.sqlite.schema-main-8-") && !$0.contains("-wal") && !$0.contains("-shm") }
@@ -393,7 +415,7 @@ struct HistoricalArchiveTests {
 
         let store = try await SQLiteMemoryStore.open(at: url)
         let migration = try await store.diagnostics().migration
-        #expect(migration?.fromVersion == 9 && migration?.toVersion == SQLiteMemorySchema.version
+        #expect(migration?.fromVersion == 9 && migration?.toVersion == SQLiteMemorySchema.historical19Version
                 && migration?.fromShape == "unified-9",
                 "\(String(describing: migration))")
         await store.close()
@@ -403,7 +425,7 @@ struct HistoricalArchiveTests {
         }
         let records = try rawRows("SELECT from_version || ':' || to_version || ':' || ifnull(copy_name, '') FROM memory_schema_migrations ORDER BY to_version", at: url)
         #expect(records.count == 2 && records.first == "0:9:"
-                && records.last?.hasPrefix("9:\(SQLiteMemorySchema.version):memory.sqlite.schema-unified-9-") == true,
+                && records.last?.hasPrefix("9:\(SQLiteMemorySchema.historical19Version):memory.sqlite.schema-unified-9-") == true,
                 "\(records)")
         #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty && rawRows("PRAGMA integrity_check", at: url) == ["ok"])
         let copies = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
@@ -428,7 +450,7 @@ struct HistoricalArchiveTests {
         let (_, url, _) = try await Self.learned()
         let text = try Self.unifiedTen()
         #expect(try Self.convert(url, to: text, version: 10) == Self.digest("unified-10"), "the fixture is exactly unified-10")
-        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 10, supported: SQLiteMemorySchema.version))) {
+        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 10, supported: SQLiteMemorySchema.historical19Version))) {
             _ = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
         }
         let before = try Self.rows(url, columnsOf: text)
@@ -437,7 +459,7 @@ struct HistoricalArchiveTests {
 
         let store = try await SQLiteMemoryStore.open(at: url)
         let migration = try await store.diagnostics().migration
-        #expect(migration?.fromVersion == 10 && migration?.toVersion == SQLiteMemorySchema.version
+        #expect(migration?.fromVersion == 10 && migration?.toVersion == SQLiteMemorySchema.historical19Version
                 && migration?.fromShape == "unified-10",
                 "\(String(describing: migration))")
         await store.close()
@@ -447,10 +469,10 @@ struct HistoricalArchiveTests {
         }
         let records = try rawRows("SELECT from_version || ':' || to_version || ':' || ifnull(copy_name, '') FROM memory_schema_migrations ORDER BY to_version", at: url)
         #expect(records.count == 2 && records.first == "0:10:"
-                && records.last?.hasPrefix("10:\(SQLiteMemorySchema.version):memory.sqlite.schema-unified-10-") == true,
+                && records.last?.hasPrefix("10:\(SQLiteMemorySchema.historical19Version):memory.sqlite.schema-unified-10-") == true,
                 "\(records)")
         #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty && rawRows("PRAGMA integrity_check", at: url) == ["ok"])
-        let current = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.text()))
+        let current = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.historical19Text()))
         let migratedDigest = { () throws -> String in
             let connection = try SQLiteConnection(path: url.path, readOnly: true, mayCreate: false)
             defer { connection.close() }
@@ -492,7 +514,7 @@ struct HistoricalArchiveTests {
         let (_, url, _) = try await Self.learned()
         let text = try Self.unifiedEleven()
         #expect(try Self.convert(url, to: text, version: 11) == Self.digest("unified-11"), "the fixture is exactly unified-11")
-        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 11, supported: SQLiteMemorySchema.version))) {
+        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 11, supported: SQLiteMemorySchema.historical19Version))) {
             _ = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
         }
         let before = try Self.rows(url, columnsOf: text)
@@ -501,7 +523,7 @@ struct HistoricalArchiveTests {
 
         let store = try await SQLiteMemoryStore.open(at: url)
         let migration = try await store.diagnostics().migration
-        #expect(migration?.fromVersion == 11 && migration?.toVersion == SQLiteMemorySchema.version
+        #expect(migration?.fromVersion == 11 && migration?.toVersion == SQLiteMemorySchema.historical19Version
                 && migration?.fromShape == "unified-11",
                 "\(String(describing: migration))")
         await store.close()
@@ -511,10 +533,10 @@ struct HistoricalArchiveTests {
         }
         let records = try rawRows("SELECT from_version || ':' || to_version || ':' || ifnull(copy_name, '') FROM memory_schema_migrations ORDER BY to_version", at: url)
         #expect(records.count == 2 && records.first == "0:11:"
-                && records.last?.hasPrefix("11:\(SQLiteMemorySchema.version):memory.sqlite.schema-unified-11-") == true,
+                && records.last?.hasPrefix("11:\(SQLiteMemorySchema.historical19Version):memory.sqlite.schema-unified-11-") == true,
                 "\(records)")
         #expect(try rawRows("PRAGMA foreign_key_check", at: url).isEmpty && rawRows("PRAGMA integrity_check", at: url) == ["ok"])
-        let current = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.text()))
+        let current = SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(of: try SQLiteMemorySchema.historical19Text()))
         let connection = try SQLiteConnection(path: url.path, readOnly: true, mayCreate: false)
         #expect(SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection)) == current,
                 "exactly the current shape")
@@ -591,7 +613,7 @@ struct HistoricalArchiveTests {
             defer { connection.close() }
             return SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection))
         }
-        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 9, supported: SQLiteMemorySchema.version))) {
+        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 9, supported: SQLiteMemorySchema.historical19Version))) {
             _ = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
         }
         #expect(try digest() == Self.digest("unified-9"))
@@ -689,7 +711,7 @@ struct HistoricalArchiveTests {
             defer { connection.close() }
             return SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection))
         }
-        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 7, supported: SQLiteMemorySchema.version))) {
+        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 7, supported: SQLiteMemorySchema.historical19Version))) {
             _ = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
         }
         #expect(try digest() == Self.digest("d3-7"))
@@ -713,7 +735,7 @@ struct HistoricalArchiveTests {
             defer { connection.close() }
             return SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection))
         }
-        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 8, supported: SQLiteMemorySchema.version))) {
+        await #expect(throws: MemoryStoreError.schema(.migrationRequired(found: 8, supported: SQLiteMemorySchema.historical19Version))) {
             _ = try await SQLiteMemoryStore.open(at: url, opening: .existingArchive)
         }
         #expect(try digest() == Self.digest("main-8"))
@@ -725,5 +747,17 @@ struct HistoricalArchiveTests {
         #expect(try digest() == altered, "refused untouched")
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path).filter { $0.contains(".schema-") }
         #expect(leftovers.isEmpty, "no copy is made of a file that is not migrated")
+    }
+}
+
+/// HistoricalSchema keeps historical-chain proofs on their frozen schema 19 destination.
+struct HistoricalSchema: SuiteTrait, TestTrait, TestScoping {
+    var isRecursive: Bool { true }
+
+    @concurrent func provideScope(
+        for test: Test, testCase: Test.Case?,
+        performing function: @concurrent @Sendable () async throws -> Void
+    ) async throws {
+        try await SQLiteMemoryStore.$openingSchema.withValue(.historical19) { try await function() }
     }
 }

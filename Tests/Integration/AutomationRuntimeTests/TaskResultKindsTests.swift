@@ -554,7 +554,7 @@ struct ProcedureResultTemplateTests {
         let stored = try #require(try await memory.perform { try await $0.procedures.version(variant) })
         #expect(stored.version.variantOf == source, "the chosen source is its origin")
         #expect(stored.version.divergencePosition == 5, "the five steps of the source, then its own")
-        #expect(try P.rows("SELECT status FROM memory_variant_prefix_checks WHERE route_id = '\(variant)'", in: session) == ["verified"])
+        #expect(try P.rows("SELECT status FROM memory_variant_prefix_checks WHERE route_id = (SELECT route_id FROM memory_routes WHERE route_uuid = '\(variant)')", in: session) == ["verified"])
         await RecallLifecycleTests.close(session)
     }
 

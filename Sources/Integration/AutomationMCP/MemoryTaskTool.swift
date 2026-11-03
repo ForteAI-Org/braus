@@ -5,6 +5,7 @@
 //  Created by Tommaso Mazzarini on 09/10/2026.
 //
 
+import EngineCore
 import Foundation
 import LocalMCP
 import Memory
@@ -770,6 +771,12 @@ nonisolated enum MemoryTaskTool {
                     return .element(app: app, label: label, expect: .state(state))
                 }
                 return .element(app: app, label: label, expect: item["present"].bool == false ? .absent : .present)
+            }
+            if let folder = item["no_other_files"].string {
+                guard let named = item["named"].array, named.allSatisfy({ $0.string != nil }) else {
+                    throw invalid(ModelText.text(.init(rawValue: "task_cycle.named_files.v2")))
+                }
+                return .noOtherFiles(folder: try path(folder), named: named.compactMap(\.string))
             }
             if let reason = item["none"].string, !reason.isEmpty { return .nothing(reason: reason) }
             throw invalid(ModelText.text(.init(rawValue: "memory_task_tool.reason.v1.3"))

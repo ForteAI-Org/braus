@@ -96,7 +96,8 @@ public struct EngineRuntime {
                 expectations: memory,
                 observer    : recorder,
                 settling    : settling,
-                menus       : menus
+                menus       : menus,
+                correspondence: ConfidentialSurfaces.isCorrespondence
             ),
             permissions: ActionPermissions(
                 allowsDestructive           : allowsDestructive,

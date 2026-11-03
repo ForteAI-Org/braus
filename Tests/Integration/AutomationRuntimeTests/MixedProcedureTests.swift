@@ -133,7 +133,7 @@ struct MixedProcedureTests {
         #expect(kinds == ["operation", "operation", "adapter_call", "adapter_call"], "\(kinds)")
         let policy = try P.rows("SELECT policy_version FROM memory_procedure_candidates WHERE candidate_id = '\(candidateID)'", in: session)
         #expect(policy == [ProcedureSegmentation.mixedPolicyVersion], "\(policy)")
-        let versions = try P.rows("SELECT DISTINCT policy_version FROM memory_part_qualifications", in: session)
+        let versions = try P.rows("SELECT DISTINCT p.policy_version FROM memory_part_qualifications q JOIN memory_qualification_policies p ON p.policy_id = q.policy_id", in: session)
         #expect(versions == [QualificationPolicy.version], "\(versions)")
         let inherited = try P.rows("SELECT count(*) FROM memory_part_qualification_evidence WHERE origin = 'inherited'", in: session)
         #expect(inherited == ["0"], "a learned procedure's evidence is its own")
@@ -187,19 +187,19 @@ struct MixedProcedureTests {
         let earlier = try #require(QualificationPolicy.earlierVersions.first)
         try connection.execute("INSERT OR IGNORE INTO memory_qualification_policies (policy_version, status, changed_at_ms) VALUES ('\(earlier)', 'active', 1)")
         try connection.execute("""
-            INSERT INTO memory_part_qualifications (part_id, sequence, policy_version, verdict, evaluated_at_ms)
-            SELECT part_id, max(sequence) + 1, '\(earlier)', 'admitted', max(evaluated_at_ms) + 1
+            INSERT INTO memory_part_qualifications (part_id, sequence, policy_id, verdict, evaluated_at_ms)
+            SELECT part_id, max(sequence) + 1, (SELECT policy_id FROM memory_qualification_policies WHERE policy_version = '\(earlier)'), 'admitted', max(evaluated_at_ms) + 1
             FROM memory_part_qualifications GROUP BY part_id
             """)
         connection.close()
-        let before = try rawRows("SELECT part_id || '#' || sequence || '#' || policy_version FROM memory_part_qualifications ORDER BY 1", at: url)
+        let before = try rawRows("SELECT q.part_id || '#' || q.sequence || '#' || p.policy_version FROM memory_part_qualifications q JOIN memory_qualification_policies p ON p.policy_id = q.policy_id ORDER BY 1", at: url)
 
         let need = try await CrossRouteRecallTests.need(on: CrossRouteRecallTests.web, session)
         #expect(need["coverage"].string == "complete", "the procedure is evaluated again and still selected: \(need)")
-        let after = try rawRows("SELECT part_id || '#' || sequence || '#' || policy_version FROM memory_part_qualifications ORDER BY 1", at: url)
+        let after = try rawRows("SELECT q.part_id || '#' || q.sequence || '#' || p.policy_version FROM memory_part_qualifications q JOIN memory_qualification_policies p ON p.policy_id = q.policy_id ORDER BY 1", at: url)
         #expect(Set(before).isSubset(of: Set(after)), "every earlier evaluation is kept")
         let latest = try rawRows("""
-            SELECT q.policy_version FROM memory_part_qualifications q
+            SELECT p.policy_version FROM memory_part_qualifications q JOIN memory_qualification_policies p ON p.policy_id = q.policy_id
             WHERE q.sequence = (SELECT max(sequence) FROM memory_part_qualifications WHERE part_id = q.part_id)
             """, at: url)
         #expect(!latest.isEmpty && latest.allSatisfy { $0 == QualificationPolicy.version }, "\(latest)")

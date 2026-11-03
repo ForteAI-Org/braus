@@ -141,6 +141,52 @@ struct BrainMemoryTests {
         return PerceivedWindow(scene: shown, frame: .zero, capture: .unknown, surface: .window)
     }
 
+    @Test
+    func callSecretsReachBothComparisons() async throws {
+        let capture = secretCapture()
+        let saved = SceneSkeleton(sample: ValueMinimization(secrets: ["731"]).minimize(sample: capture, confidential: nil).0)
+        let relations = RelationsDouble(state: "S", skeleton: saved)
+        let store = InMemoryBrainStore()
+        let memory = BrainMemory(brains: store, applications: store, relations: relations, clock: { Fixtures.t0 })
+        let shown = window([exportWithSecret()])
+        let capturedTarget = try #require(CaptureElement(shown.scene.elements[0]))
+        let key = try #require(SceneElementKey.key(of: capturedTarget))
+        await relations.set([relation(key, .click, supports: 2, effect: "elementsAppeared")])
+        #expect(await memory.enrich(shown.scene, window: shown).knowledge?.status == .unrecognized)
+        #expect(await memory.expectedEffect(of: .click, on: shown.scene.elements[0], in: shown) == nil)
+        await CallMinimization.$current.withValue(ValueMinimization(secrets: ["731"])) {
+            #expect(await memory.enrich(shown.scene, window: shown).knowledge?.status == .applied)
+            #expect(await memory.expectedEffect(of: .click, on: shown.scene.elements[0], in: shown) == .elementsAppeared(labels: []))
+        }
+        #expect(CallMinimization.current == nil)
+    }
+
+    private func exportWithSecret() -> SceneElement {
+        var target = export
+        target.label = "731"
+        target.container = "Panel 731"
+        return target
+    }
+
+    @Test
+    func callMinimizationIsolated() async {
+        await withTaskGroup(of: Void.self) { group in
+            for secret in ["731", "942"] {
+                group.addTask {
+                    var admitted = ValueMinimization(secrets: [secret])
+                    await CallMinimization.$current.withValue(admitted) {
+                        admitted = admitted.adding(secrets: ["later"])
+                        await Task.yield()
+                        #expect(CallMinimization.current?.secrets == [secret])
+                        #expect(admitted.secrets == [secret, "later"])
+                        #expect(CallMinimization.current?.minimize(text: secret).0 == ValueMinimization.marker)
+                    }
+                }
+            }
+        }
+        #expect(CallMinimization.current == nil)
+    }
+
     @Test(arguments: ["com.apple.Notes", "com.apple.iCal"])
     func liveSkeletonMatchesSavedOne(bundleID: String) {
         let capture = CaptureSample(key: sample("live"), of: contentWindow(bundleID))

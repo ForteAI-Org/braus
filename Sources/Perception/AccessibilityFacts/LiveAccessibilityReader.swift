@@ -107,6 +107,12 @@ public struct LiveAccessibilityReader: AccessibilityTreeReading {
         CFEqual(first, second)
     }
 
+    public nonisolated func physicalIdentity(_ node: AXUIElement) -> String? {
+        // Identity may bind text only when this reader also attests secure-field classification.
+        guard valueGuard != nil else { return nil }
+        return NativeAccessibilityIdentity.token(for: node)
+    }
+
     public nonisolated func role(_ node: AXUIElement) -> String? { string(node, kAXRoleAttribute) }
     public nonisolated func subrole(_ node: AXUIElement) -> String? {
         valueGuard == nil ? string(node, kAXSubroleAttribute) : valueClassification(node, kAXSubroleAttribute)

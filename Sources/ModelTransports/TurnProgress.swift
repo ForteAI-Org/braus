@@ -17,6 +17,8 @@ struct TurnProgress: Sendable {
     var outputTokens: Int?
     var cacheReadTokens: Int?
     var cacheWriteTokens: Int?
+    var cacheWriteHourTokens: Int?
+    var reasoningTokens: Int?
 
     /// Generation time the provider measures itself, when it reports one. Nil
     /// leaves the wall clock to answer for the turn.
@@ -55,7 +57,8 @@ struct TurnProgress: Sendable {
 
     func usage(wallClock: Duration) -> ModelUsage {
         ModelUsage(inputTokens: inputTokens, outputTokens: outputTokens, duration: generated ?? wallClock,
-                   cacheReadTokens: cacheReadTokens, cacheWriteTokens: cacheWriteTokens)
+                   cacheReadTokens: cacheReadTokens, cacheWriteTokens: cacheWriteTokens,
+                   cacheWriteHourTokens: cacheWriteHourTokens, reasoningTokens: reasoningTokens)
     }
 }
 

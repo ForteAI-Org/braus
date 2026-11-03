@@ -112,6 +112,29 @@ nonisolated public enum RecallApplications {
         return (resolved, notes)
     }
 
+    /// Suggests only known applications, using every folded name and stable input order for ties.
+    public static func candidates(for word: String, among known: [Known], limit: Int = 3) -> [String] {
+        let wanted = Array(fold(word))
+        func distance(_ name: String) -> Int {
+            let letters = Array(fold(name))
+            var previous = Array(0...letters.count)
+            for (index, letter) in wanted.enumerated() {
+                var next = [index + 1]
+                for (position, other) in letters.enumerated() {
+                    next.append(min(next[position] + 1, previous[position + 1] + 1,
+                                    previous[position] + (letter == other ? 0 : 1)))
+                }
+                previous = next
+            }
+            return previous.last ?? wanted.count
+        }
+        return known.enumerated().sorted {
+            let left = ($0.element.names + [$0.element.bundleID]).map(distance).min() ?? Int.max
+            let right = ($1.element.names + [$1.element.bundleID]).map(distance).min() ?? Int.max
+            return left == right ? $0.offset < $1.offset : left < right
+        }.prefix(max(0, limit)).map { $0.element.bundleID }
+    }
+
     /// Whether a word is a web identity: `web:` and a host, no space.
     static func isWebIdentity(_ word: String) -> Bool {
         word.lowercased().hasPrefix("web:") && word.count > 4 && !word.contains(" ")

@@ -2,6 +2,21 @@ import Foundation
 
 extension ModelText {
     nonisolated static let toolAnswerTexts: [Entry] = [
+        Entry(key: .init(rawValue: "call_dispatcher.batch_failure.v2"), owner: "AutomationMCP", delivery: .toolAnswer(tool: "batch"),
+              budgetCharacters: 160, text: "The step failed. Check the current state before continuing.", legacy: false),
+        Entry(key: .init(rawValue: "profile.observe_only.v1"), owner: "AutomationMCP",
+              delivery: .refusal(tool: "call"), budgetCharacters: 45,
+              text: "The session profile permits observation only.", legacy: false),
+        Entry(key: .init(rawValue: "profile.memory_not_read.v1"), owner: "AutomationMCP",
+              delivery: .toolAnswer(tool: "plan"), budgetCharacters: 40,
+              text: "the session profile does not read memory", legacy: false),
+        Entry(key: .init(rawValue: "profile.learning_disabled.v1"), owner: "AutomationMCP",
+              delivery: .toolAnswer(tool: "memory_task"), budgetCharacters: 46,
+              text: "The session profile does not learn from calls.", legacy: false),
+        Entry(key: .init(rawValue: "batch.error.v2"), owner: "AutomationMCP", delivery: .toolAnswer(tool: "batch"),
+              budgetCharacters: 7, text: "Error: ", legacy: false),
+        Entry(key: .init(rawValue: "batch.stopped.v2"), owner: "AutomationMCP", delivery: .toolAnswer(tool: "batch"),
+              budgetCharacters: 9, text: "stopped: ", legacy: false),
         Entry(
             key: .init(rawValue: "task_cycle_handler.directory.v1"),
             owner: "AutomationMCP",
@@ -1145,6 +1160,158 @@ extension ModelText {
             budgetCharacters: 1,
             text: ")",
             legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.batch"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "batch"),
+            budgetCharacters: 15,
+            text: "Batch",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.step"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "batch"),
+            budgetCharacters: 22,
+            text: "Step {count}",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.unexecuted"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "batch"),
+            budgetCharacters: 40,
+            text: "First unexecuted step: {count}",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.reason"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 8,
+            text: "reason: ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.memory"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 8,
+            text: "memory: ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.keySeparator"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 2,
+            text: ": ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.outcomeSeparator"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 3,
+            text: " · ",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.outcome.open"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 10,
+            text: "<outcome>\n",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.outcome.close"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 11,
+            text: "\n</outcome>",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.scene.open"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 8,
+            text: "<scene>\n",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.scene.close"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 9,
+            text: "\n</scene>",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.ampersand"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 1,
+            text: "&",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.lessThan"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 1,
+            text: "<",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.greaterThan"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 1,
+            text: ">",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.escapedAmpersand"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 5,
+            text: "&amp;",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.escapedLessThan"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 4,
+            text: "&lt;",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.escapedGreaterThan"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 4,
+            text: "&gt;",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.rowSeparator"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 1,
+            text: "\n",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "answer.surface.v2.blockSeparator"),
+            owner: "AutomationMCP",
+            delivery: .toolAnswer(tool: "observe"),
+            budgetCharacters: 2,
+            text: "\n\n",
+            legacy: false
         ),
     ]
 }

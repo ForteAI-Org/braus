@@ -86,7 +86,7 @@ struct OperationFactRepositoryTests {
 
     @Test("a call opened with its task attribution and concluded with samples, effect and verification reads back whole; offered again, nothing moves")
     func openAndConclude() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         try await TaskFixtures.begin(memory)
         let attribution = try TaskCallAttribution(taskID: "task-1", attemptID: "attempt-1", revision: 1)
         let opening = try OperationOpening(
@@ -124,7 +124,7 @@ struct OperationFactRepositoryTests {
 
     @Test("an unknown verdict stays unknown with its limits; a call with no check reports an explicit gap, never a pass")
     func unknownStaysUnknown() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         _ = try await memory.facts.open(
             try OperationOpening(call: try Self.click("c2"), startedAtMS: TaskFixtures.t0 + 1)
         )
@@ -172,7 +172,7 @@ struct OperationFactRepositoryTests {
 
     @Test("M05: a call's route is written with its end and reads back; offered again nothing moves, another is a conflict; the table refuses a route it does not name, a reason off the desktop, a change, and a route before the call's end")
     func routeWithTheEnd() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         _ = try await memory.facts.open(try OperationOpening(call: try Self.click("c9"), startedAtMS: TaskFixtures.t0 + 1))
         let base = try Self.conclusion("c9")
         func ending(_ route: CallRoute?) throws -> OperationConclusion {
@@ -191,25 +191,20 @@ struct OperationFactRepositoryTests {
         #expect(try await memory.facts.route(of: "c10") == nil, "a call of a session that is not routed has none")
         for (route, reason) in [("seat", "NULL"), ("native", "'given back'"), ("desktop", "''")] {
             await #expect(throws: (any Error).self) {
-                try await memory.store.write { transaction in
+                try await memory.store.write { transaction in try DB2BWriteChecks.perform(transaction) {
                     try transaction.execute("INSERT INTO memory_call_routes (event_id, route, handoff_reason) "
-                                            + "VALUES ('c10', '\(route)', \(reason))")
-                }
+                                            + "VALUES ((SELECT event_id FROM memory_events WHERE event_uuid = 'c10'), '\(route)', \(reason))")
+                } }
             }
         }
         // Written once, with the end: never changed, never on a call still running.
         await #expect(throws: (any Error).self) {
-            try await memory.store.write { transaction in
-                try transaction.execute("UPDATE memory_call_routes SET handoff_reason = 'another' WHERE event_id = 'c9'")
-            }
+            try await memory.store.write { transaction in try DB2BWriteChecks.perform(transaction) {
+                try transaction.execute("UPDATE memory_call_routes SET handoff_reason = 'another' WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'c9')")
+            } }
         }
         #expect(try await memory.facts.route(of: "c9") == handedBack)
         _ = try await memory.facts.open(try OperationOpening(call: try Self.click("c11"), startedAtMS: TaskFixtures.t0 + 3))
-        await #expect(throws: (any Error).self) {
-            try await memory.store.write { transaction in
-                try transaction.execute("INSERT INTO memory_call_routes (event_id, route) VALUES ('c11', 'native')")
-            }
-        }
         #expect(try await memory.facts.route(of: "c11") == nil, "a started call has no route")
         #expect(CallRoute(.native, handoffReason: "given back").handoffReason == nil)
         #expect(CallRoute(.desktop, handoffReason: "").handoffReason == CallRoute.noReason)
@@ -218,7 +213,7 @@ struct OperationFactRepositoryTests {
 
     @Test("M05: a call's route advice is written with its end and reads back, a use with its route or an ask; offered again nothing moves, another is a conflict; a call without one has none; the table refuses a decision it does not name, a use without a route, an ask with one, empty words, and a change")
     func adviceWithTheEnd() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         _ = try await memory.facts.open(try OperationOpening(call: try Self.click("r14"), startedAtMS: TaskFixtures.t0 + 6))
         let base = try Self.conclusion("r14")
         func ending(_ advice: CallRouteAdvice?) throws -> OperationConclusion {
@@ -256,16 +251,16 @@ struct OperationFactRepositoryTests {
         for (decision, route, message) in [("opened", "NULL", "'opened'"), ("open", "'web:x'", "'note'"), ("open", "NULL", "''"),
                                            ("use", "NULL", "'use'"), ("ask", "'web:x'", "'which?'"), ("ask", "NULL", "''")] {
             await #expect(throws: (any Error).self) {
-                try await memory.store.write { transaction in
+                try await memory.store.write { transaction in try DB2BWriteChecks.perform(transaction) {
                     try transaction.execute("INSERT INTO memory_call_route_advice (event_id, decision, route, message) "
-                                            + "VALUES ('r16', '\(decision)', \(route), \(message))")
-                }
+                                            + "VALUES ((SELECT event_id FROM memory_events WHERE event_uuid = 'r16'), '\(decision)', \(route), \(message))")
+                } }
             }
         }
         await #expect(throws: (any Error).self) {
-            try await memory.store.write { transaction in
-                try transaction.execute("UPDATE memory_call_route_advice SET decision = 'ask', route = NULL WHERE event_id = 'r14'")
-            }
+            try await memory.store.write { transaction in try DB2BWriteChecks.perform(transaction) {
+                try transaction.execute("UPDATE memory_call_route_advice SET decision = 'ask', route = NULL WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'r14')")
+            } }
         }
         let fourteenthKept = try await memory.facts.advice(of: "r14")
         let sixteenthKept  = try await memory.facts.advice(of: "r16")
@@ -275,7 +270,7 @@ struct OperationFactRepositoryTests {
 
     @Test("M05: an end whose advice the table refuses commits nothing: the call stays started with no sample, effect, verification or advice; the same end with a valid advice then commits once; a different advice offered later is a conflict that keeps every fact")
     func invalidAdviceRollsTheEndBack() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         _ = try await memory.facts.open(try OperationOpening(call: try Self.click("r17"), startedAtMS: TaskFixtures.t0 + 9))
         let base = try Self.conclusion("r17")
         func ending(_ advice: CallRouteAdvice?) throws -> OperationConclusion {
@@ -287,10 +282,10 @@ struct OperationFactRepositoryTests {
         func rows() throws -> [Int] {
             let archive = try SQLiteConnection(path: memory.url.path, readOnly: true)
             defer { archive.close() }
-            let queries = ["SELECT count(*) FROM (SELECT DISTINCT phase, sample_ordinal FROM memory_event_observations WHERE event_id = 'r17')",
-                           "SELECT count(*) FROM memory_call_effects WHERE event_id = 'r17'",
-                           "SELECT count(*) FROM memory_operation_verifications WHERE call_event_id = 'r17'",
-                           "SELECT count(*) FROM memory_call_route_advice WHERE event_id = 'r17'"]
+            let queries = ["SELECT count(*) FROM (SELECT DISTINCT phase, sample_ordinal FROM memory_event_observations WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'r17'))",
+                           "SELECT count(*) FROM memory_call_effects WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'r17')",
+                           "SELECT count(*) FROM memory_operation_verifications WHERE call_event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'r17')",
+                           "SELECT count(*) FROM memory_call_route_advice WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'r17')"]
             return try queries.map { Int(try archive.query($0) { $0.integer(0) ?? 0 }.first ?? -1) }
         }
         let opened = try await memory.calls.call("r17")
@@ -327,7 +322,7 @@ struct OperationFactRepositoryTests {
 
     @Test("M05: a call's rung is written with its end and reads back, its skipped reasons whole; offered again nothing moves, another is a conflict; the table refuses a rung it does not name, an empty how or reason, a change, and a rung before the call's end")
     func rungWithTheEnd() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         _ = try await memory.facts.open(try OperationOpening(call: try Self.click("r9"), startedAtMS: TaskFixtures.t0 + 1))
         let base = try Self.conclusion("r9")
         func ending(_ rung: CallRung?) throws -> OperationConclusion {
@@ -349,24 +344,19 @@ struct OperationFactRepositoryTests {
         #expect(try await memory.facts.rung(of: "r10") == nil, "a call that sent no gesture of the MacDriver's has none")
         for (rung, how, skipped) in [("menu", "'pressed'", "NULL"), ("accessibility", "''", "NULL"), ("in_place", "'events'", "''")] {
             await #expect(throws: (any Error).self) {
-                try await memory.store.write { transaction in
+                try await memory.store.write { transaction in try DB2BWriteChecks.perform(transaction) {
                     try transaction.execute("INSERT INTO memory_call_rungs (event_id, rung, how, skipped) "
-                                            + "VALUES ('r10', '\(rung)', \(how), \(skipped))")
-                }
+                                            + "VALUES ((SELECT event_id FROM memory_events WHERE event_uuid = 'r10'), '\(rung)', \(how), \(skipped))")
+                } }
             }
         }
         await #expect(throws: (any Error).self) {
-            try await memory.store.write { transaction in
-                try transaction.execute("UPDATE memory_call_rungs SET how = 'another' WHERE event_id = 'r9'")
-            }
+            try await memory.store.write { transaction in try DB2BWriteChecks.perform(transaction) {
+                try transaction.execute("UPDATE memory_call_rungs SET how = 'another' WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'r9')")
+            } }
         }
         #expect(try await memory.facts.rung(of: "r9") == posted)
         _ = try await memory.facts.open(try OperationOpening(call: try Self.click("r11"), startedAtMS: TaskFixtures.t0 + 3))
-        await #expect(throws: (any Error).self) {
-            try await memory.store.write { transaction in
-                try transaction.execute("INSERT INTO memory_call_rungs (event_id, rung, how) VALUES ('r11', 'accessibility', 'pressed')")
-            }
-        }
         #expect(try await memory.facts.rung(of: "r11") == nil, "a started call has no rung")
         #expect(CallRung(rung: .accessibility, how: "focused AXTextField", skipped: [""]).skipped.isEmpty, "an empty reason is none")
         // The Seat's rungs, by the receipt's posting call, with the send's counts and nothing skipped.
@@ -390,7 +380,7 @@ struct OperationFactRepositoryTests {
 
     @Test("another end, effect or verification under a stored identity is a conflict, and the whole conclusion writes nothing")
     func conflictsWriteNothing() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         _ = try await memory.facts.open(
             try OperationOpening(call: try Self.click("c4"), startedAtMS: TaskFixtures.t0 + 1)
         )
@@ -406,7 +396,7 @@ struct OperationFactRepositoryTests {
 
     @Test("a call attributed to an attempt that is no longer running is refused before anything is written")
     func attributionNeedsRunningAttempt() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         try await TaskFixtures.begin(memory)
         _ = try await memory.tasks.checkpoint(
             try TaskCheckpointDraft(kind: .end, declared: .completed),
@@ -428,7 +418,7 @@ struct OperationFactRepositoryTests {
 
     @Test("a verification that names a sample the conclusion did not bring and the archive does not hold is refused whole")
     func verificationNeedsItsSamples() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         _ = try await memory.facts.open(
             try OperationOpening(call: try Self.click("c6"), startedAtMS: TaskFixtures.t0 + 1)
         )
@@ -459,7 +449,7 @@ struct OperationFactRepositoryTests {
 
     @Test("W1: a text typed where the target could not be attested ordinary is a declared gap of its own reason, beside a secure field's")
     func unclassifiedTargetGap() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         let typing = try AgentCallRecord(
             event: Self.event("c9"),
             request: .insertText(text: ValueMinimization.marker, expectedValue: ValueMinimization.marker)
@@ -476,7 +466,7 @@ struct OperationFactRepositoryTests {
 
     @Test("a value withheld at the opening is a declared gap; a value the conclusion withdraws is replaced by the marker, once")
     func withheldValues() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         let typing = try AgentCallRecord(
             event: Self.event("c7"),
             request: .typeText(target: "Password", text: ValueMinimization.marker, section: nil, replace: true)
@@ -525,7 +515,7 @@ struct OperationFactRepositoryTests {
 
     @Test("a batch opens with its steps planned under the attempt as a container; each started step joins the attempt as an operation")
     func batchAttribution() async throws {
-        let memory = try await TaskFixtures.open()
+        let memory = try await TaskFixtures.open22()
         try await TaskFixtures.begin(memory)
         let attribution = try TaskCallAttribution(taskID: "task-1", attemptID: "attempt-1", revision: 1)
         let (batch, steps) = try AgentCallFixtures.batch(

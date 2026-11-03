@@ -1,4 +1,6 @@
 import Foundation
+import Memory
+import AutomationRuntime
 
 /// ModelText owns the fixed, ordered language delivered to the model.
 public nonisolated enum ModelText {
@@ -45,11 +47,23 @@ public nonisolated enum ModelText {
     }
 
     public static var catalogue: [Entry] {
-        systemPromptTexts + toolDescriptionTexts + toolAnswerTexts + refusalTexts
-            + mcpInstructionTexts + seatLineTexts + legendTexts + summaryTexts + outcomeTexts + capabilityTexts
+        guard TaskCycleArm.current == .v2 else { return allCatalogue }
+        return allCatalogue.filter { entry in
+            guard !entry.key.rawValue.contains("memory_task"), !entry.text.contains("memory_task") else { return false }
+            switch entry.delivery {
+            case .toolDescription(let tool), .toolAnswer(let tool), .refusal(let tool): return tool != "memory_task"
+            default: return true
+            }
+        }
     }
 
-    private static let entries = Dictionary(uniqueKeysWithValues: catalogue.map { ($0.key, $0.text) })
+    private static var allCatalogue: [Entry] {
+        systemPromptTexts + toolDescriptionTexts + toolAnswerTexts + refusalTexts
+            + mcpInstructionTexts + seatLineTexts + legendTexts + summaryTexts + outcomeTexts + capabilityTexts
+            + serviceTexts + guideTexts + taskStateTexts + recallTexts
+    }
+
+    private static let entries = Dictionary(uniqueKeysWithValues: allCatalogue.map { ($0.key, $0.text) })
 
     public static func text(_ key: Key) -> String {
         guard let text = entries[key] else { preconditionFailure("Unknown model text key: \(key.rawValue)") }
@@ -69,6 +83,9 @@ public nonisolated enum ModelText {
             }
             switch slot {
             case .toolName(let name): result += name
+            case .minimized(let text): result += text
+            case .rowID(let row): result += row.rawValue
+            case .rowVerdict(let verdict): result += verdict.rawValue
             case .count(let value), .revision(let value): result += String(value)
             }
             cursor = match.range.upperBound
@@ -80,6 +97,10 @@ public nonisolated enum ModelText {
 
 public nonisolated enum ModelTextSlot: Sendable {
     case toolName(String)
+    /// Text admitted by the caller's minimization policy.
+    case minimized(String)
     case count(Int)
     case revision(Int)
+    case rowID(TodoRowID)
+    case rowVerdict(TodoRevision.RowVerdict)
 }

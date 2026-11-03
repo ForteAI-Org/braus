@@ -1,9 +1,9 @@
+import Memory
 import AppAdapters
 import AutomationMCP
 import AutomationRuntime
 import Foundation
 import LocalMCP
-import Memory
 
 /// ExternalMCPSession exposes the current engine for one authenticated client connection.
 /// The host serializes requests and drains them before closing this session. Disconnects
@@ -55,7 +55,7 @@ final class ExternalMCPSession {
         self.barrier = barrier
         self.tools = AutomationTools(session: session, channels: channels,
                                      adapters: channels.contains(.adapters) ? (adapters ?? .standard(approver: adapterApprover)) : nil,
-                                     offersWeb: offersWeb)
+                                     offersWeb: offersWeb, profile: profile.sessionProfile)
         if let adapters, channels.contains(.adapters) { self.tools.adapters = adapters }
         self.tools.producer = CallProducer(source: .mcp, streamID: "mcp-" + profile.id.uuidString)
         self.perform = perform
@@ -70,6 +70,9 @@ final class ExternalMCPSession {
         guard !isClosed, profile.desktop else {
             throw MCPRequestFailure("This client is not authorized for desktop access.")
         }
+        let resolved = try tools.resolvedCall(name, arguments: arguments)
+        let name = resolved.name
+        let arguments = resolved.arguments
         if let refusal = barrier.refusal(of: name, arguments) { throw MCPRequestFailure(refusal) }
         activity(name)
         return try await perform { [tools] in

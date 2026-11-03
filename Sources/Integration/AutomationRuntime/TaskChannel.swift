@@ -39,7 +39,7 @@ nonisolated public enum TaskChannel {
 
     /// Opens a task with its first revision and first attempt.
     public static func begin(_ content: TaskRevisionContent, producer: TaskProducer, traceID: String?,
-                             memory: MemoryService) async throws -> OpenTask {
+                             memory: MemoryService, todo: TodoRevision? = nil) async throws -> OpenTask {
         let content = try await admitting(content, producer: producer, memory: memory)
         let now     = memory.clock.calendarMS()
         let taskID  = UUID().uuidString
@@ -55,7 +55,7 @@ nonisolated public enum TaskChannel {
         )
         let first = try TaskAttempt(attemptID: attempt, taskID: taskID, ordinal: 1, resumes: nil, producer: producer,
                                     openedAtMS: now, openedAtRevision: 1)
-        _ = try await memory.perform { try await $0.tasks.open(task, revision: revision, attempt: first) }
+        _ = try await memory.perform { try await $0.tasks.open(task, revision: revision, attempt: first, todo: todo?.forTask(taskID)) }
         return OpenTask(taskID: taskID, attemptID: attempt, revision: 1)
     }
 
@@ -77,7 +77,7 @@ nonisolated public enum TaskChannel {
     /// Adds a revision after `expecting`, the revision the agent read: another current revision is
     /// `staleRevision` and changes nothing.
     public static func revise(_ open: OpenTask, expecting: Int, content: TaskRevisionContent, reason: String?,
-                              producer: TaskProducer, memory: MemoryService) async throws -> OpenTask {
+                              producer: TaskProducer, memory: MemoryService, todo: TodoRevision? = nil) async throws -> OpenTask {
         let content = try await admitting(content, producer: producer, memory: memory, current: (open.taskID, []))
         let revision = try TaskRevision(
             taskID      : open.taskID,
@@ -87,7 +87,7 @@ nonisolated public enum TaskChannel {
             reason      : reason,
             content     : content
         )
-        _ = try await memory.perform { try await $0.tasks.revise(revision, expecting: expecting, by: producer) }
+        _ = try await memory.perform { try await $0.tasks.revise(revision, expecting: expecting, by: producer, todo: todo) }
         return OpenTask(taskID: open.taskID, attemptID: open.attemptID, revision: revision.revision)
     }
 
@@ -96,7 +96,9 @@ nonisolated public enum TaskChannel {
         _ open  : OpenTask,
         _ draft : TaskCheckpointDraft,
         producer: TaskProducer,
-        memory  : MemoryService
+        memory  : MemoryService,
+        todo    : TodoRevision? = nil,
+        endCheck: TaskEndCheck? = nil
     ) async throws -> (receipt: MemoryReceipt, checkpoint: TaskCheckpoint) {
         let targets = try await targets(of: draft.outputs.map { ($0.sourceRef, $0.sourceVersion) }, producer: producer, memory: memory,
                                         current: (open.taskID, Set(draft.outputs.map(\.name))))
@@ -104,8 +106,43 @@ nonisolated public enum TaskChannel {
                                             outputs: try TaskOutputReference.admitting(draft.outputs, targets: targets))
         let at = memory.clock.calendarMS()
         return try await memory.perform {
-            try await $0.tasks.checkpoint(draft, attempt: open.attemptID, at: at, by: producer)
+            try await $0.tasks.checkpoint(draft, attempt: open.attemptID, at: at, by: producer, todo: todo, endCheck: endCheck)
         }
+    }
+
+    /// Refuses a task cycle before writing when the open archive predates todo storage.
+    public static func requireTodos(memory: MemoryService) async throws {
+        try await memory.perform { try await $0.todos.requireAvailable() }
+    }
+
+    public static func todo(of taskID: String, memory: MemoryService) async throws -> Todo? {
+        try await memory.perform { try await $0.todos.current(of: taskID) }
+    }
+
+    public static func appendTodo(_ revision: TodoRevision, memory: MemoryService) async throws {
+        _ = try await memory.perform { try await $0.todos.append(revision, expecting: revision.number - 1) }
+    }
+
+    public static func todoRevisions(of taskID: String, memory: MemoryService) async throws -> [TodoRevision] {
+        try await memory.perform { try await $0.todos.revisions(of: taskID) }
+    }
+
+    public static func verifiedRows(of taskID: String, memory: MemoryService) async throws -> [TodoRow] {
+        try await memory.perform { try await $0.todos.verifiedRows(ofTask: taskID) }
+    }
+
+    public static func stoppedRows(of taskID: String, producer: TaskProducer, memory: MemoryService) async throws -> [TodoRow]? {
+        try await memory.perform { try await $0.todos.stoppedReference(taskID, for: producer) }
+    }
+
+    public static func stoppedTask(producer: TaskProducer, traceID: String?, memory: MemoryService) async throws
+        -> (taskID: String, verifiedRows: [TodoRow])? {
+        try await memory.perform { try await $0.todos.stoppedTask(for: producer, traceID: traceID) }
+    }
+
+    public static func todoParts(in versions: [String], memory: MemoryService) async throws
+        -> [(id: String, version: String, first: Int, last: Int)] {
+        try await memory.perform { try await $0.todos.parts(in: versions) }
     }
 
     // MARK: References

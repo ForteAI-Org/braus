@@ -17,13 +17,30 @@ public extension UIBrain {
     /// `affordances` false the learned transitions are left out: a reader that offers qualified
     /// relations instead names elements from here and nothing more.
     func enrich(_ elements: [SceneElement], affordances: Bool = true) -> [SceneElement] {
-        let index = BrainIndex(self)
-        let groupByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let transitionsByAnchor = Dictionary(grouping: transitions, by: \.anchorKey)
-        return elements.map { element in
+        enrich(elements, affordances: affordances, checking: {})
+    }
+
+    /// Enriches cooperatively, returning elements only after the whole read completes.
+    func enrich(_ elements: [SceneElement], affordances: Bool = true,
+                checking check: () throws -> Void) rethrows -> [SceneElement] {
+        try check()
+        let index = try BrainIndex(self, checking: check)
+        return try enrich(elements, affordances: affordances, index: index, checking: check)
+    }
+}
+
+extension UIBrain {
+    /// Borrows the index of this exact immutable snapshot; partial enrichment never leaves the call.
+    func enrich(_ elements: [SceneElement], affordances: Bool, index: BrainIndex,
+                checking check: () throws -> Void) rethrows -> [SceneElement] {
+        try check()
+        let groupByID = Dictionary(try groups.map { try check(); return ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let transitionsByAnchor = try Dictionary(grouping: transitions, by: { try check(); return $0.anchorKey })
+        return try elements.map { element in
+            try check()
             guard element.kind == .control || element.kind == .icon else { return element }
             let detection = BrainDetection(element)
-            guard case .found(let key) = BrainMatcher.match(detection, in: self, index: index),
+            guard case .found(let key) = try BrainMatcher.match(detection, in: self, index: index, checking: check),
                   let anchor = index.object(key, in: self) else { return element }
             var enriched = element
             if let groupID = anchor.groupID, let group = groupByID[groupID] {

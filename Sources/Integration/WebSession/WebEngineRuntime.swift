@@ -51,7 +51,8 @@ public struct WebEngineRuntime {
                 controls    : controls,
                 expectations: memory,
                 observer    : recorder,
-                settling    : settling
+                settling    : settling,
+                correspondence: ConfidentialSurfaces.isCorrespondence
             ),
             permissions: ActionPermissions(allowsDestructive: allowsDestructive)
         )

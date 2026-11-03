@@ -109,7 +109,7 @@ struct BrainApplicationCorrectionTests {
 
         let probe = try ProbeProcess()
         defer { probe.end() }
-        #expect(try await probe.ask("open \(memory.url.path)").hasPrefix("opened "))
+        #expect(try await probe.ask("open-historical19 \(memory.url.path)").hasPrefix("opened "))
         probe.send("brain-application e1 after 0")
         guard let answer = try await probe.receive(timeout: .seconds(10), waitingFor: "the stored count's refusal") else {
             Issue.record("reading the stored count ended the helper: \(String(describing: try await probe.exit())); reading it here would end this runner")

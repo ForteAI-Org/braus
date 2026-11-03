@@ -25,7 +25,7 @@ struct BrainTimeline: View {
                 isPlaying.toggle()
             } label: {
                 Label(
-                    isPlaying ? "Pause" : "Play",
+                    isPlaying ? String(localized: "Pause") : String(localized: "Play"),
                     systemImage: isPlaying ? "pause.fill" : "play.fill"
                 )
                 .labelStyle(.iconOnly)
@@ -37,10 +37,10 @@ struct BrainTimeline: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .help(isPlaying ? "Pause" : "Play Brain History")
+            .help(isPlaying ? String(localized: "Pause") : String(localized: "Play Brain History"))
 
             Slider(value: $progress) {
-                Text("Time")
+                Text(String(localized: "Time"))
             }
             .labelsHidden()
             .controlSize(.small)

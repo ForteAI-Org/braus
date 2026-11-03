@@ -8,16 +8,29 @@ import Foundation
 import Memory
 
 /// SQLiteReconciliationRows is the codec of part 8's executors and reconciliations (P2-06), inside the caller's
-/// transaction or snapshot. An executor's row is written once, with the first call it starts; a call's executor with
-/// the call's start; a reconciliation at its call's next sequence, never changing anything written before.
+/// transaction or snapshot. Schema 22 allocates an executor before its external lock is created; a call links
+/// that identity with its start. A reconciliation uses the call's next sequence without changing earlier facts.
 enum SQLiteReconciliationRows {
 
     static func link(_ transaction: SQLiteTransaction, call eventID: String, to executor: ExecutorRecord) throws -> MemoryReceipt {
-        try transaction.execute(
-            "INSERT OR IGNORE INTO memory_executors (executor_id, source, process_id, started_at_ms) VALUES (?, ?, ?, ?)",
-            [.text(executor.executorID), .text(executor.source), .integer(Int64(executor.processID)), .integer(executor.startedAtMS)]
-        )
-        let stored = try transaction.query("SELECT executor_id FROM memory_call_executors WHERE event_id = ?", [.text(eventID)]) {
+        if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+            let key = try DB2BKeys.local(transaction, executor.executorID)
+            let matches = try transaction.query("""
+                SELECT source,process_id,started_at_ms FROM memory_executors WHERE executor_id=?
+                """, [key]) {
+                try $0.text(0) == executor.source && $0.integer(1) == Int64(executor.processID)
+                    && $0.integer(2) == executor.startedAtMS
+            }.first == true
+            guard matches else {
+                throw SQLiteFactRows.conflict(executor.executorID, stored: "allocated executor", offered: "unknown executor identity or content")
+            }
+        } else {
+            try transaction.execute(
+                "INSERT OR IGNORE INTO memory_executors (executor_id, source, process_id, started_at_ms) VALUES (?, ?, ?, ?)",
+                [.text(executor.executorID), .text(executor.source), .integer(Int64(executor.processID)), .integer(executor.startedAtMS)]
+            )
+        }
+        let stored = try transaction.query("SELECT executor_id FROM memory_call_executors WHERE event_id = ?", [try SQLiteRowIdentity(transaction).key(.event, eventID)]) {
             try $0.text(0)
         }.first ?? nil
         if let stored {
@@ -27,7 +40,7 @@ enum SQLiteReconciliationRows {
             return .alreadyApplied
         }
         try transaction.execute("INSERT INTO memory_call_executors (event_id, executor_id) VALUES (?, ?)",
-                                [.text(eventID), .text(executor.executorID)])
+                                [try SQLiteRowIdentity(transaction).key(.event, eventID), try DB2BKeys.local(transaction, executor.executorID)])
         return .committed
     }
 
@@ -39,15 +52,15 @@ enum SQLiteReconciliationRows {
             throw OperationFactError.invalid(.emptyText(field: "person_acknowledgement"))
         }
         let sequence = 1 + (try transaction.query(
-            "SELECT ifnull(max(sequence), 0) FROM memory_call_reconciliations WHERE event_id = ?", [.text(fact.callEventID)]
+            "SELECT ifnull(max(sequence), 0) FROM memory_call_reconciliations WHERE event_id = ?", [try SQLiteRowIdentity(transaction).key(.event, fact.callEventID)]
         ) { $0.integer(0) ?? 0 }.first ?? 0)
         try transaction.execute(
             """
             INSERT INTO memory_call_reconciliations (event_id, sequence, kind, finding, evidence_event_id, declared_by,
                 recorded_at_ms, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [.text(fact.callEventID), .integer(sequence), .text(fact.kind.rawValue), text(fact.finding?.rawValue),
-             text(fact.evidenceEventID), .text(fact.declaredBy.rawValue), .integer(fact.recordedAtMS), text(fact.detail)]
+            [try SQLiteRowIdentity(transaction).key(.event, fact.callEventID), .integer(sequence), .text(fact.kind.rawValue), text(fact.finding?.rawValue),
+             try SQLiteRowIdentity(transaction).key(.event, fact.evidenceEventID), .text(fact.declaredBy.rawValue), .integer(fact.recordedAtMS), text(fact.detail)]
         )
         return .committed
     }
@@ -55,10 +68,10 @@ enum SQLiteReconciliationRows {
     static func reconciliations(_ handle: some SQLiteQuerying, _ eventID: String) throws -> [CallReconciliation] {
         try handle.query(
             """
-            SELECT kind, finding, evidence_event_id, declared_by, recorded_at_ms, detail FROM memory_call_reconciliations
+            SELECT kind, finding, \(try SQLiteRowIdentity(handle).publicReference(.event, column: "evidence_event_id")), declared_by, recorded_at_ms, detail FROM memory_call_reconciliations
             WHERE event_id = ? ORDER BY sequence
             """,
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row in
             try CallReconciliation(callEventID: eventID, kind: CallReconciliation.Kind(rawValue: try row.text(0) ?? "") ?? .acknowledged,
                                    finding: try row.text(1).flatMap(CallReconciliation.Finding.init(rawValue:)),
@@ -74,7 +87,7 @@ enum SQLiteReconciliationRows {
                            excludingExecutor executorID: String?) throws -> [(eventID: String, reason: UnresolvedCall.Reason, resource: String?)] {
         let candidates: [(eventID: String, reason: UnresolvedCall.Reason, resource: String?)] = try handle.query(
             """
-            SELECT a.event_id, a.execution_status, d.resource_ref FROM memory_agent_actions a
+            SELECT \(try SQLiteRowIdentity(handle).publicReference(.event, column: "a.event_id")), a.execution_status, d.resource_ref FROM memory_agent_actions a
             JOIN memory_events ev ON ev.event_id = a.event_id
             LEFT JOIN memory_call_effects f ON f.event_id = a.event_id
             LEFT JOIN memory_call_data_contexts d ON d.event_id = a.event_id
@@ -82,9 +95,9 @@ enum SQLiteReconciliationRows {
             WHERE ev.source = ? AND ev.source_stream_id = ? AND a.tool_kind <> 'batch'
               AND ((a.execution_status = 'started' AND (x.executor_id IS NULL OR x.executor_id IS NOT ?))
                    OR (a.execution_status IN ('completed', 'failed', 'cancelled', 'interrupted') AND f.performed = 'uncertain'))
-            ORDER BY a.started_at_ms, a.event_id
+            ORDER BY a.started_at_ms, \(try SQLiteRowIdentity(handle).publicReference(.event, column: "a.event_id"))
             """,
-            [.text(source), .text(streamID), text(executorID)]
+            [.text(source), .text(streamID), try DB2BKeys.local(handle, executorID)]
         ) { row in
             (try row.text(0) ?? "", (try row.text(1)) == "started" ? .neverEnded : .effectUncertain, try row.text(2))
         }
@@ -118,15 +131,18 @@ enum SQLiteReconciliationRows {
         }
         if original.progress.status != .started {
             let endOrder = try handle.query(
-                "SELECT max(e.local_order) FROM memory_operation_verifications v JOIN memory_events e ON e.event_id = v.event_id WHERE v.call_event_id = ?",
-                [.text(fact.callEventID)]
+                "SELECT max(\(try DB2BEventSQL.order(handle, alias: "e"))) FROM memory_operation_verifications v JOIN memory_events e ON e.event_id = v.event_id WHERE v.call_event_id = ?",
+                [try SQLiteRowIdentity(handle).key(.event, fact.callEventID)]
             ) { $0.integer(0) }.first ?? nil
             guard let endOrder, evidence.localOrder > endOrder else { return false }
         }
-        let checks = try SQLiteProcedureRows.verifications(handle, call: evidenceID)
-        guard checks.contains(where: {
-            $0.condition == .adapterRead && $0.verdict == .passed
-        }) else { return false }
+        let verificationIDs = try handle.query("""
+            SELECT \(try SQLiteRowIdentity(handle).publicReference(.event, column: "memory_operation_verifications.event_id"))
+            FROM memory_operation_verifications WHERE call_event_id=?
+            ORDER BY \(try SQLiteRowIdentity(handle).publicReference(.event, column: "memory_operation_verifications.event_id"))
+            """, [SQLiteRowIdentity(handle).key(.event, evidenceID)]) { try $0.text(0) ?? "" }
+        let checks = try verificationIDs.compactMap { try SQLiteOperationFactRows.verification(handle, $0) }
+        guard checks.contains(where: { $0.check.condition == .adapterRead && $0.check.verdict == .passed }) else { return false }
         let results = try SQLiteCallFieldRows.results(handle, evidenceID).filter { $0.withheld == nil }
         if let dispatched = try SQLiteOperationFactRows.adapterDispatch(handle, fact.callEventID) {
             guard let read = try SQLiteOperationFactRows.adapterDispatch(handle, evidenceID),
@@ -140,15 +156,15 @@ enum SQLiteReconciliationRows {
     static func started(_ handle: some SQLiteQuerying, excludingExecutor executorID: String) throws -> [(eventID: String, executorID: String)] {
         try handle.query(
             """
-            SELECT a.event_id, x.executor_id FROM memory_agent_actions a
+            SELECT \(try SQLiteRowIdentity(handle).publicReference(.event, column: "a.event_id")), x.executor_id FROM memory_agent_actions a
             JOIN memory_events ev ON ev.event_id = a.event_id
             JOIN memory_call_executors x ON x.event_id = coalesce(ev.parent_event_id, a.event_id)
             WHERE a.execution_status = 'started' AND x.executor_id <> ?
               AND NOT EXISTS (SELECT 1 FROM memory_call_reconciliations r WHERE r.event_id = a.event_id
                               AND r.kind = 'executor_terminated')
-            ORDER BY a.event_id
+            ORDER BY \(try SQLiteRowIdentity(handle).publicReference(.event, column: "a.event_id"))
             """,
-            [.text(executorID)]
+            [try DB2BKeys.local(handle, executorID)]
         ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }
     }
 

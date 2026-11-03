@@ -154,6 +154,47 @@ public struct FilesAdapter: AppAdapting {
         }
     }
 
+    /// Resolves all paths against one working directory, then checks the resources the call changes.
+    public func confirmation(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async -> AdapterConfirmation? {
+        let keys: [String]
+        switch verb {
+        case "write", "append", "edit", "make_folder": keys = ["path"]
+        case "copy", "move": keys = ["from", "to"]
+        default: return nil
+        }
+        let call = Call(cwd: Location(state.components.withLock { $0 }), budget: Budget(time))
+        guard var values = arguments.object else { return nil }
+        var locations: [String: Location] = [:]
+        for key in keys {
+            guard let path = values[key]?.string else { return nil }
+            switch resolve(path, call) {
+            case .success(let location):
+                locations[key] = location
+                values[key] = .string(location.shown)
+            case .failure(let problem):
+                return AdapterConfirmation(resolvedArguments: arguments, refusal: problem.outcome)
+            }
+        }
+        var touched: [Location] = []
+        if let path = locations["path"] { touched.append(path) }
+        if let target = locations["to"], let source = locations["from"] {
+            if case .success = openDirectory(target) { touched.append(target.appending(source.name)) }
+            else { touched.append(target) }
+            if verb == "move" { touched.append(source) }
+        }
+        let protected: Set<String> = [
+            ".zshrc", ".zprofile", ".zshenv", ".bashrc", ".bash_profile", ".profile", ".zlogin",
+            ".ssh", ".gnupg", ".config", ".aws", ".netrc", ".gitconfig",
+        ]
+        let needsConfirmation = touched.contains { location in
+            location.components.first.map { protected.contains($0.lowercased()) } ?? false
+        }
+        return AdapterConfirmation(
+            reason: needsConfirmation ? .protectedPath : nil,
+            resolvedArguments: .object(values)
+        )
+    }
+
     public func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {
         let arguments = AdapterArguments(arguments)
         try Task.checkCancellation()

@@ -24,7 +24,12 @@ nonisolated public final class MemoryExecutor: Sendable {
     public let record: ExecutorRecord
     private let descriptor: Int32
 
-    private static let byFolder = Mutex<[String: MemoryExecutor]>([:])
+    private final class Allocation: Sendable {
+        let task: Task<MemoryExecutor?, any Error>
+
+        init(task: Task<MemoryExecutor?, any Error>) { self.task = task }
+    }
+    private static let allocations = Mutex<[String: Allocation]>([:])
     private static let swept = Mutex<Set<String>>([])
 
     private init(record: ExecutorRecord, descriptor: Int32) {
@@ -32,20 +37,36 @@ nonisolated public final class MemoryExecutor: Sendable {
         self.descriptor = descriptor
     }
 
-    /// This process's executor for `folder`, made and locked once; nil when its lock cannot be taken (the record then
+    /// This process's executor for `memory.directory`, allocated before locking; nil when the lock cannot be taken (the record then
     /// links no executor, and a later process reads the call's executor as unknown).
-    public static func current(for folder: URL, source: MemoryEventSource) -> MemoryExecutor? {
+    public static func current(memory: MemoryService, source: MemoryEventSource) async throws -> MemoryExecutor? {
+        let folder = memory.directory
         let key = folder.standardizedFileURL.path
-        return byFolder.withLock { executors in
-            if let known = executors[key] { return known }
-            let id = UUID().uuidString.lowercased()
-            guard case .success(let descriptor) = AppClaims.lock(id, in: lockFolder(of: folder)) else { return nil }
-            let record = ExecutorRecord(executorID: id, source: source.rawValue, processID: getpid(),
-                                        startedAtMS: Int64(Date().timeIntervalSince1970 * 1000))
-            let executor = MemoryExecutor(record: record, descriptor: descriptor)
-            executors[key] = executor
-            return executor
+        let allocation = allocations.withLock { pending in
+            if let known = pending[key] { return known }
+            let made = Allocation(task: Task {
+                let record = try await memory.perform {
+                    try await $0.facts.allocateExecutor(source: source.rawValue, processID: getpid(),
+                                                       startedAtMS: memory.clock.calendarMS())
+                }
+                guard case .success(let descriptor) = AppClaims.lock(record.executorID, in: lockFolder(of: folder)) else { return nil }
+                let executor = MemoryExecutor(record: record, descriptor: descriptor)
+                return executor
+            })
+            pending[key] = made
+            return made
         }
+        var retain = false
+        defer {
+            if !retain {
+                allocations.withLock {
+                    if $0[key] === allocation { $0.removeValue(forKey: key) }
+                }
+            }
+        }
+        let executor = try await allocation.task.value
+        retain = executor != nil
+        return executor
     }
 
     static func lockFolder(of folder: URL) -> URL {

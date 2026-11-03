@@ -1,3 +1,5 @@
+import PerceptionCore
+
 /// OutcomeKey selects catalogue prose using structural codes, never application values.
 public struct OutcomeKey: Sendable, Hashable {
     public let outcome: Outcome
@@ -21,8 +23,103 @@ public struct OutcomeKey: Sendable, Hashable {
     }
 }
 
-/// OutcomeText supplies bounded messages without echoing application data or error text.
+/// OutcomeText supplies bounded messages and quotes application data as text.
 public enum OutcomeText {
+    /// Fixed observations shared by screen predicates and their model catalogue.
+    public static let expectationApplicationAbsent = "the application is not running"
+    public static let expectationWindowOpen = "a window with that title is open"
+    public static let expectationWindowAbsent = "no window with that title"
+    public static let expectationWindowStillOpen = "a window with that title is still open"
+    public static let expectationSceneUnavailable = "no session of the application to read the scene"
+    public static let expectationOutsideWindow = " past the window's edge"
+    public static let expectationElementPresent = "the element is in the scene"
+    public static let expectationElementAbsent = "no element with that label in the scene"
+    public static let expectationElementStillPresent = "the element is still in the scene"
+    public static let expectationValueUnreadable = "the element shows no value Braus can read"
+    public static let expectationValueExpected = "the element shows the value expected"
+    public static let expectationOutsideValueExpected = "the element past the window's edge shows the value expected"
+    public static let expectationElement = "the element"
+    public static let expectationValueDifferent = " shows another value"
+    public static let expectationStateUnreadable = " shows no state Braus can read"
+    public static let expectationStateExpected = "the element is in the state expected"
+    public static let expectationStateDifferent = "the element is in another state"
+    public static let expectationCensusUnreadable = "the window census could not be read"
+    public static let expectationScenesIncomparable = "the scenes could not be compared"
+    public static let expectationAlreadySatisfied = "already in the expected state"
+
+    public static let choiceReadBackUnavailable = "The choice could not be read back."
+    public static let selectedChoicePresent = "The selected choice is present."
+    public static let choiceStillUnconfirmed = "The choice is still unconfirmed; do not choose it again blindly."
+
+    public static let commandObservationFailure = " Observation after dispatch failed: "
+    public static let commandObservationRecovery = ". Do not repeat this command. "
+        + "Observe the session before further input. If observation stays unavailable, stop and report this error."
+    public static let commandWindowsChanging = ": windows kept changing during observation. Do not repeat this command. "
+    public static let commandWindowsChangingRecovery = "Observe the session before further input."
+
+    public static func changingWindows(afterPress pressed: String) -> String {
+        "pressed \(pressed)" + commandWindowsChanging + commandWindowsChangingRecovery
+    }
+
+    /// Fixed refusal text shared with the model catalogue without depending on the delivery layer.
+    public static let humanInterventionRefusal = "The person is controlling the application."
+
+    public static let protectedPathRefusal =
+        "Changing a protected path needs the person's confirmation; nothing was done."
+
+    public static let committingInputConsentRefusal =
+        "This committing input sends a message: refused. If you want the agent to do this, "
+        + "the person must allow destructive actions."
+
+    public static let committingInputReadBackRefusal =
+        "This committing input sends a message, whose effect this route cannot read back: refused, whatever "
+        + "the person allows. Use an adapter that reads its effect back."
+
+    /// Quotes third party text on one line, escaping apostrophes and bounding the entire quote to 48 characters.
+    public static func quoted(_ text: String) -> String {
+        let tokens = SceneSnapshot.inline(text).map { character in
+            character == "'" || character == "\\" ? "\\" + String(character) : String(character)
+        }
+        let length = tokens.reduce(0) { $0 + $1.count }
+        let limit = length > 46 ? 45 : 46
+        var content = ""
+        for token in tokens {
+            guard content.count + token.count <= limit else { break }
+            content += token
+        }
+        return "'" + content + (length > 46 ? "…" : "") + "'"
+    }
+
+    /// Describes a destructive label refused before the person grants consent.
+    public static func destructiveRefusal(_ label: String) -> String {
+        "\(quoted(label)) looks destructive/irreversible: refused. If you want the agent to do this, "
+            + "the person must allow destructive actions."
+    }
+
+    /// Renders application values within an effect using the same bounded quoting as action labels.
+    public static func summary(_ effect: SceneEffect) -> String {
+        switch effect {
+        case .windowTitleChanged(let title):
+            return "navigates to \(quoted(title))"
+        case .menuOpened(let labels):
+            return "opens menu(\(labels.prefix(3).map(quoted).joined(separator: "|"))\(labels.count > 3 ? "…" : ""))"
+        case .valueChanged(let label, let value):
+            return "\(quoted(label)) now reads \(quoted(value))"
+        case .stateFlip, .elementsAppeared, .elementsDisappeared, .textSelectionChanged:
+            return effect.summary
+        }
+    }
+
+    /// Lists ambiguous candidates with bounded labels and selectors, retaining the scene's positions.
+    public static func disambiguation(in scene: SceneSnapshot, target: String) -> String {
+        scene.candidates(target: target).prefix(6).map { element in
+            let selector = (element.container ?? element.section).map { "section:\(quoted($0))" }
+                ?? "id:\(element.id)"
+            let role = element.role.map { " role:\(quoted($0))" } ?? ""
+            return "\(selector) label:\(quoted(element.label))\(role) \(SceneSnapshot.place(element.bounds))"
+        }.joined(separator: " OR ")
+    }
+
     public static func message(_ key: OutcomeKey, label: String?) -> String {
         if key.noop == .substituted {
             return "A menu was open and was closed instead; the click was not made."

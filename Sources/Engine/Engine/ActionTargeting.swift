@@ -69,7 +69,7 @@ extension ActionEngine {
         guard permissions.contextMenusOnTextFieldsOnly, !Self.textFieldRoles.contains(element.role ?? "") else {
             return nil
         }
-        return ActOutcome(.refused, "\(appName) opens the contextual menu of '\(element.label)' on the person's own "
+        return ActOutcome(.refused, "\(OutcomeText.quoted(appName)) opens the contextual menu of \(OutcomeText.quoted(element.label)) on the person's own "
             + "screen, outside the seat, so it was not right-clicked: use a visible button or control instead. "
             + "A text field's contextual menu still works here.", scene: scene)
     }
@@ -95,12 +95,12 @@ extension ActionEngine {
             case .ambiguous(let count):
                 throw Unresolved(outcome: ActOutcome(
                     .ambiguous,
-                    "\(count) elements labeled '\(target)': choose an exact element ID or section: "
-                    + scene.disambiguation(target: target), scene: scene))
+                    "\(count) elements labeled \(OutcomeText.quoted(target)): choose an exact element ID or section: "
+                    + OutcomeText.disambiguation(in: scene, target: target), scene: scene))
             case .none:
                 let near = scene.grep(goal: target).prefix(3)
-                    .map { "'\($0.element.label)'" + ($0.element.section.map { " (\($0))" } ?? "") }
-                throw Unresolved(outcome: ActOutcome(.honestMiss, "no element '\(target)' in \(appName)"
+                    .map { "\(OutcomeText.quoted($0.element.label))" + ($0.element.section.map { " (\(OutcomeText.quoted($0)))" } ?? "") }
+                throw Unresolved(outcome: ActOutcome(.honestMiss, "no element \(OutcomeText.quoted(target)) in \(OutcomeText.quoted(appName))"
                     + (near.isEmpty ? "" : ": closest on screen: \(near.joined(separator: ", "))"), scene: scene))
         }
     }
@@ -111,26 +111,40 @@ extension ActionEngine {
     }
 
     func perceive(_ processID: pid_t) async -> PerceivedWindow? {
-        let window = try? await dependencies.scenes.currentScene(of: processID)
+        let scenes = dependencies.scenes
+        let read: @Sendable () async -> PerceivedWindow? = {
+            // A failed or interrupted capture is intentionally absent; the site reports noAfterScene.
+            do { return try await scenes.currentScene(of: processID) } catch { return nil }
+        }
+        let window: PerceivedWindow?
+        if let wait = InterruptibleWait.current { window = await wait.reading(read) }
+        else { window = await read() }
         if let window { Self.inputTrail?.append(window) }
         return window
     }
 
     func surfaces(_ processID: pid_t) async -> WindowSurfaces {
-        let rows = (try? await dependencies.windows.windows(ownedBy: processID)) ?? []
-        return WindowSurfaceClassifier.classify(rows)
+        let windows = dependencies.windows
+        let read: @Sendable () async -> [WindowRow]? = {
+            // No census means no popup can authorize another key.
+            do { return try await windows.windows(ownedBy: processID) } catch { return nil }
+        }
+        let rows: [WindowRow]?
+        if let wait = InterruptibleWait.current { rows = await wait.reading(read) }
+        else { rows = await read() }
+        return WindowSurfaceClassifier.classify(rows ?? [])
     }
 
     func noSceneReason(appName: String, processID: pid_t) async -> String {
         let rows = (try? await dependencies.windows.windows(ownedBy: processID)) ?? []
         let ordinary = rows.filter { $0.layer == 0 && $0.frame.width >= 60 }
         if ordinary.isEmpty {
-            return "no scene: \(appName) has NO window open right now "
+            return "no scene: \(OutcomeText.quoted(appName)) has NO window open right now "
                 + "(it is running, but there is nothing to show or "
                 + "capture). "
                 + "Open a document or window in it first, then describe_scene."
         }
-        return "no scene: \(appName) has a window but it could not be perceived right now; "
+        return "no scene: \(OutcomeText.quoted(appName)) has a window but it could not be perceived right now; "
             + "retry, and if this repeats "
             + "check Screen Recording for the process that runs the engine."
     }

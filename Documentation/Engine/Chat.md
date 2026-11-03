@@ -148,6 +148,17 @@ A provider process disconnect between turns does not release the Seat.
 
 ## Tools and results
 
+With `tool_surface=v2` and `task_cycle=v2`, `ToolList` freezes the eleven advertised tools and the credential's
+level at composition. `find` searches the allowed catalogue and returns complete schemas; `call` resolves the real
+name before admission, validation and recording. The dispatcher validates against the complete callable catalogue,
+independently of the advertised list. Composed mutating schemas include the task cycle's optional `step`; routing
+consumes it before provider invocation. The group index comes from that same allowed catalogue.
+
+A `.capabilityStep` uses `CapabilityCallRecorder` and schema 22: the start commits before effects and an unsaved end
+suspends memory. Schema 19 returns typed unavailable failures; writes do not execute and reads declare the recording
+gap. Schema 22 remains inactive until its separate migration is delivered. `human_step` is absent from every list.
+The following tool and adapter descriptions cover the legacy v1 surface.
+
 `status`, `windows`, `apps`, `open_session`, `observe`, `act`, `select`,
 `type_text`, `insert_text`, `press_key`, `scroll`, `drag`, `context_menu`,
 `menu`, `press`, `batch`, `close_session`. CLI chat and the signed Braus app
@@ -342,3 +353,28 @@ swift test --filter SyntheticProviderTests
 These checks verify two provider turns, real MCP tool calls and exact native
 session resumption with a remembered test phrase. They do not prove a live
 Pro Tools or Premiere workflow through the model.
+
+### Application guide delivery
+
+`AutomationMCP/Guides` reads only profile-selected skill files: delimited JSON metadata,
+then a two or three line head and complete Markdown sections. Loading and per-guide
+search construction run on the concurrent executor before publishing `AppGuides`.
+There are no bundled guides. A missing guide preserves existing answer bytes.
+
+`DocumentSearch` shares the capability retrieval algorithm without inventing capability
+contracts for guide sections. Composition prepares the union of catalogue texts and
+`GuideSearch.documents(for:)` texts in one `CatalogueVectors` snapshot, using the existing
+embedding adapter and one persistence writer. Each selector borrows that immutable snapshot.
+
+The guide head is reserved first, memory next, and up to three complete sections last.
+Coverage compares section text with the same-app `MemoryPartSummary.text`, never its label;
+coverage emits `GuideOverlap` with unknown contrast. Default limits are 1500 tokens and
+0.85 similarity. The injected token estimator rounds character count divided by four upward.
+ME3 supplies delivered memory summaries and the remaining budget; EB2 supplies the common
+estimator and EB2b records delivered guide content in task context.
+
+The TU6/EA2b integration TODOs in the facade and dispatcher mark the pending composition:
+optional guides default to nil, requested delivery registers `GuideCapability`, and successful
+opening selects head/index values before formatting. The resolver supplies the person's locale
+and the resolved bundle's numeric short version. Result formatting receives values only;
+v2 escapes guide content in a nonempty `<guide>` block, and v1 uses plain text after a blank line.

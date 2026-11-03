@@ -5,6 +5,7 @@
 //  Created by Tommaso Mazzarini on 13/10/2026.
 //
 
+import Capabilities
 import AutomationRuntime
 import Foundation
 import LocalEmbedding
@@ -12,8 +13,8 @@ import Memory
 
 /// RecallIdentity is the Recall a process of this build would run on this Mac, resolved as the app and the chat
 /// resolve it (`RecallConfiguration.resolved`, from the environment): the channel, the model and whether its files
-/// are where they are looked for, the document format, whether the process would own the archive's index, and what
-/// a measure turned off. The same facts `memory_task status` answers from a running process; here from the terminal,
+/// are where they are looked for, the document format, whether the process would own the archive's index, and the session
+/// profile it runs. The same facts `memory_task status` answers from a running process; here from the terminal,
 /// before any process runs, for `braus memory --status` and `braus doctor`.
 struct RecallIdentity {
 
@@ -33,9 +34,9 @@ struct RecallIdentity {
     let ownsIndex: Bool
     let modelsFolder: URL?
     let modelFiles: ModelFiles?
-    let ablation: [String]
+    let profile: SessionProfile
 
-    static func resolved(environment: [String: String] = ProcessInfo.processInfo.environment) -> RecallIdentity {
+    static func resolved(environment: [String: String] = ProcessInfo.processInfo.environment, profile: SessionProfile = .cli) -> RecallIdentity {
         let configuration = RecallConfiguration.resolved(environment: environment)
         let model = configuration.channel == .lexical ? nil : configuration.model
         var folder: URL?
@@ -54,11 +55,9 @@ struct RecallIdentity {
                 files = size == model.weightsBytes ? .installed(bytes: model.weightsBytes) : .wrongSize(found: size, pinned: model.weightsBytes)
             }
         }
-        let active = MeasureAblation.active
-        let named: [(MeasureAblation, String)] = [(.recall, "recall"), (.brain, "brain")]
         return RecallIdentity(channel: configuration.channel.rawValue, model: model.map { "\($0.modelID)@\($0.revision)" },
                               format: configuration.format.rawValue, ownsIndex: configuration.ownsIndex, modelsFolder: folder,
-                              modelFiles: files, ablation: named.filter { active.contains($0.0) }.map(\.1))
+                              modelFiles: files, profile: profile)
     }
 
     /// Whether the channel configured can answer as configured: lexical, or a semantic model with its files installed.
@@ -89,13 +88,13 @@ struct RecallIdentity {
             lines.append("  models folder: \(modelsFolder.path)")
             lines.append("  model files: \(modelFilesSentence)")
         }
-        lines.append("measure ablation (\(MeasureAblation.variable)): " + (ablation.isEmpty ? "none" : ablation.joined(separator: ", ")))
+        lines.append("session profile: \(profile.name), memory \(profile.memory.rawValue), attendance \(profile.attendance.rawValue)")
         return lines
     }
 
     /// The identity as JSON, with the keys `memory_task status` uses for the same facts.
     var json: [String: Any] {
-        var object: [String: Any] = ["channel": channel, "format": format, "owns_index": ownsIndex, "measure_ablation": ablation,
+        var object: [String: Any] = ["channel": channel, "format": format, "owns_index": ownsIndex, "profile": ["name": profile.name, "memory": profile.memory.rawValue, "attendance": profile.attendance.rawValue],
                                      "model_files": modelFilesSentence]
         object["model"] = model ?? NSNull()
         object["models_folder"] = modelsFolder?.path ?? NSNull()

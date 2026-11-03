@@ -97,7 +97,7 @@ struct VariantCorrespondenceTests {
                 "part 4's table is written no more")
         await memory.close()
         MemoryService.forget(session.directory)
-        let taskID = try #require(try Learning.rows("SELECT task_id FROM memory_procedure_candidates WHERE candidate_id = '\(second)'",
+        let taskID = try #require(try Learning.rows("SELECT t.task_uuid FROM memory_procedure_candidates c JOIN memory_tasks t ON t.task_id = c.task_id WHERE candidate_id = '\(second)'",
                                                     in: session).first)
         let text = try ProcedureInspectionTests.inspection(taskID, session).text
         #expect(text.contains { $0.contains("revision 1 ") && $0.hasSuffix("prefix suggested over 2 steps (parameter_correspondence)") },

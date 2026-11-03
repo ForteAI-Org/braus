@@ -40,7 +40,7 @@ struct AgentCallRepositoryTests {
 
     @Test("every signature and its variants, and a batch of every step variant, are read back exactly after reopening, in local order, with typed rows only")
     func signaturesRoundTrip() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         for (index, request) in Self.requests.enumerated() {
             #expect(try await memory.calls.record(try F.call("c\(index)", request, at: F.t0 + Int64(index))) == .committed)
         }
@@ -49,10 +49,10 @@ struct AgentCallRepositoryTests {
         let rows = Self.requests.map(\.arguments.count).reduce(0, +) + F.sevenSteps.map(\.arguments.count).reduce(0, +)
         #expect(try await memory.count("SELECT count(*) FROM memory_operation_arguments") == Int64(rows))
         #expect(try await memory.count("SELECT count(*) FROM memory_operation_arguments WHERE value_kind NOT IN ('text', 'integer', 'real', 'boolean')") == 0)
-        #expect(try await memory.count("SELECT count(*) FROM memory_operation_arguments WHERE event_id = 'b'") == 0, "a batch's steps are child calls, not arguments")
+        #expect(try await memory.count("SELECT count(*) FROM memory_operation_arguments WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'b')") == 0, "a batch's steps are child calls, not arguments")
         await memory.store.close()
 
-        let reopened = try await F.open(at: memory.url)
+        let reopened = try await F.open22(at: memory.url)
         for (index, request) in Self.requests.enumerated() {
             let call = try #require(try await reopened.calls.call("c\(index)"))
             #expect(call.request.isExactly(request), Comment(rawValue: "c\(index) \(request.tool.rawValue)"))
@@ -75,7 +75,7 @@ struct AgentCallRepositoryTests {
 
     @Test("the same call offered again is already applied, even after it advanced; other arguments, other event content or a reused source key are conflicts that write nothing")
     func idempotency() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         var keyed = F.event("e1", key: "k1")
         let call = try AgentCallRecord(event: keyed, request: .act(target: "Send", verb: .click, value: nil, section: nil))
         #expect(try await memory.calls.record(call) == .committed)
@@ -118,7 +118,7 @@ struct AgentCallRepositoryTests {
 
     @Test("an event a capture stored first is completed with the call and never rewritten: its summary and its sample stay; an event of another kind under the id is a conflict")
     func eventFromCaptures() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         let event = F.event("e1")
         #expect(try await memory.captures.record(event) == .committed)
         let sample = CaptureSample(key: CaptureSampleKey(eventID: "e1", phase: .before), windowTitle: "Inbox", sessionRevision: 4,
@@ -147,7 +147,7 @@ struct AgentCallRepositoryTests {
 
     @Test("states move only forward: retries of the stored state, a regression or a skipped state refused, another end a conflict, an unknown call missing, and a group of moves all or nothing")
     func transitions() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         for id in ["a", "b", "c"] { _ = try await memory.calls.record(try F.call(id, .select(control: "Format", item: "H.264"))) }
         #expect(try await memory.calls.advance([AgentCallTransition("a", .started)]) == .committed)
         #expect(try await memory.calls.advance([AgentCallTransition("a", .started)]) == .alreadyApplied)
@@ -178,7 +178,7 @@ struct AgentCallRepositoryTests {
         #expect(try await memory.calls.advance([AgentCallTransition("b", .started), AgentCallTransition("b", F.ended(.interrupted))]) == .committed)
         #expect(try await memory.calls.advance([AgentCallTransition("c", F.ended(.skipped))]) == .committed)
         let ends = try await memory.store.read { snapshot in
-            try snapshot.query("SELECT event_id, execution_status, completed_at_ms IS NOT NULL, result_kind FROM memory_agent_actions ORDER BY event_id") { row in
+            try snapshot.query("SELECT (SELECT event_uuid FROM memory_events e WHERE e.event_id=memory_agent_actions.event_id), execution_status, completed_at_ms IS NOT NULL, CASE WHEN gesture IS NULL THEN result_kind WHEN recovery='change_target' AND recovery_reason='ambiguous' THEN 'ambiguous' WHEN recovery='change_target' AND recovery_reason='not_found' THEN 'honest_miss' WHEN gesture='not_sent' AND recovery='continue' THEN 'acted_noop' WHEN gesture='not_sent' THEN 'refused' WHEN effect='confirmed' OR recovery='continue' THEN 'found_acted' ELSE 'acted_unverified' END FROM memory_agent_actions ORDER BY (SELECT event_uuid FROM memory_events e WHERE e.event_id=memory_agent_actions.event_id)") { row in
                 "\(try row.text(0) ?? "") \(try row.text(1) ?? "") \(row.integer(2) ?? -1) \(try row.text(3) ?? "NULL")"
             }
         }
@@ -189,7 +189,7 @@ struct AgentCallRepositoryTests {
 
     @Test("a partial batch keeps the first outcome, the second failure and the third step skipped, concluded together as stopped with the counts its steps give; a step never runs before its batch, and a batch never concludes over an open step")
     func partialBatch() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         let (batch, steps) = try F.batch("b", [.act(target: "Send", verb: .click, value: nil, section: nil),
                                                .select(control: "Format", item: "H.264"),
                                                .typeText(target: "To", text: "x", section: nil, replace: true)])
@@ -217,7 +217,7 @@ struct AgentCallRepositoryTests {
         let parent = try #require(try await memory.calls.call("b"))
         #expect(parent.progress.isExactly(stopped) && parent.requestedSteps == 3)
         let raw = try await memory.store.read { snapshot in
-            try snapshot.query("SELECT execution_status, result_kind, requested_count, attempted_count, verified_count FROM memory_agent_actions WHERE event_id = 'b'") { row in
+            try snapshot.query("SELECT execution_status, result_kind, requested_count, attempted_count, verified_count FROM memory_agent_actions WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'b')") { row in
                 "\(try row.text(0) ?? "") \(try row.text(1) ?? "") \(row.integer(2) ?? -1) \(row.integer(3) ?? -1) \(row.integer(4) ?? -1)"
             }
         }
@@ -227,7 +227,7 @@ struct AgentCallRepositoryTests {
 
     @Test("a batch is checked whole before anything is written: a step that is no batch step, a step of another app, session or position, no steps, or a step offered alone are refused with nothing stored; offered again it is one batch, and other steps under it a conflict")
     func batchValidation() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         let (batch, steps) = try F.batch("b", F.sevenSteps)
         func refused(_ offered: [AgentCallRecord], _ invalidity: AgentCallError.Invalidity) async {
             #expect(await callError { _ = try await memory.calls.record(batch: batch, steps: offered) } == .invalidBatch(invalidity))
@@ -269,7 +269,7 @@ struct AgentCallRepositoryTests {
 
     @Test("a batch whose third step collides with a stored event of another kind is rolled back whole: no batch, no step, no argument")
     func rollback() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         var observation = F.event("b.2", parent: nil, position: nil)
         observation.kind = .observation
         _ = try await memory.captures.record(observation)
@@ -288,21 +288,21 @@ struct AgentCallRepositoryTests {
 
     @Test("stored rows the contract does not admit are refused by the reader with a typed error, and the store goes on")
     func malformedRows() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         _ = try await memory.calls.record(try F.call("seed", .status))
         func plant(_ id: String, tool: String = "act", version: Int64 = 1, status: String = "planned", extra: String = "",
                    arguments: [(String, Int64, String, SQLiteValue)]) async throws {
             try await memory.store.write { transaction in
                 try transaction.execute(
-                    "INSERT INTO memory_events (event_id, source, source_stream_id, event_kind, app_id, occurred_at_ms, capture_status, session_id) VALUES (?, 'app', 'w', 'action', 1, 0, 'unknown', 's')",
+                    "INSERT INTO memory_events (event_uuid, source, source_stream_id, event_kind, app_id, occurred_at_ms, capture_status, session_id) VALUES (?, 'app', 'w', 'action', 1, 0, 'unknown', 's')",
                     [.text(id)])
                 try transaction.execute(
-                    "INSERT INTO memory_agent_actions (event_id, app_id, tool_kind, contract_version, execution_status\(extra.isEmpty ? "" : ", " + extra.split(separator: "=")[0])) VALUES (?, 1, ?, ?, ?\(extra.isEmpty ? "" : ", " + extra.split(separator: "=")[1]))",
+                    "INSERT INTO memory_agent_actions (event_id, app_id, tool_kind, contract_version, execution_status\(extra.isEmpty ? "" : ", " + extra.split(separator: "=")[0])) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 1, ?, ?, ?\(extra.isEmpty ? "" : ", " + extra.split(separator: "=")[1]))",
                     [.text(id), .text(tool), .integer(version), .text(status)])
                 for (name, position, kind, value) in arguments {
                     let column = ["text": "text_value", "integer": "integer_value", "real": "real_value", "boolean": "boolean_value"][kind]!
                     try transaction.execute(
-                        "INSERT INTO memory_operation_arguments (event_id, app_id, argument_name, position, value_kind, \(column)) VALUES (?, 1, ?, ?, ?, ?)",
+                        "INSERT INTO memory_operation_arguments (event_id, app_id, argument_name, position, value_kind, \(column)) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 1, ?, ?, ?, ?)",
                         [.text(id), .text(name), .integer(position), .text(kind), value])
                 }
             }
@@ -337,14 +337,14 @@ struct AgentCallRepositoryTests {
 
     @Test("two stores recording one call at once conclude it once: one commit, one already applied, one set of arguments")
     func twoWriters() async throws {
-        let first  = try await F.open()
-        let second = try await F.open(at: first.url)
+        let first  = try await F.open22()
+        let second = try await F.open22(at: first.url)
         let call = try F.call("e1", .drag(from: "Clip", to: .offset(dx: 40, dy: -2.5), section: "Timeline"))
         async let a = first.calls.record(call)
         async let b = second.calls.record(call)
         let receipts = try await [a, b]
         #expect(receipts.filter { $0 == .committed }.count == 1 && receipts.filter { $0 == .alreadyApplied }.count == 1)
-        #expect(try await first.count("SELECT count(*) FROM memory_operation_arguments WHERE event_id = 'e1'") == Int64(call.request.arguments.count))
+        #expect(try await first.count("SELECT count(*) FROM memory_operation_arguments WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'e1')") == Int64(call.request.arguments.count))
         #expect(try await first.count("SELECT count(*) FROM memory_agent_actions") == 1)
         await second.store.close()
         await first.store.close()

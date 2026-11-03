@@ -78,6 +78,7 @@ nonisolated public struct MemoryRepositories: Sendable {
     public let graph       : SQLiteBrainGraphRepository
     public let traces      : SQLiteTraceRepository
     public let facts       : SQLiteOperationFactRepository
+    public let todos       : SQLiteTodoRepository
     public let tasks       : SQLiteTaskContextRepository
     public let attributions: SQLiteTaskRepository
     public let verifications: SQLiteVerificationRepository
@@ -99,6 +100,7 @@ nonisolated public struct MemoryRepositories: Sendable {
         graph        = SQLiteBrainGraphRepository(store: store)
         traces       = SQLiteTraceRepository(store: store)
         facts        = SQLiteOperationFactRepository(store: store)
+        todos        = SQLiteTodoRepository(store: store)
         tasks        = SQLiteTaskContextRepository(store: store)
         attributions = SQLiteTaskRepository(store: store)
         verifications = SQLiteVerificationRepository(store: store)
@@ -183,6 +185,8 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         /// The archive's file name under the directory.
         public var fileName: String
 
+        public var migrationPolicy: MigrationPolicy
+
         /// The store's waiting policy for a busy lock.
         public var store: SQLiteMemoryStore.Configuration
 
@@ -222,9 +226,11 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             keptBackups   : Int = 3,
             essentialAttempts: Int = 3,
             essentialCycles  : Int = 2,
-            essentialPause   : Duration = .milliseconds(50)
+            essentialPause   : Duration = .milliseconds(50),
+            migrationPolicy  : MigrationPolicy = .automatic
         ) {
             self.fileName       = fileName
+            self.migrationPolicy = migrationPolicy
             self.store          = store
             self.reopenInterval = reopenInterval
             self.queueLimit     = queueLimit
@@ -315,6 +321,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         public let pendingEssential: Int
         /// The migration the archive's open ran, when it ran one: from which version and the copy kept.
         public let lastMigration: String?
+        public let migrationProgress: SQLiteMemoryStore.MigrationProgress?
         /// What the unification of the user's earlier archives took in, when it ran.
         public let lastUnification: String?
         /// What the recovery of the Brain's relations did since the service was made: calls evaluated for
@@ -339,7 +346,11 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         let label: String
         let workClass: WorkClassLabel
         let admitted: ContinuousClock.Instant
-        let body: @Sendable (MemoryRepositories) async throws -> Void
+        enum Body: Sendable {
+            case custom(@Sendable (MemoryRepositories) async throws -> Void)
+            case derived([DerivedCommand])
+        }
+        let body: Body
     }
 
     nonisolated public let directory: URL
@@ -348,6 +359,8 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     nonisolated public var url: URL { directory.appendingPathComponent(configuration.fileName) }
 
     private var store: SQLiteMemoryStore?
+    private var openingStore: SQLiteMemoryStore?
+    private var selectedMigrationPolicy: MigrationPolicy?
     private var repositories: MemoryRepositories?
     private var state: State = .notOpened
     private var degradedSince: ContinuousClock.Instant?
@@ -441,6 +454,88 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         self.copyMaintenance = MemoryCopyMaintenance(directory: directory, configuration: configuration)
     }
 
+    /// DerivedCommand retains the admitted input and its original instant until its pause closes.
+    public enum DerivedCommand: Sendable {
+        case associate(CaptureSampleKey, atMS: Int64)
+        case brainObserve(BrainApplicationCommand)
+        case brainRelation(callEventID: String, atMS: Int64)
+
+        fileprivate func apply(in transaction: SQLiteTransaction, repositories: MemoryRepositories) throws -> Bool {
+            switch self {
+            case .associate(let key, let atMS):
+                _ = try repositories.scenes.associate(key, at: atMS, in: transaction)
+                return false
+            case .brainObserve(let command):
+                _ = try repositories.applications.apply(command, in: transaction)
+                return false
+            case .brainRelation(let eventID, let atMS):
+                return try repositories.relations.apply(callEventID: eventID, at: atMS, in: transaction).exclusion == .awaitingState
+            }
+        }
+    }
+
+    private var pauses: [String: [DerivedCommand]] = [:]
+    private var pauseOrder: [String] = []
+
+    /// Opens a call's pause once. Commands stay in RAM until the producer's answer is ready.
+    public func openPause(_ id: String) {
+        guard admitting, pauses[id] == nil else { return }
+        pauses[id] = []
+        pauseOrder.append(id)
+        activity.withLock { $0.outstanding += 1 }
+    }
+
+    /// Adds work only to an open pause; a late command is reported as a dropped request.
+    public func add(_ command: DerivedCommand, to id: String) {
+        guard admitting, pauses[id] != nil else {
+            dropped += 1
+            workStatistics[.followUp].dropped += 1
+            return
+        }
+        pauses[id]?.append(command)
+    }
+
+    /// Queues one transaction in closure order. Closing twice has no effect.
+    public func closePause(_ id: String) {
+        guard let commands = pauses.removeValue(forKey: id) else { return }
+        pauseOrder.removeAll { $0 == id }
+        activity.withLock { $0.outstanding -= 1 }
+        guard !commands.isEmpty else {
+            if pauses.isEmpty, relationRecoveryWanted { scheduleRelationRecovery() }
+            return
+        }
+        enqueue("derived pause", .derived(commands))
+    }
+
+    /// Rolls back a failed grouped write, then offers every command separately so valid facts survive.
+    private func apply(_ commands: [DerivedCommand], repositories: MemoryRepositories) async throws {
+        do {
+            let recovery = try await repositories.store.write { transaction in
+                var recovery = false
+                for command in commands {
+                    recovery = try command.apply(in: transaction, repositories: repositories) || recovery
+                }
+                return recovery
+            }
+            if recovery { scheduleRelationRecovery() }
+        } catch {
+            Self.log.error("memory derived pause rolled back: \(Self.describe(error), privacy: .private)")
+            var failure: (any Error)?
+            for command in commands {
+                do {
+                    let recovery = try await repositories.store.write { transaction in
+                        try command.apply(in: transaction, repositories: repositories)
+                    }
+                    if recovery { scheduleRelationRecovery() }
+                } catch {
+                    failure = failure ?? error
+                    Self.log.error("memory derived command failed: \(Self.describe(error), privacy: .private)")
+                }
+            }
+            if let failure { throw failure }
+        }
+    }
+
     // MARK: One service per directory
 
     private static let services = Mutex<[String: MemoryService]>([:])
@@ -508,6 +603,10 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// Adds a write to the queue and returns at once. The write runs after every write enqueued before
     /// it; its failure is a counted gap, never an error for the caller.
     public func enqueue(_ label: String, _ body: @escaping @Sendable (MemoryRepositories) async throws -> Void) {
+        enqueue(label, .custom(body))
+    }
+
+    private func enqueue(_ label: String, _ body: Write.Body) {
         let workClass = Self.enqueueClass(label)
         if workClass == .background { workStatistics.unclassifiedCount += 1 }
         guard admitting, state != .closed else {
@@ -533,7 +632,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// in the vocabulary, without retaining their text.
     private static func enqueueClass(_ label: String) -> WorkClassLabel {
         switch label {
-        case "brain record", "brain relation", "brain observe",
+        case "derived pause", "brain record", "brain relation", "brain observe",
              "scene before", "scene after", "scene current":
             .followUp
         default:
@@ -779,7 +878,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             guard !queue.isEmpty else {
                 // The queue is empty: one bounded pass of the relation recovery when one is wanted, then the
                 // queue again, so whatever was offered meanwhile goes first.
-                guard relationRecoveryWanted, admitting, state == .open, let repositories else { break }
+                guard relationRecoveryWanted, pauses.isEmpty, admitting, state == .open, let repositories else { break }
                 relationRecoveryWanted = false
                 await recoverRelations(with: repositories)
                 continue
@@ -801,7 +900,10 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
                         let repositories = try await self.open()
                         let started = ContinuousClock.now
                         defer { workStatistics[write.workClass].duration += started.duration(to: .now) }
-                        try await write.body(repositories)
+                        switch write.body {
+                        case .custom(let body): try await body(repositories)
+                        case .derived(let commands): try await apply(commands, repositories: repositories)
+                        }
                     }
                 }
                 settle(write, tally: tally, error: nil)
@@ -1039,10 +1141,22 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         await store?.holdSnapshots(between: gate)
     }
 
+    /// Selects the command's migration policy before its first open.
+    public func setMigrationPolicy(_ policy: MigrationPolicy) throws {
+        guard store == nil, opening == nil, openingStore == nil else {
+            throw MemoryUnavailable("The migration policy must be selected before opening the archive.")
+        }
+        selectedMigrationPolicy = policy
+    }
+
     // MARK: Copies and recovery
 
     private func openStore() async throws -> SQLiteMemoryStore {
-        let attempted = SQLiteMemoryStore(url: url, configuration: configuration.store)
+        let attempted = SQLiteMemoryStore(url: url, configuration: configuration.store,
+                                          migrationPolicy: selectedMigrationPolicy ?? configuration.migrationPolicy,
+                                          canMigrate: { !MemoryService.PersonEpisodes.anyOpen })
+        openingStore = attempted
+        defer { openingStore = nil }
         do {
             try await attempted.open()
             return attempted
@@ -1341,6 +1455,7 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
             return
         }
         guard state != .closed else { return }
+        for id in pauseOrder { closePause(id) }
         admitting = false
         let task = Task { await self.performClose() }
         closing = task
@@ -1440,6 +1555,16 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
 
     // MARK: Reading
 
+    /// Lists the applications with a stored Brain without reading their contents or counts.
+    public func brainApplications() async throws -> [String] {
+        let repositories = try await ready()
+        return try await repositories.store.read(priority: .interactive) { snapshot in
+            try snapshot.query("SELECT bundle_id FROM brain_apps ORDER BY bundle_id") {
+                try $0.text(0) ?? ""
+            }
+        }
+    }
+
     /// The stored Brain of an application, cached while the archive has not changed since it was read.
     public func brain(of bundleID: String) async throws -> UIBrain? {
         let repositories = try await ready()
@@ -1488,7 +1613,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
                       lastRecovery: lastRecovery, lastImport: lastImport, lastClose: lastClose,
                       essentialWritten: essentialWritten, essentialFailed: essentialFailed,
                       suspended: suspendedReason, pendingEssential: pendingEssential.count,
-                      lastMigration: lastMigration, lastUnification: lastUnification,
+                      lastMigration: lastMigration,
+                      migrationProgress: (openingStore ?? store)?.migrationProgress,
+                      lastUnification: lastUnification,
                       relationRecovery: relationRecovery, relationRecoveryPending: relationRecoveryWanted,
                       workStatistics: workStatistics)
     }
@@ -1531,6 +1658,11 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
         try await ready().brains.projection(of: bundleID, for: detections)
     }
 
+    /// Forwards immutable snapshot ownership to the store's process-wide projection cache.
+    public func indexedProjection(of bundleID: String, for detections: [BrainDetection]) async throws -> BrainProjection? {
+        try await ready().brains.indexedProjection(of: bundleID, for: detections)
+    }
+
     /// The functional state a capture is, by the scenes of its own roles only (`BrainRelationReading`).
     public func state(of skeleton: SceneSkeleton, isComplete: Bool, in bundleID: String) async throws -> String? {
         try await ready().relations.state(of: skeleton, isComplete: isComplete, in: bundleID)
@@ -1554,6 +1686,9 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     nonisolated public static func describe(_ error: any Error) -> String {
         if let unavailable = error as? MemoryUnavailable { return unavailable.description }
         if case MemoryStoreError.unavailable(.interruptedRecovery(let why))? = error as? MemoryStoreError { return why }
+        if case MemoryStoreError.schema(.migrationRequired(let found, let supported))? = error as? MemoryStoreError {
+            return "Schema \(found) requires migration to \(supported); run memory --migrate first."
+        }
         if let store = error as? MemoryStoreError { return "\(store)" }
         if error is CancellationError { return "cancelled" }
         return String(describing: type(of: error)) + ": " + "\(error)".prefix(160)

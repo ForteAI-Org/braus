@@ -59,13 +59,13 @@ struct AgentCallResultTests {
     @Test("status, windows and apps keep typed rows in order, NULL apart from empty text, read back exactly after reopening")
     func listingsRoundTrip() async throws {
         let url = try temporaryDatabase()
-        var memory = try await F.open(at: url)
+        var memory = try await F.open22(at: url)
         try await Self.conclude(memory, "s", .status, Self.status, session: nil, app: nil)
         try await Self.conclude(memory, "w", .windows(app: nil), Self.windows, session: nil, app: nil)
         try await Self.conclude(memory, "a", .apps(query: "pro"), Self.apps, session: nil, app: nil)
         try await Self.conclude(memory, "none", .windows(app: "Mail"), nil, session: nil, app: nil)
         await memory.store.close()
-        memory = try await F.open(at: url)
+        memory = try await F.open22(at: url)
         let status = try #require(try await memory.calls.call("s")?.progress.result)
         #expect(status.isExactly(Self.status))
         let windows = try #require(try await memory.calls.call("w")?.progress.result)
@@ -92,7 +92,7 @@ struct AgentCallResultTests {
     @Test("an observation result points to its real current sample under the call, or under the session's own observation with its origin")
     func observationsRoundTrip() async throws {
         let url = try temporaryDatabase()
-        var memory = try await F.open(at: url)
+        var memory = try await F.open22(at: url)
         // observe: the sample is the call's own.
         _ = try await memory.calls.record(try F.call("o", .observe(full: false)))
         _ = try await memory.calls.advance([AgentCallTransition("o", .started(atMS: F.t0 + 1))])
@@ -118,7 +118,7 @@ struct AgentCallResultTests {
                 == .missingSample(eventID: "nowhere", sample: CaptureSampleKey(eventID: "nowhere", phase: .current)))
         #expect(try await memory.calls.call("nowhere")?.progress.status == .started)
         await memory.store.close()
-        memory = try await F.open(at: url)
+        memory = try await F.open22(at: url)
         let read = try #require(try await memory.calls.call("o")?.progress.result)
         #expect(read.isExactly(observation))
         let readOpening = try #require(try await memory.calls.call("open")?.progress.result)
@@ -138,7 +138,7 @@ struct AgentCallResultTests {
 
     @Test("a result the tool does not represent, and result rows written by hand that break the shape, are refused")
     func refusals() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         _ = try await memory.calls.record(try F.call("s", .status, session: nil, app: nil))
         _ = try await memory.calls.advance([AgentCallTransition("s", .started(atMS: F.t0))])
         #expect(await callError { _ = try await memory.calls.advance([AgentCallTransition("s", AgentCallProgress(.completed, result: Self.windows, endedAtMS: F.t0 + 1))]) }
@@ -152,8 +152,10 @@ struct AgentCallResultTests {
         try await Self.conclude(memory, "planted", .status, Self.status, session: nil, app: nil)
         try await Self.conclude(memory, "gap", .windows(app: nil), Self.windows, session: nil, app: nil)
         try await memory.store.write { transaction in
-            try transaction.execute("DELETE FROM memory_agent_action_status WHERE event_id = 'planted'", [])
-            try transaction.execute("DELETE FROM memory_agent_action_windows WHERE event_id = 'gap' AND position = 0", [])
+            try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_agent_action_status_history_kept", "memory_agent_action_windows_history_kept"]) {
+            try transaction.execute("DELETE FROM memory_agent_action_status WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'planted')", [])
+            try transaction.execute("DELETE FROM memory_agent_action_windows WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'gap') AND position = 0", [])
+        }
         }
         #expect(await callError { _ = try await memory.calls.call("planted") } == .malformedCall(eventID: "planted", malformation: .resultShape("status row")))
         #expect(await callError { _ = try await memory.calls.call("gap") } == .malformedCall(eventID: "gap", malformation: .resultShape("window positions of application 0")))

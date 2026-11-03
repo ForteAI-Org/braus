@@ -13,7 +13,7 @@ import Testing
 /// P1-06 through the tools: synthetic confidential content crosses a mail window's scene, an action on one of its
 /// messages, an adapter's arguments, results and errors, and a text typed into another app, and reaches the model's
 /// answers; no persistent destination keeps it (the archive's file, its write-ahead log, the transcript), while the
-/// structure stays (the samples' roles, the Brain's anchors of the application's own controls) and each withheld value
+/// structure stays in the event samples while the schema 22 Brain projection remains frozen and each withheld value
 /// leaves a `confidential_content` gap.
 ///
 /// Offline: `AutomationTools` over a session fake that reports its perceptions to the call's recorder as the real
@@ -217,7 +217,7 @@ struct ConfidentialSurfaceTests {
         #expect(transcript.all.allSatisfy { !$0.contains("\"\(Self.short)\"") }, "a short content value is withheld whole")
         // The structure stays, and each withheld value leaves its gap.
         #expect(reasons.contains("confidential_content"), "\(reasons)")
-        #expect(anchors.contains("Reply") && anchors.contains("Delete"), "the controls are learned: \(anchors)")
+        #expect(anchors.isEmpty, "schema 22 keeps the Brain projection frozen: \(anchors)")
         #expect(!labels.isEmpty && labels.contains(ValueMinimization.marker) && labels.contains("Reply"), "\(labels)")
         await MemoryService.closeAll()
     }

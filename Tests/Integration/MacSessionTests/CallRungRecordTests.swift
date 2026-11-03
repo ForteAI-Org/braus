@@ -332,6 +332,8 @@ struct CallRungRecordTests {
             essentialAttempts: 1, essentialCycles: 1)))
         let lockedID = try #require(Self.sessionID(try await lockedTools.call("open_session", .object(["app": .string("Notes")]))))
         let lock = FilesThroughTheToolsTests.ArchiveLock()
+        let memory = MemoryService.shared(for: lockedKnowledge)
+        try #require(await memory.flush(within: .seconds(5)))
         try lock.hold(lockedKnowledge)
         let refusal: String
         do {

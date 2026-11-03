@@ -24,7 +24,7 @@ struct AgentCallTimingTests {
 
     @Test("the start is written by the started move and kept by the end; the duration is the producer's, read back beside the calendar")
     func startAndDurationRoundTrip() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         _ = try await memory.calls.record(try F.call("t", .act(target: "Wi-Fi", verb: .setToggle, value: .on, section: nil)))
         #expect(try await memory.calls.call("t")?.startedAtMS == nil)
         #expect(try await memory.calls.advance([AgentCallTransition("t", .started(atMS: F.t0 + 10))]) == .committed)
@@ -58,7 +58,7 @@ struct AgentCallTimingTests {
     @Test("the five effects and the supervision's two menus are read back exactly after reopening: labels as rows, in order, bytes kept")
     func effectsRoundTripThroughTheFile() async throws {
         let url = try temporaryDatabase()
-        var memory = try await F.open(at: url)
+        var memory = try await F.open22(at: url)
         let effects: [(String, SceneEffect)] = [
             ("title", .windowTitleChanged(title: "Untitled 2 — Edited")),
             ("flip", .stateFlip(from: .mixed, to: .off)),
@@ -78,7 +78,7 @@ struct AgentCallTimingTests {
                 observedEffect: ObservedEffect(effect)))])
         }
         await memory.store.close()
-        memory = try await F.open(at: url)
+        memory = try await F.open22(at: url)
         for (id, effect) in effects {
             let read = try #require(try await memory.calls.call(id)?.progress.observedEffect)
             #expect(read.sceneEffect == effect, Comment(rawValue: id))
@@ -110,7 +110,7 @@ struct AgentCallTimingTests {
         #expect(refusal(AgentCallProgress(.completed, result: .outcome(.actedNoop, message: "m"), endedAtMS: 9, observedEffect: flip), .scroll)
                 == nil)
         #expect(refusal(.started(atMS: 5), .status) == nil)
-        let memory = try await F.open()
+        let memory = try await F.open22()
         _ = try await memory.calls.record(try F.call("plain", .observe(full: false)))
         // A producer that reports no start and no duration: the row keeps NULL and the call has none.
         _ = try await memory.calls.advance([AgentCallTransition("plain", .started)])
@@ -122,7 +122,7 @@ struct AgentCallTimingTests {
 
     @Test("stored effect rows the contract does not admit are refused by the reader with a typed error, and the store goes on")
     func malformedEffectRows() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         for id in ["gap", "scalar"] {
             _ = try await memory.calls.record(try F.call(id, .act(target: "Menu", verb: .click, value: nil, section: nil)))
             _ = try await memory.calls.advance([AgentCallTransition(id, .started(atMS: F.t0))])
@@ -132,11 +132,13 @@ struct AgentCallTimingTests {
         _ = try await memory.calls.advance([AgentCallTransition("scalar", AgentCallProgress(
             .completed, result: .outcome(.foundActed, message: "m"), endedAtMS: F.t0 + 1, observedEffect: flip))])
         try await memory.store.write { transaction in
-            try transaction.execute("DELETE FROM memory_agent_action_effect_labels WHERE event_id = 'gap' AND position = 0", [])
+            try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_agent_action_effect_labels_history_kept"]) {
+            try transaction.execute("DELETE FROM memory_agent_action_effect_labels WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'gap') AND position = 0", [])
             // The DDL guards the columns; the reader still refuses a flip whose state is not a state of this build.
             try transaction.execute("PRAGMA ignore_check_constraints = ON", [])
-            try transaction.execute("UPDATE memory_agent_actions SET observed_state_after = 'sideways' WHERE event_id = 'scalar'", [])
+            try transaction.execute("UPDATE memory_agent_actions SET observed_state_after = 'sideways' WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'scalar')", [])
             try transaction.execute("PRAGMA ignore_check_constraints = OFF", [])
+        }
         }
         #expect(await callError { _ = try await memory.calls.call("gap") }
                 == .malformedCall(eventID: "gap", malformation: .positionsNotContiguous("effect labels")))
@@ -148,7 +150,7 @@ struct AgentCallTimingTests {
 
     @Test("a batch's steps carry their own starts and durations, and the summary reads as before")
     func stepsCarryTheirStarts() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         let (batch, steps) = try F.batch("b", Array(F.sevenSteps.prefix(2)))
         _ = try await memory.calls.record(batch: batch, steps: steps)
         _ = try await memory.calls.advance([AgentCallTransition("b", .started(atMS: F.t0 + 1)),

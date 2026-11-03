@@ -31,7 +31,7 @@ struct BrainApplicationProcessTests {
         let sample = try await memory.sample("e1")
         let probe = try ProbeProcess()
         defer { probe.end() }
-        #expect(try await probe.ask("open \(memory.url.path)").hasPrefix("opened "))
+        #expect(try await probe.ask("open-historical19 \(memory.url.path)").hasPrefix("opened "))
         await probe.send("brain-observe-and-die \(A.bundle) e1 after 0 \(requestedMS) Send,Draft,Discard")
         #expect(try await probe.receive(waitingFor: "the end of the helper's output") == nil)
         #expect(try await probe.exit()?.reason == .uncaughtSignal)
@@ -39,7 +39,7 @@ struct BrainApplicationProcessTests {
         #expect(retried.receipt == .alreadyApplied && retried.outcome == .observed(created: 3, updated: 0, skippedAmbiguous: 0))
         #expect(try await memory.count("SELECT count(*) FROM brain_applications") == 1)
         #expect(try await memory.brain()?.objects.map(\.seenCount) == [1, 1, 1])
-        #expect(try await memory.count("SELECT count(*) FROM brain_evidence") == 4)
+        #expect(try await memory.count("SELECT count(*) FROM brain_evidence") == 3)
         await memory.store.close()
     }
 
@@ -50,7 +50,7 @@ struct BrainApplicationProcessTests {
         let sample = try await memory.sample("e1")
         let probe = try ProbeProcess()
         defer { probe.end() }
-        #expect(try await probe.ask("open \(memory.url.path)").hasPrefix("opened "))
+        #expect(try await probe.ask("open-historical19 \(memory.url.path)").hasPrefix("opened "))
         await probe.send("brain-observe \(A.bundle) e1 after 0 \(requestedMS) Send,Draft,Discard")
         let local = try await memory.applications.apply(try command(sample))
         let remote = try #require(try await probe.receive(waitingFor: "the helper's application"))

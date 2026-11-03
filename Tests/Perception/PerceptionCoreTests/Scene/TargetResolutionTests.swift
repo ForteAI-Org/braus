@@ -394,3 +394,67 @@ struct TargetResolutionTests {
     }
 
 }
+
+extension TargetResolutionTests {
+    @Test
+    func quotedTargetAndLastArrowFallback() {
+        let number = SceneElement(id: "number", kind: .text, label: "3538", bounds: rect(0, 0, 0.1, 0.1))
+        let folder = SceneElement(id: "folder", kind: .control, label: "Folder A", bounds: rect(0, 0.5, 0.1, 0.1))
+        let arrow = SceneElement(id: "arrow", kind: .control, label: "Folder A ⇒ Folder B", bounds: folder.bounds)
+        let value = scene([number, folder, arrow])
+        for target in ["\"3538\"", "“3538”", "'3538'", "‘3538’", "\"number\""] {
+            #expect(value.resolve(target: target) == .found(number))
+        }
+        #expect(value.candidates(target: "\"number\"") == [number])
+        // Existing core-label resolution already accepts this copy; keep its candidate list unchanged.
+        #expect(value.candidates(target: "\"3538\"").isEmpty)
+        var numericID = number
+        numericID.id = "3538"
+        numericID.label = "Folder B"
+        for target in ["\"3538\"", "“3538”", "'3538'", "‘3538’"] {
+            #expect(scene([numericID]).resolve(target: target) == .found(numericID))
+            #expect(scene([numericID]).candidates(target: target) == [numericID])
+        }
+        #expect(value.resolve(target: "Folder A ⇒ opens menu") == .found(folder))
+        #expect(value.candidates(target: "Folder A ⇒ opens menu") == [folder])
+        #expect(value.resolve(target: "Folder A ⇒ Folder B ⇒ opens menu") == .found(arrow))
+        #expect(value.resolve(target: "\"Folder A\" ⇒ opens menu") == .found(folder))
+        #expect(value.resolve(target: "“Folder A ⇒ opens menu”") == .found(folder))
+    }
+
+    @Test
+    func realArrowAndQuotedLabelsWin() {
+        for label in ["Folder A ⇒ Folder B", "\"Folder A\"", "“Folder A”"] {
+            let bare = SceneElement(id: "bare", kind: .control, label: "Folder A", bounds: rect(0, 0, 0.1, 0.1))
+            let full = SceneElement(id: "full", kind: .control, label: label, bounds: rect(0, 0.5, 0.1, 0.1))
+            let value = scene([bare, full])
+            #expect(value.resolve(target: label) == .found(full))
+            #expect(value.candidates(target: label) == [full])
+            #expect(value.resolve(target: "Folder A") == .found(bare))
+            #expect(scene([full]).resolve(target: label) == .found(full))
+            #expect(scene([bare]).resolve(target: label) == .found(bare))
+            var duplicate = full
+            duplicate.id = "duplicate"
+            duplicate.bounds.y = 0.8
+            let ambiguous = scene([bare, full, duplicate])
+            #expect(ambiguous.resolve(target: label) == .ambiguous(2))
+            #expect(ambiguous.candidates(target: label) == [full, duplicate])
+        }
+    }
+}
+
+
+extension TargetResolutionTests {
+    @Test
+    func fallbackKeepsSectionAndPreferences() {
+        let first = SceneElement(id: "first", kind: .control, label: "Folder A",
+                                 bounds: rect(0, 0, 0.1, 0.1), role: "AXTextField", section: "Left")
+        let second = SceneElement(id: "second", kind: .text, label: "Folder A",
+                                  bounds: rect(0, 0.5, 0.1, 0.1), section: "Right")
+        let value = scene([first, second])
+        #expect(value.resolve(target: "“Folder A” ⇒ opens menu") == .ambiguous(2))
+        #expect(value.candidates(target: "“Folder A” ⇒ opens menu") == [first, second])
+        #expect(value.resolve(target: "“Folder A” ⇒ opens menu", section: "Right") == .found(second))
+        #expect(value.resolve(target: "“Folder A” ⇒ opens menu", preferTextEntry: true) == .found(first))
+    }
+}

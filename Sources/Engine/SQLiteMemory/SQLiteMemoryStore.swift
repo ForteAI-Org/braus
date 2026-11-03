@@ -247,6 +247,35 @@ public actor SQLiteMemoryStore {
 
     public nonisolated let url          : URL
     public nonisolated let configuration: Configuration
+    private let schema: Schema
+
+    /// Selects the frozen resource only within historical fixture tasks.
+    @TaskLocal static var openingSchema: Schema = .active
+    private let migrationPolicy: MigrationPolicy
+    private let canMigrate: @Sendable () -> Bool
+    private nonisolated let progressState = DB2DProgress()
+
+    public nonisolated var migrationProgress: MigrationProgress? { progressState.value.withLock { $0 } }
+
+    /// Schema retains explicit resource openings for repository and historical-chain tests.
+    package enum Schema: Sendable {
+        case active, version22, historical19
+
+        var version: Int32 {
+            switch self {
+            case .active: SQLiteMemorySchema.version
+            case .version22: 22
+            case .historical19: 19
+            }
+        }
+        func text() throws -> String {
+            switch self {
+            case .active: try SQLiteMemorySchema.text()
+            case .version22: try SQLiteMigration22File.text()
+            case .historical19: try SQLiteMemorySchema.historical19Text()
+            }
+        }
+    }
 
     /// Connections this store holds open: four while open, zero once closed or failed, whatever
     /// an open in flight was doing when the close arrived. A snapshot in flight holds two more
@@ -269,6 +298,9 @@ public actor SQLiteMemoryStore {
     private var pauseCheckpoints = 0
     private var forcedCheckpoints = 0
     private var lastCheckpointError: MemoryStoreError?
+    private var projectionIncarnation = ProjectionCache.Incarnation()
+    private var projectionCaches: [ObjectIdentifier: ProjectionCache] = [:]
+
     private var lifecycle       = Lifecycle.notOpened
     private var opening         : Task<Void, any Error>?
     private var bootstrappedNow = false
@@ -410,9 +442,51 @@ public actor SQLiteMemoryStore {
     }
 
     /// Remembers the path and the policy. Nothing is opened until `open`.
-    public init(url: URL, configuration: Configuration = Configuration()) {
+    public init(
+        url: URL,
+        configuration: Configuration = Configuration(),
+        migrationPolicy: MigrationPolicy = .automatic,
+        canMigrate: @escaping @Sendable () -> Bool = { true }
+    ) {
         self.url           = url
         self.configuration = configuration
+        self.schema        = Self.openingSchema
+        self.migrationPolicy = migrationPolicy
+        self.canMigrate = canMigrate
+    }
+
+    /// Selects an explicit resource for package test helpers, including the frozen schema-19 opening path.
+    package init(url: URL, configuration: Configuration = Configuration(), schema: Schema) {
+        self.url = url
+        self.configuration = configuration
+        self.schema = schema
+        self.migrationPolicy = .never
+        self.canMigrate = { true }
+    }
+
+    /// Opening verifies the entire approved schema, including all projection freeze triggers.
+    /// Historical stores have no immutable-content attestation and never acquire a cache identity.
+    func projectionIdentity(for cache: ProjectionCache) throws -> ProjectionCache.Incarnation? {
+        _ = try writerConnection()
+        guard schema.version == 22, cache.byteLimit > 0 else { return nil }
+        projectionCaches[ObjectIdentifier(cache)] = cache
+        return projectionIncarnation
+    }
+
+    func projectionIsCurrent(_ incarnation: ProjectionCache.Incarnation) throws -> Bool {
+        _ = try writerConnection()
+        return projectionIncarnation === incarnation && incarnation.isCurrent
+    }
+
+    private func retireProjectionIdentity() {
+        projectionIncarnation.invalidate()
+        for cache in projectionCaches.values { cache.invalidate(projectionIncarnation) }
+        projectionIncarnation = ProjectionCache.Incarnation()
+    }
+
+    deinit {
+        projectionIncarnation.invalidate()
+        for cache in projectionCaches.values { cache.invalidate(projectionIncarnation) }
     }
 
     /// Opening is what an open may do to the file it finds. `producer` is the open of whoever
@@ -443,9 +517,12 @@ public actor SQLiteMemoryStore {
     public static func open(
         at url       : URL,
         configuration: Configuration = Configuration(),
-        opening      : Opening = .producer
+        opening      : Opening = .producer,
+        migrationPolicy: MigrationPolicy = .automatic,
+        canMigrate: @escaping @Sendable () -> Bool = { true }
     ) async throws -> SQLiteMemoryStore {
-        let store = SQLiteMemoryStore(url: url, configuration: configuration)
+        let store = SQLiteMemoryStore(url: url, configuration: configuration,
+                                      migrationPolicy: migrationPolicy, canMigrate: canMigrate)
         try await store.open(opening)
         return store
     }
@@ -515,6 +592,7 @@ public actor SQLiteMemoryStore {
     /// Closes every connection on its owner executor. Writable openings attempt a final TRUNCATE
     /// after readers close. A busy outcome or checkpoint error remains in lastCloseError.
     public func close() async {
+        retireProjectionIdentity()
         if let closing { await closing.value; return }
         let inFlight = opening
         opening?.cancel()
@@ -793,6 +871,7 @@ public actor SQLiteMemoryStore {
 
     /// Releases unused page cache memory on each connection's own executor.
     public func releaseMemory() async throws {
+        retireProjectionIdentity()
         let writer = try writerConnection()
         try writer.releaseMemory()
         for reader in readers { try await reader.releaseMemory() }
@@ -920,9 +999,10 @@ public actor SQLiteMemoryStore {
             // (an action's essential facts among them) goes on meanwhile.
             let owned = Unshared(copy)
             let gate = verificationGate
+            let schema = self.schema
             let pageSize = try await Task.detached {
                 if let gate { await gate() }
-                let pageSize = try Self.verify(copy: owned.value)
+                let pageSize = try Self.verify(copy: owned.value, schema: schema)
                 try Self.settle(copy: owned.value)
                 return pageSize
             }.value
@@ -1005,12 +1085,14 @@ public actor SQLiteMemoryStore {
     /// Checks the finished copy and answers its page size. Anything short of `ok`, no violation
     /// and exactly the schema expected (the current one, or the earlier one a migration copies) is a
     /// refusal, and the copy is retired by the caller.
-    private static func verify(copy: SQLiteConnection, expecting wanted: Inspection = .current) throws -> Int {
+    private static func verify(
+        copy: SQLiteConnection, expecting wanted: Inspection = .current, schema: Schema
+    ) throws -> Int {
         let integrity = try copy.query("PRAGMA integrity_check") { try $0.text(0) ?? "" }
         guard integrity == ["ok"] else { throw MemoryStoreError.snapshot(.copyFailedIntegrityCheck(integrity)) }
         let violations = try copy.query("PRAGMA foreign_key_check") { _ in () }.count
         guard violations == 0 else { throw MemoryStoreError.snapshot(.copyHasForeignKeyViolations(violations)) }
-        let expected = try Expected()
+        let expected = try Expected(schema: schema)
         do {
             guard try inspect(copy, expected: expected) == wanted else {
                 throw MemoryStoreError.snapshot(.copySchema(.missingTables(expected.tables)))
@@ -1113,13 +1195,13 @@ public actor SQLiteMemoryStore {
                            [.integer(nowMS)])
             try fault?()
             // A pragma cannot take a bound value; the version is this module's own constant.
-            try writer.execute("PRAGMA user_version = \(SQLiteMemorySchema.version)")
+            try writer.execute("PRAGMA user_version = \(SQLiteMemorySchema.historical19Version)")
             try writer.run(
                 """
                 INSERT INTO memory_schema_migrations (to_version, from_version, migrated_at_ms, copy_name)
                 VALUES (?, ?, ?, ?)
                 """,
-                [.integer(Int64(SQLiteMemorySchema.version)), .integer(Int64(version)), .integer(nowMS),
+                [.integer(Int64(SQLiteMemorySchema.historical19Version)), .integer(Int64(version)), .integer(nowMS),
                  .text(copyName)]
             )
             guard try Self.inspect(writer, expected: expected) == .current else {
@@ -1131,7 +1213,7 @@ public actor SQLiteMemoryStore {
             retireSnapshotFiles(copy.path, residues: false)
             return nil
         }
-        return Migration(fromVersion: version, toVersion: SQLiteMemorySchema.version, copyName: copyName, fromShape: shape?.name)
+        return Migration(fromVersion: version, toVersion: SQLiteMemorySchema.historical19Version, copyName: copyName, fromShape: shape?.name)
     }
 
     package func holdMigrationCommit(_ gate: (@Sendable () async -> Void)?) {
@@ -1192,7 +1274,7 @@ public actor SQLiteMemoryStore {
             copying.backup = nil
             release(source)
             copying.source = nil
-            _ = try Self.verify(copy: copy, expecting: found)
+            _ = try Self.verify(copy: copy, expecting: found, schema: schema)
             try Self.settle(copy: copy)
             release(copy)
             copying.copy = nil
@@ -1230,6 +1312,32 @@ public actor SQLiteMemoryStore {
         case historical(String)
     }
 
+    private func activate22IfNeeded(_ kind: Opening) async throws -> Migration? {
+        guard schema == .active else { return nil }
+        let state = progressState
+        var cycle = WaitingCycle(configuration)
+        defer { waited += cycle.waited }
+        while true {
+            cycle.attempting()
+            try stillOpening()
+            if Task.isCancelled { throw MemoryStoreError.cancelled(.open) }
+            do {
+                return try await Self.activate22(at: url, opening: kind, policy: migrationPolicy,
+                                                 canMigrate: canMigrate) { update in
+                    state.value.withLock {
+                        $0 = MigrationProgress(phase: String(describing: update.phase),
+                                               rowsDone: update.rowsDone, rowsTotal: update.rowsTotal)
+                    }
+                }
+            } catch is ActivationPresenceBusy {
+                try await pauseBeforeRetry(&cycle, after: SQLiteConnection.Failure(
+                    primary: SQLITE_BUSY, extended: SQLITE_BUSY,
+                    message: "a recovery of \(url.path) holds its presence lock"
+                ), at: .open)
+            }
+        }
+    }
+
     /// The open in flight. Every step that waited checks that the store is still opening, so a
     /// close that arrived meanwhile prevails: the connection is let go and the answer is `closed`.
     /// A failure of any other kind, from the first step on (the library, the schema resource, the
@@ -1248,8 +1356,8 @@ public actor SQLiteMemoryStore {
             if let unmet = SQLiteLibrary.unmetRequirement() {
                 throw MemoryStoreError.unavailable(.library(found: SQLiteLibrary.version, required: unmet.minimumVersion))
             }
-            ddl      = try SQLiteMemorySchema.text()
-            expected = try Expected()
+            ddl      = try schema.text()
+            expected = try Expected(schema: schema)
             // A reader of a file that is not there makes nothing beside it, not even the lock file.
             if !kind.creates, !FileManager.default.fileExists(atPath: path) {
                 if let pending = SQLiteMemoryRecovery.pending(of: url) {
@@ -1266,6 +1374,17 @@ public actor SQLiteMemoryStore {
                 ), phase: .open)
             }
             try SQLiteArchiveRetirement.privateDirectory(parent)
+            try await takePresence()
+            if SQLiteMigration22.pendingExchange(of: url) == nil,
+               let pending = SQLiteMemoryRecovery.pending(of: url) {
+                throw MemoryStoreError.unavailable(.interruptedRecovery(pending))
+            }
+            // Activation takes exclusive presence when migration is needed.
+            presence?.release()
+            presence = nil
+            let activated = try await activate22IfNeeded(kind)
+            try stillOpening()
+            self.migration = activated
             try await takePresence()
             // Under the shared presence no recovery is in progress, so a record beside the archive is one
             // that stopped half way: nothing opens the archive, or makes an empty one, until a recovery
@@ -1292,9 +1411,9 @@ public actor SQLiteMemoryStore {
                 let pages = try Self.integerPragma(writer, "page_count")
                 throw MemoryStoreError.schema(.uninitialized(fileIsEmpty: pages == 0))
             }
-            if kind == .existingArchive, let version = Self.migratedVersion(found) {
+            if (kind == .existingArchive || schema != .historical19), let version = Self.migratedVersion(found) {
                 // A reader never migrates: an archive of an earlier schema is refused as found.
-                throw MemoryStoreError.schema(.migrationRequired(found: version, supported: SQLiteMemorySchema.version))
+                throw MemoryStoreError.schema(.migrationRequired(found: version, supported: expected.version))
             }
             try await retrying(phase: .open) {
                 try Self.setJournal(writer, phase: .open)
@@ -1308,19 +1427,19 @@ public actor SQLiteMemoryStore {
                     guard try Self.inspect(writer, expected: expected) == .empty else { return false }
                     try writer.execute(ddl)
                     // A pragma cannot take a bound value; the version is this module's own constant.
-                    try writer.execute("PRAGMA user_version = \(SQLiteMemorySchema.version)")
+                    try writer.execute("PRAGMA user_version = \(expected.version)")
                     try writer.run(
                         """
                         INSERT INTO memory_schema_migrations (to_version, from_version, migrated_at_ms, copy_name)
                         VALUES (?, 0, ?, NULL)
                         """,
-                        [.integer(Int64(SQLiteMemorySchema.version)), .integer(nowMS)]
+                        [.integer(Int64(expected.version)), .integer(nowMS)]
                     )
                     return true
                 }
                 try stillOpening()
             }
-            var migration: Migration?
+            var migration: Migration? = self.migration
             if Self.migratedVersion(found) != nil {
                 migration = try await migrate(writer, from: found, expected: expected)
                 try stillOpening()
@@ -1438,6 +1557,7 @@ public actor SQLiteMemoryStore {
     /// later call, until `close`.
     private func invalidate(with fault: MemoryStoreFault) {
         guard lifecycle == .open else { return }
+        retireProjectionIdentity()
         if let writer { release(writer) }
         writer = nil
         lifecycle = .failed(fault)
@@ -1508,16 +1628,23 @@ public actor SQLiteMemoryStore {
 
         let current : Shape
         let previous: [Int32: Shape]
+        let version: Int32
 
         var tables : [String] { current.tables }
         var objects: Set<SQLiteMemorySchema.SchemaObject> { current.objects }
 
         /// The shapes of this build: the current schema and every one it migrates from.
-        init() throws {
-            current  = try Shape(ddl: try SQLiteMemorySchema.text())
+        init(schema: Schema = .active) throws {
+            version = schema.version
+            current  = try Shape(ddl: try schema.text())
             var previous: [Int32: Shape] = [:]
-            for version in SQLiteMemorySchema.migrations.keys {
-                previous[version] = try Shape(ddl: try SQLiteMemorySchema.text(of: version))
+            if schema != .version22 {
+                for version in SQLiteMemorySchema.migrations.keys {
+                    previous[version] = try Shape(ddl: try SQLiteMemorySchema.text(of: version))
+                }
+            }
+            if schema == .active {
+                previous[19] = try Shape(ddl: SQLiteMemorySchema.historical19Text())
             }
             self.previous = previous
         }
@@ -1527,6 +1654,7 @@ public actor SQLiteMemoryStore {
         init(ddl: String) throws {
             current  = try Shape(ddl: ddl)
             previous = [:]
+            version = SQLiteMemorySchema.version
         }
     }
 
@@ -1546,6 +1674,15 @@ public actor SQLiteMemoryStore {
             return .empty
         }
         // A historical shape is recognized whole, by the digest of its objects, before anything is said about its parts.
+        if version > Int64(expected.version) {
+            throw MemoryStoreError.schema(.future(found: Int32(clamping: version), supported: expected.version))
+        }
+        if expected.version == 22, let digest = SQLiteMigration22SourceSchemas.digest(version: version) {
+            guard SQLiteMemorySchema.digest(of: try SQLiteMemorySchema.objects(in: connection)) == digest else {
+                throw MemoryStoreError.schema(.differentShape(["unrecognized schema \(version)"]))
+            }
+            return .previous(Int32(version))
+        }
         let historical = SQLiteMemorySchema.historicalShapes.filter { Int64($0.version) == version }
         if !historical.isEmpty {
             let found = try SQLiteMemorySchema.objects(in: connection)
@@ -1555,26 +1692,27 @@ public actor SQLiteMemoryStore {
         }
         let shape: Expected.Shape
         let answer: Inspection
-        if version == Int64(SQLiteMemorySchema.version) {
+        if version == Int64(expected.version) {
             (shape, answer) = (expected.current, .current)
         } else if let earlier = Int32(exactly: version), let known = expected.previous[earlier] {
             (shape, answer) = (known, .previous(earlier))
-        } else if version > Int64(SQLiteMemorySchema.version) {
+        } else if version > Int64(expected.version) {
             throw MemoryStoreError.schema(.future(
                 found: Int32(clamping: version),
-                supported: SQLiteMemorySchema.version
+                supported: expected.version
             ))
         } else {
             // A version this build neither opens nor migrates from: refused as found, like a newer one.
             throw MemoryStoreError.schema(.unsupported(
                 found: Int32(clamping: version),
-                supported: SQLiteMemorySchema.version
+                supported: expected.version
             ))
         }
         let missing = shape.tables.filter { !existing.contains($0) }
         guard missing.isEmpty else { throw MemoryStoreError.schema(.missingTables(missing)) }
         var missingColumns: [String] = []
-        for (table, column) in SQLiteMemorySchema.requiredColumns {
+        let required = expected.version == SQLiteMemorySchema.historical19Version ? SQLiteMemorySchema.requiredColumns : []
+        for (table, column) in required {
             // Table names are this module's own literals; nothing from a caller is spliced in.
             let columns = try connection.query("PRAGMA table_info(\(table))") { try $0.text(1) ?? "" }
             if !columns.contains(column) { missingColumns.append("\(table).\(column)") }
@@ -1707,6 +1845,7 @@ public actor SQLiteMemoryStore {
         on connection: SQLiteConnection,
         phase        : MemoryStoreError.Phase
     ) -> any Error {
+        retireProjectionIdentity()
         let cleanup: MemoryStoreFault.Cleanup
         if let refusal = readPool.takeRefusal() {
             cleanup = Self.cleanupOutcome(

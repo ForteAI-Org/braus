@@ -19,6 +19,8 @@ import PerceptionCore
 /// at the boundary (`BrainClock`). A body that refuses rolls everything back, and the store's
 /// retry on a busy lock runs the body again on the rows it then reads.
 ///
+/// Frozen naming snapshots and their indices are retained separately by `ProjectionCache`.
+///
 /// `keys` names the anchors and groups the algorithm creates and the two generators name the
 /// transition rows and the application's scope row; the defaults are random UUIDs, and a test
 /// supplies deterministic sequences to compare a projection with a pure brain field by field.
@@ -30,6 +32,9 @@ import PerceptionCore
 public struct SQLiteBrainRepository: BrainStoring {
 
     private let store: SQLiteMemoryStore
+    private let projectionCache: ProjectionCache
+    /// Tests may pause a completed load outside SQLite and cache locks.
+    var beforeProjectionPublication: (@Sendable () async -> Void)?
     private let keys: BrainKeys
     private let makeTransitionID: @Sendable () -> String
     private let makeSceneID: @Sendable () -> String
@@ -38,12 +43,18 @@ public struct SQLiteBrainRepository: BrainStoring {
         store           : SQLiteMemoryStore,
         keys            : BrainKeys = .random,
         makeTransitionID: @escaping @Sendable () -> String = { UUID().uuidString },
-        makeSceneID     : @escaping @Sendable () -> String = { UUID().uuidString }
+        makeSceneID     : @escaping @Sendable () -> String = { UUID().uuidString },
+        projectionCache : ProjectionCache = .shared
     ) {
+        self.projectionCache  = projectionCache
         self.store            = store
         self.keys             = keys
         self.makeTransitionID = makeTransitionID
         self.makeSceneID      = makeSceneID
+    }
+
+    func projectionIsFrozen() async throws -> Bool {
+        try await store.read { try SQLiteRowIdentity($0).usesIntegerKeys }
     }
 
     public func brain(of bundleID: String) async throws -> UIBrain? {
@@ -60,12 +71,62 @@ public struct SQLiteBrainRepository: BrainStoring {
         }
     }
 
+    /// Reuses only naming snapshots from a store whose opening verified the frozen schema shape.
+    /// A zero retention budget and historical stores keep the existing detection-dependent SQL slice.
+    public func indexedProjection(of bundleID: String, for detections: [BrainDetection]) async throws -> BrainProjection? {
+        let check: @Sendable () throws -> Void = BrainReadControl.checkCurrent
+        func uncached() async throws -> BrainProjection? {
+            let brain = try await self.projection(of: bundleID, for: detections)
+            try check()
+            return try brain.map { try BrainProjection($0, checking: check) }
+        }
+        try check()
+        guard let incarnation = try await store.projectionIdentity(for: projectionCache) else {
+            return try await uncached()
+        }
+        try check()
+        let request = projectionCache.request(incarnation, app: bundleID)
+        if request.usesSceneSlice { return try await uncached() }
+        if let projection = request.projection {
+            let current = try await store.projectionIsCurrent(incarnation)
+            try check()
+            if current { return projection }
+            return try await uncached()
+        }
+        let started = ContinuousClock.now
+        let brain = try await store.read { snapshot -> UIBrain? in
+            try check()
+            guard let appID = try SQLiteIdentityRows.appID(snapshot, bundleID: bundleID) else { return nil }
+            return try SQLiteBrainRows.namingProjection(snapshot, appID: appID)
+        }
+        try check()
+        let sqlTime = started.duration(to: .now)
+        guard let brain else { return nil }
+        let indexing = ContinuousClock.now
+        let projection = try BrainProjection(brain, checking: check)
+        let indexTime = indexing.duration(to: .now)
+        if projection.requiresSceneSlice {
+            _ = try projectionCache.publish(projection, for: request, sqlTime: sqlTime, indexTime: indexTime,
+                                            retaining: false, checking: check)
+            return try await uncached()
+        }
+        await beforeProjectionPublication?()
+        try check()
+        let result = try projectionCache.publish(projection, for: request, sqlTime: sqlTime,
+                                                 indexTime: indexTime, checking: check)
+        let current = try await store.projectionIsCurrent(incarnation)
+        try check()
+        guard current else { return try await uncached() }
+        return result
+    }
+
     public func ingest(
         _ detections: [BrainDetection],
         into bundleID: String,
         now         : Date,
         window      : String?
     ) async throws -> BrainUpdater.IngestStats {
+        if try await projectionIsFrozen() { return BrainUpdater.IngestStats() }
         let keys = self.keys
         return try await mutate(bundleID, now: now) { brain, now in
             let stats = BrainUpdater.ingest(detections, into: &brain, now: now, window: window, keys: keys)
@@ -81,6 +142,7 @@ public struct SQLiteBrainRepository: BrainStoring {
     }
 
     public func record(_ record: ActionRecord, now: Date) async throws -> BrainRecordOutcome {
+        if try await projectionIsFrozen() { return .noEffect }
         guard let effect = record.effect else { return .noEffect }
         let keys      = self.keys
         let detection = BrainDetection(record.element)
@@ -102,7 +164,8 @@ public struct SQLiteBrainRepository: BrainStoring {
     }
 
     public func setName(_ name: String, anchorKey: String, in bundleID: String, now: Date) async throws -> Bool {
-        try await mutate(bundleID, now: now) { brain, now in
+        if try await projectionIsFrozen() { return false }
+        return try await mutate(bundleID, now: now) { brain, now in
             (BrainUpdater.setName(name, anchorKey: anchorKey, into: &brain, now: now), DecayReport())
         }
     }
@@ -113,7 +176,8 @@ public struct SQLiteBrainRepository: BrainStoring {
         maxObjects : Int = 3000,
         retention  : BrainRetention = .standard
     ) async throws -> DecayReport {
-        try await mutate(bundleID, now: now) { brain, now in
+        if try await projectionIsFrozen() { return DecayReport() }
+        return try await mutate(bundleID, now: now) { brain, now in
             let report = BrainUpdater.decay(&brain, now: now, maxObjects: maxObjects, retention: retention)
             return (report, report)
         }
@@ -141,6 +205,7 @@ public struct SQLiteBrainRepository: BrainStoring {
         now: Date
     ) async throws -> (imported: Bool, withheld: ValueMinimization.BrainWithholding) {
         let (admitted, withheld) = ValueMinimization().minimize(brain: imported)
+        if try await projectionIsFrozen() { return (false, withheld) }
         let latest = (admitted.objects.map(\.lastSeen) + admitted.groups.map(\.lastSeen)
             + admitted.transitions.map(\.lastObserved)).max() ?? now
         let done = try await mutate(bundleID, now: latest) { brain, _ in
@@ -159,6 +224,7 @@ public struct SQLiteBrainRepository: BrainStoring {
     public func merge(_ origin: UIBrain, into bundleID: String, origin originID: String,
                       now: Date) async throws -> BrainMerge {
         let (imported, withheld) = ValueMinimization().minimize(brain: origin)
+        if try await projectionIsFrozen() { return BrainMerge(contributions: []) }
         let latest = (imported.objects.map(\.lastSeen) + imported.groups.map(\.lastSeen)
             + imported.transitions.map(\.lastObserved)).max() ?? now
         let canonical: Date

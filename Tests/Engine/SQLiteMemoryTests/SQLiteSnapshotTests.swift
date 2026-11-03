@@ -76,7 +76,24 @@ struct SQLiteSnapshotTests {
         #expect(!diagnostics.bootstrappedNow)
         #expect(diagnostics.journalMode == "wal")
         #expect(try await count("SELECT count(*) FROM memory_events", in: reopened) == 50)
+        #expect(try await reopened.read { try SchemaShape($0) } == SchemaShape.active)
+        await reopened.close()
+        await store.close()
+    }
+
+    @Test("a historical 19 snapshot keeps its schema and reopens through the historical reader")
+    func historicalSnapshot() async throws {
+        let url = try temporaryDatabase()
+        let store = SQLiteMemoryStore(url: url, schema: .historical19)
+        try await store.open()
+        _ = try await record(EventRow(id: "historical", key: "historical-key"), in: store)
+        let destination = url.deletingLastPathComponent().appendingPathComponent("historical-copy.sqlite")
+        _ = try await store.snapshot(to: destination)
+        let reopened = SQLiteMemoryStore(url: destination, schema: .historical19)
+        try await reopened.open(.existingArchive)
+        #expect(try await reopened.diagnostics().schemaVersion == 19)
         #expect(try await reopened.read { try SchemaShape($0) } == SchemaShape.current)
+        #expect(try await count("SELECT count(*) FROM memory_events WHERE event_id = 'historical'", in: reopened) == 1)
         await reopened.close()
         await store.close()
     }

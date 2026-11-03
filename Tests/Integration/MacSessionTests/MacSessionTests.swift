@@ -440,7 +440,7 @@ struct MacSessionTests {
         } else {
             #expect(outcome.kind == .foundActed && outcome.check?.verdict == .passed, Comment(rawValue: outcome.message))
             #expect(rows[0] == ["Apri:passed"] && rows[1] == ["elementsDisappeared"], "\(rows)")
-            #expect(rows[3] == ["record"], "the projection applied as before: \(rows[3])")
+            #expect(rows[3].isEmpty, "schema 22 keeps the Brain projection frozen: \(rows[3])")
             #expect(!rows[4].contains { $0.hasPrefix("contradicted") }, "\(rows[4])")
         }
     }

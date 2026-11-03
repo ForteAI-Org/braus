@@ -52,7 +52,9 @@ public struct MacEngineRuntime {
 
     /// The engine over the Mac roles, expecting from the Brain and reporting to `recorder`.
     public func engine(recorder: CallRecorder, allowsDestructive: Bool) -> ActionEngine {
-        ActionEngine(
+        var timing = ActionTiming.standard
+        timing.secondLookCap = .seconds(2)
+        return ActionEngine(
             ActionEngine.Dependencies(
                 scenes      : scenes,
                 actuator    : actuator,
@@ -62,9 +64,11 @@ public struct MacEngineRuntime {
                 observer    : recorder,
                 settling    : settling,
                 // The MacDriver's texts are the app's displays read from accessibility (Calculator's result).
-                countsNativeTextChange: true
+                countsNativeTextChange: true,
+                correspondence: ConfidentialSurfaces.isCorrespondence
             ),
-            permissions: ActionPermissions(allowsDestructive: allowsDestructive)
+            permissions: ActionPermissions(allowsDestructive: allowsDestructive),
+            timing: timing
         )
     }
 

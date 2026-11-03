@@ -21,7 +21,7 @@ public struct SQLiteVerificationRepository: VerificationStoring {
     }
 
     public func record(_ verification: VerificationRecord) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             _ = try SQLiteEventRows.record(transaction, verification.event)
             let eventID = verification.event.eventID
             if let stored = try SQLiteTaskRows.verification(transaction, eventID: eventID) {
@@ -32,7 +32,7 @@ public struct SQLiteVerificationRepository: VerificationStoring {
             }
             try transaction.execute(
                 "INSERT INTO memory_verifications (event_id, scope, method, verdict, expected_text, observed_text) VALUES (?, ?, ?, ?, ?, ?)",
-                [.text(eventID), .text(verification.scope.rawValue), .text(verification.method.rawValue), .text(verification.verdict.rawValue),
+                [try SQLiteRowIdentity(transaction).key(.event, eventID), .text(verification.scope.rawValue), .text(verification.method.rawValue), .text(verification.verdict.rawValue),
                  verification.expectedText.map(SQLiteValue.text) ?? .null, verification.observedText.map(SQLiteValue.text) ?? .null]
             )
             return .committed
@@ -40,7 +40,7 @@ public struct SQLiteVerificationRepository: VerificationStoring {
     }
 
     public func attribute(verification eventID: String, toStepOccurrence stepOccurrenceID: String) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             guard let stored = try SQLiteTaskRows.verification(transaction, eventID: eventID) else {
                 throw EventFactError.missingEvent(eventID: eventID)
             }
@@ -53,7 +53,7 @@ public struct SQLiteVerificationRepository: VerificationStoring {
                 return .alreadyApplied
             }
             try transaction.execute("UPDATE memory_verifications SET step_occurrence_id = ? WHERE event_id = ?",
-                                    [.text(stepOccurrenceID), .text(eventID)])
+                                    [try DB2BKeys.local(transaction, stepOccurrenceID), try SQLiteRowIdentity(transaction).key(.event, eventID)])
             return .committed
         }
     }
@@ -75,7 +75,7 @@ public struct SQLiteTaskRepository: TaskAttributionStoring {
     }
 
     public func record(_ occurrence: TaskOccurrenceRecord) async throws -> MemoryReceipt {
-        try await store.write { transaction in try SQLiteTaskRows.record(transaction, occurrence) }
+        try await store.db2BWrite { transaction in try SQLiteTaskRows.record(transaction, occurrence) }
     }
 
     public func update(from expected: TaskOccurrenceRecord, to updated: TaskOccurrenceRecord) async throws -> MemoryReceipt {
@@ -85,26 +85,36 @@ public struct SQLiteTaskRepository: TaskAttributionStoring {
                 : expected.startedAtMS != updated.startedAtMS ? "started_at_ms" : "trace_id"
             throw EventFactError.immutableField(id: id, field: field)
         }
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             guard let stored = try SQLiteTaskRows.occurrence(transaction, id: id) else { throw EventFactError.missingOccurrence(id: id) }
             if stored.isExactly(updated) { return .alreadyApplied }
             guard stored.isExactly(expected) else { throw EventFactError.staleExpectation(id: id) }
             try transaction.execute("UPDATE memory_task_occurrences SET ended_at_ms = ?, status = ? WHERE task_occurrence_id = ?",
-                                    [updated.endedAtMS.map(SQLiteValue.integer) ?? .null, .text(updated.status.rawValue), .text(id)])
+                                    [updated.endedAtMS.map(SQLiteValue.integer) ?? .null, .text(updated.status.rawValue), try SQLiteRowIdentity(transaction).key(.attempt, id)])
             return .committed
         }
     }
 
     public func record(_ membership: TaskMembership) async throws -> MemoryReceipt {
-        try await store.write { transaction in try SQLiteTaskRows.record(transaction, membership) }
+        try await store.db2BWrite { transaction in try SQLiteTaskRows.record(transaction, membership) }
+    }
+
+    /// Inserts a label and returns its store identity on schema 22.
+    public func insert(_ label: TaskLabelRecord) async throws -> (receipt: MemoryReceipt, label: TaskLabelRecord) {
+        try await store.db2BWrite { transaction in
+            if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+                return try DB2BTaskLabels.insert(transaction, label)
+            }
+            return (try SQLiteTaskRows.record(transaction, label), label)
+        }
     }
 
     public func record(_ label: TaskLabelRecord) async throws -> MemoryReceipt {
-        try await store.write { transaction in try SQLiteTaskRows.record(transaction, label) }
+        try await store.db2BWrite { transaction in try SQLiteTaskRows.record(transaction, label) }
     }
 
     public func attribute(_ attribution: TaskAttribution) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             var receipts = [try SQLiteTaskRows.record(transaction, attribution.occurrence)]
             for membership in attribution.memberships { receipts.append(try SQLiteTaskRows.record(transaction, membership)) }
             for label in attribution.labels { receipts.append(try SQLiteTaskRows.record(transaction, label)) }
@@ -137,7 +147,7 @@ enum SQLiteTaskRows {
         }
         guard let row = try handle.query(
             "SELECT scope, method, verdict, expected_text, observed_text, step_occurrence_id FROM memory_verifications WHERE event_id = ?",
-            [.text(eventID)],
+            [try SQLiteRowIdentity(handle).key(.event, eventID)],
             { (scope: try $0.text(0) ?? "", method: try $0.text(1) ?? "", verdict: try $0.text(2) ?? "", expected: try $0.text(3),
                observed: try $0.text(4), step: try $0.text(5)) }
         ).first,
@@ -163,7 +173,7 @@ enum SQLiteTaskRows {
             return .alreadyApplied
         }
         try transaction.execute(
-            "INSERT INTO memory_task_occurrences (task_occurrence_id, trace_id, started_at_ms, ended_at_ms, status) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO memory_task_occurrences (\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? "task_occurrence_uuid" : "task_occurrence_id"), trace_id, started_at_ms, ended_at_ms, status) VALUES (?, ?, ?, ?, ?)",
             [.text(id), occurrence.traceID.map(SQLiteValue.text) ?? .null, .integer(occurrence.startedAtMS),
              occurrence.endedAtMS.map(SQLiteValue.integer) ?? .null, .text(occurrence.status.rawValue)]
         )
@@ -175,8 +185,8 @@ enum SQLiteTaskRows {
             .malformedRow(table: "memory_task_occurrences", id: id, malformation: malformation)
         }
         return try handle.query(
-            "SELECT task_occurrence_id, trace_id, started_at_ms, ended_at_ms, status FROM memory_task_occurrences WHERE task_occurrence_id = ?",
-            [.text(id)]
+            "SELECT \(try SQLiteRowIdentity(handle).publicReference(.attempt, column: "memory_task_occurrences.task_occurrence_id")), trace_id, started_at_ms, ended_at_ms, status FROM memory_task_occurrences WHERE task_occurrence_id = ?",
+            [try SQLiteRowIdentity(handle).key(.attempt, id)]
         ) { row in
             let statusCode = try row.text(4) ?? ""
             guard let status = code(TaskStatus.self, statusCode) else { throw refuse(.unknownCode(column: "status", code: statusCode)) }
@@ -208,14 +218,14 @@ enum SQLiteTaskRows {
             throw EventFactError.positionTaken(taskOccurrenceID: task, position: membership.position)
         }
         try transaction.execute("INSERT INTO memory_task_events (task_occurrence_id, event_id, position, role) VALUES (?, ?, ?, ?)",
-                                [.text(task), .text(membership.eventID), .integer(membership.position), .text(membership.role.rawValue)])
+                                [try SQLiteRowIdentity(transaction).key(.attempt, task), try SQLiteRowIdentity(transaction).key(.event, membership.eventID), .integer(membership.position), .text(membership.role.rawValue)])
         return .committed
     }
 
     static func memberships(_ handle: some SQLiteQuerying, of task: String) throws -> [TaskMembership] {
         try handle.query(
-            "SELECT event_id, position, role FROM memory_task_events WHERE task_occurrence_id = ? ORDER BY position",
-            [.text(task)]
+            "SELECT \(try SQLiteRowIdentity(handle).publicReference(.event, column: "memory_task_events.event_id")), position, role FROM memory_task_events WHERE task_occurrence_id = ? ORDER BY position",
+            [try SQLiteRowIdentity(handle).key(.attempt, task)]
         ) { row in
             let eventID = try row.text(0) ?? "", roleCode = try row.text(2) ?? ""
             guard let role = code(TaskEventRole.self, roleCode) else {
@@ -232,6 +242,15 @@ enum SQLiteTaskRows {
     // MARK: Labels
 
     static func record(_ transaction: SQLiteTransaction, _ label: TaskLabelRecord) throws -> MemoryReceipt {
+        if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+            if let stored = try self.label(transaction, id: label.labelID) {
+                guard stored.isExactly(label) else {
+                    throw SQLiteFactRows.conflict(label.labelID, stored: "\(stored)", offered: "\(label)")
+                }
+                return .alreadyApplied
+            }
+            return try DB2BTaskLabels.insert(transaction, label).receipt
+        }
         guard try occurrence(transaction, id: label.taskOccurrenceID) != nil else {
             throw EventFactError.missingOccurrence(id: label.taskOccurrenceID)
         }
@@ -252,12 +271,17 @@ enum SQLiteTaskRows {
 
     private static let labelColumns = "label_id, task_occurrence_id, label, assigned_by, confidence, status, assigned_at_ms"
 
+    private static func labelColumns(_ handle: some SQLiteQuerying) throws -> String {
+        labelColumns.replacingOccurrences(of: "task_occurrence_id", with:
+            try SQLiteRowIdentity(handle).publicReference(.attempt, column: "memory_task_labels.task_occurrence_id"))
+    }
+
     static func label(_ handle: some SQLiteQuerying, id: String) throws -> TaskLabelRecord? {
-        try handle.query("SELECT \(labelColumns) FROM memory_task_labels WHERE label_id = ?", [.text(id)], decodeLabel).first
+        try handle.query("SELECT \(try labelColumns(handle)) FROM memory_task_labels WHERE label_id = ?", [try DB2BKeys.local(handle, id)], decodeLabel).first
     }
 
     static func labels(_ handle: some SQLiteQuerying, of task: String) throws -> [TaskLabelRecord] {
-        try handle.query("SELECT \(labelColumns) FROM memory_task_labels WHERE task_occurrence_id = ?", [.text(task)], decodeLabel)
+        try handle.query("SELECT \(try labelColumns(handle)) FROM memory_task_labels WHERE task_occurrence_id = ?", [try SQLiteRowIdentity(handle).key(.attempt, task)], decodeLabel)
             .sorted { lhs, rhs in
                 lhs.assignedAtMS != rhs.assignedAtMS ? lhs.assignedAtMS < rhs.assignedAtMS
                     : Array(lhs.labelID.utf8).lexicographicallyPrecedes(Array(rhs.labelID.utf8))

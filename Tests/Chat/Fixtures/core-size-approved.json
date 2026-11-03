@@ -1,0 +1,42 @@
+{
+  "bytes": 10032,
+  "approved_by": "Tommaso",
+  "approved_on": "2026-11-03",
+  "configuration": {
+    "prompt": "v2",
+    "tool_surface": "v2",
+    "task_cycle": "v2",
+    "outcome": "v1",
+    "channels": "all",
+    "role": null,
+    "searches_web": false,
+    "seat_line": "v1",
+    "guides_enabled": false,
+    "tool_loading": "upfront"
+  },
+  "tool_names": [
+    "open_session",
+    "observe",
+    "act",
+    "type_text",
+    "press_key",
+    "menu",
+    "batch",
+    "plan",
+    "end",
+    "find",
+    "call"
+  ],
+  "includes": [
+    "system prompt",
+    "group index",
+    "canonical core tool definitions"
+  ],
+  "excludes": [
+    "human_step",
+    "conversation history",
+    "scene text",
+    "provider framing"
+  ],
+  "sha256": "55529567592d173d4166d5b351e983776cd6827cbdc9f41d5a8bc64eec40848c"
+}

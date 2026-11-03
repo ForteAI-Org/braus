@@ -1,0 +1,8 @@
+Example (test.synthetic) "Folder A" 1000x800, 6 elements
+[field] Folder A id:'folder' = abcdef [sel 3..3/6] @10,20
+[field] Folder B id:'selected' = abcdef [sel 2..5/6] [disabled] {Folders} @10,30
+[text] ## Folder A {} @10,40
+icons: shared×2 unique@50,70
+## past the window's edge (read only, not visible)
+[field] Folder C = "Folder D"
+[field] Folder E secret [disabled] {Folders}

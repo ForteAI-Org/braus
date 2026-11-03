@@ -165,7 +165,7 @@ struct ThreeEntriesTests {
         run.calls = try P.rows("""
             SELECT e.source || ' ' || e.source_stream_id || ' ' || a.tool_kind || ' ' || a.execution_status || ' '
                    || ifnull(a.result_kind, '-')
-            FROM memory_events e JOIN memory_agent_actions a ON a.event_id = e.event_id ORDER BY e.local_order
+            FROM memory_events e JOIN memory_agent_actions a ON a.event_id = e.event_id ORDER BY e.event_id
             """, in: session)
         await L.close(session)
 

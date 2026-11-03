@@ -264,6 +264,12 @@ class BoundaryTests(unittest.TestCase):
         self.run_check()
         self.run_check("--commits", "missing..HEAD", expected=2)
 
+    def test_deleted_tracked_file_is_absent_from_the_working_tree(self):
+        path = "Sources/Removed.swift"
+        self.write(path, "struct Removed {}")
+        (self.root / path).unlink()
+        self.run_check()
+
     def test_unsearchable_tree_exits_2(self):
         with tempfile.TemporaryDirectory() as outside:
             self.run_check(root=outside, expected=2)

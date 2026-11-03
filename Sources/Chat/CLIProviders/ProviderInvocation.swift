@@ -16,14 +16,16 @@ public struct ProviderInvocation: Sendable {
         var arguments: [String]
         switch turn.provider {
         case .claude:
-            let config: [String: Any] = ["mcpServers": ["braus": [
-                "command": turn.bridgeExecutable, "args": bridgeArguments
-            ]]]
+            var server: [String: Any] = ["command": turn.bridgeExecutable, "args": bridgeArguments]
+            let searchesTools = turn.toolLoading == .harnessSearch && !turn.isCompaction
+            if searchesTools { server["alwaysLoad"] = false }
+            let config: [String: Any] = ["mcpServers": ["braus": server]]
+            let tools = (searchesTools ? ["ToolSearch"] : []) + (searchesWeb ? ["WebSearch", "WebFetch"] : [])
             let encoded = try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
             arguments = ["-p", "--output-format", "stream-json", "--verbose",
                          "--strict-mcp-config", "--mcp-config", String(decoding: encoded, as: UTF8.self),
-                         "--tools", searchesWeb ? "WebSearch,WebFetch" : "",
-                         "--allowedTools", searchesWeb ? "mcp__braus__*,WebSearch,WebFetch" : "mcp__braus__*",
+                         "--tools", tools.joined(separator: ","),
+                         "--allowedTools", (["mcp__braus__*"] + tools).joined(separator: ","),
                          "--permission-mode", "dontAsk", "--setting-sources", ""]
                 + (turn.isCompaction ? [] : ["--disable-slash-commands"])
                 + ["--no-chrome", "--append-system-prompt", turn.instructions]
@@ -52,8 +54,7 @@ public struct ProviderInvocation: Sendable {
             arguments += ["-"]
         }
         if turn.provider == .claude, let model = turn.model { arguments += ["--model", model] }
-        // Haiku has no effort levels, so the flag is left out for it, as ClaudeCLIClient does.
-        if turn.provider == .claude, let effort = turn.effort, turn.model?.contains("haiku") != true {
+        if turn.provider == .claude, let effort = turn.effort {
             arguments += ["--effort", effort]
         }
         self.arguments = arguments

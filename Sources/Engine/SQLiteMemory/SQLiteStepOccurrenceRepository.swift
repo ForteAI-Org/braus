@@ -20,12 +20,33 @@ public struct SQLiteStepOccurrenceRepository: StepOccurrenceStoring {
         self.store = store
     }
 
+    /// Inserts an occurrence and returns its local identity on schema 22.
+    public func insert(_ occurrence: StepOccurrenceRecord) async throws -> (receipt: MemoryReceipt, occurrence: StepOccurrenceRecord) {
+        if try await store.read({ try SQLiteRowIdentity($0).usesIntegerKeys }) {
+            return try await store.db2BWrite { transaction in
+                    try transaction.execute("INSERT INTO memory_step_occurrences(started_at_ms,ended_at_ms,status) VALUES (?,?,?)",
+                        [.integer(occurrence.startedAtMS), occurrence.endedAtMS.map(SQLiteValue.integer) ?? .null,
+                         .text(occurrence.status.rawValue)])
+                    let id = try SQLiteIdentityRows.lastInsertedRow(transaction)
+                    return (.committed, try StepOccurrenceRecord(stepOccurrenceID: String(id),
+                        startedAtMS: occurrence.startedAtMS, endedAtMS: occurrence.endedAtMS, status: occurrence.status))
+                }
+        }
+        return (try await record(occurrence), occurrence)
+    }
+
     public func record(_ occurrence: StepOccurrenceRecord) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             let id = occurrence.stepOccurrenceID
             if let stored = try SQLiteStepRows.occurrence(transaction, id: id) {
                 guard stored.record.isExactly(occurrence) else { throw SQLiteFactRows.conflict(id, stored: "\(stored.record)", offered: "\(occurrence)") }
                 return .alreadyApplied
+            }
+            if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+                try transaction.execute("INSERT INTO memory_step_occurrences(started_at_ms,ended_at_ms,status) VALUES (?,?,?)",
+                    [.integer(occurrence.startedAtMS), occurrence.endedAtMS.map(SQLiteValue.integer) ?? .null,
+                     .text(occurrence.status.rawValue)])
+                return .committed
             }
             try transaction.execute(
                 "INSERT INTO memory_step_occurrences (step_occurrence_id, started_at_ms, ended_at_ms, status) VALUES (?, ?, ?, ?)",
@@ -39,24 +60,24 @@ public struct SQLiteStepOccurrenceRepository: StepOccurrenceStoring {
         let id = expected.stepOccurrenceID
         guard id.utf8.elementsEqual(updated.stepOccurrenceID.utf8) else { throw EventFactError.immutableField(id: id, field: "step_occurrence_id") }
         guard expected.startedAtMS == updated.startedAtMS else { throw EventFactError.immutableField(id: id, field: "started_at_ms") }
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             guard let stored = try SQLiteStepRows.occurrence(transaction, id: id) else { throw EventFactError.missingOccurrence(id: id) }
             if stored.record.isExactly(updated) { return .alreadyApplied }
             guard stored.record.isExactly(expected) else { throw EventFactError.staleExpectation(id: id) }
             try transaction.execute("UPDATE memory_step_occurrences SET ended_at_ms = ?, status = ? WHERE step_occurrence_id = ?",
-                                    [updated.endedAtMS.map(SQLiteValue.integer) ?? .null, .text(updated.status.rawValue), .text(id)])
+                                    [updated.endedAtMS.map(SQLiteValue.integer) ?? .null, .text(updated.status.rawValue), try DB2BKeys.local(transaction, id)])
             return .committed
         }
     }
 
     public func assign(_ stepOccurrenceID: String, toTask taskOccurrenceID: String?, step stepID: String?, by author: String) async throws -> MemoryReceipt {
         guard !author.isEmpty else { throw EventFactError.invalidRecord(.emptyText(field: "assigned_by")) }
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             guard let stored = try SQLiteStepRows.occurrence(transaction, id: stepOccurrenceID) else {
                 throw EventFactError.missingOccurrence(id: stepOccurrenceID)
             }
             if let task = taskOccurrenceID, try SQLiteTaskRows.occurrence(transaction, id: task) == nil { throw EventFactError.missingOccurrence(id: task) }
-            if let step = stepID, !(try SQLiteFactRows.exists(transaction, "SELECT count(*) FROM memory_route_steps WHERE step_id = ?", step)) {
+            if let step = stepID, try transaction.query("SELECT count(*) FROM memory_route_steps WHERE step_id = ?", [try DB2CIdentity.key(transaction, "memory_route_steps", step)], { $0.integer(0) ?? 0 }).first != 1 {
                 throw EventFactError.missingDefinition(id: step)
             }
             var changed = false
@@ -75,21 +96,21 @@ public struct SQLiteStepOccurrenceRepository: StepOccurrenceStoring {
                 UPDATE memory_step_occurrences SET task_occurrence_id = coalesce(task_occurrence_id, ?), step_id = coalesce(step_id, ?),
                     assigned_by = ? WHERE step_occurrence_id = ?
                 """,
-                [taskOccurrenceID.map(SQLiteValue.text) ?? .null, stepID.map(SQLiteValue.text) ?? .null, .text(author), .text(stepOccurrenceID)]
+                [try SQLiteRowIdentity(transaction).key(.attempt, taskOccurrenceID), try DB2CIdentity.key(transaction, "memory_route_steps", stepID), .text(author), try DB2BKeys.local(transaction, stepOccurrenceID)]
             )
             return .committed
         }
     }
 
     public func record(_ membership: StepMembership) async throws -> MemoryReceipt {
-        try await store.write { transaction in try SQLiteStepRows.record(transaction, membership) }
+        try await store.db2BWrite { transaction in try SQLiteStepRows.record(transaction, membership) }
     }
 
     public func attribute(verification eventID: String, to membership: StepMembership) async throws -> MemoryReceipt {
         guard membership.role == .verification, membership.eventID.utf8.elementsEqual(eventID.utf8) else {
             throw EventFactError.invalidRecord(.shape(field: "role"))
         }
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             guard let stored = try SQLiteTaskRows.verification(transaction, eventID: eventID) else { throw EventFactError.missingEvent(eventID: eventID) }
             let target = membership.stepOccurrenceID
             guard try SQLiteStepRows.occurrence(transaction, id: target) != nil else { throw EventFactError.missingOccurrence(id: target) }
@@ -97,7 +118,7 @@ public struct SQLiteStepOccurrenceRepository: StepOccurrenceStoring {
             if let current = stored.stepOccurrenceID {
                 guard current.utf8.elementsEqual(target.utf8) else { throw EventFactError.alreadyAttributed(eventID: eventID) }
             } else {
-                try transaction.execute("UPDATE memory_verifications SET step_occurrence_id = ? WHERE event_id = ?", [.text(target), .text(eventID)])
+                try transaction.execute("UPDATE memory_verifications SET step_occurrence_id = ? WHERE event_id = ?", [try DB2BKeys.local(transaction, target), try SQLiteRowIdentity(transaction).key(.event, eventID)])
                 changed = true
             }
             let receipt = try SQLiteStepRows.record(transaction, membership)
@@ -106,10 +127,12 @@ public struct SQLiteStepOccurrenceRepository: StepOccurrenceStoring {
     }
 
     public func record(_ evidence: DefinitionEvidence) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             switch evidence.subject {
                 case .route(let routeID, let taskID):
-                    guard try SQLiteRouteRows.status(transaction, routeID) != nil else { throw EventFactError.missingDefinition(id: routeID) }
+                    guard try SQLiteRowIdentity(transaction).usesIntegerKeys
+                        ? DB2BKeys.key(transaction, routeID, table: "memory_routes", id: "route_id", uuid: "route_uuid") != .null
+                        : SQLiteRouteRows.status(transaction, routeID) != nil else { throw EventFactError.missingDefinition(id: routeID) }
                     guard try SQLiteTaskRows.occurrence(transaction, id: taskID) != nil else { throw EventFactError.missingOccurrence(id: taskID) }
                 case .step(let stepID, let occurrenceID):
                     guard let occurrence = try SQLiteStepRows.occurrence(transaction, id: occurrenceID) else { throw EventFactError.missingOccurrence(id: occurrenceID) }
@@ -126,11 +149,11 @@ public struct SQLiteStepOccurrenceRepository: StepOccurrenceStoring {
                 case .route(let routeID, let taskID):
                     try transaction.execute(
                         "INSERT INTO memory_route_evidence (route_id, task_occurrence_id, relation, assessed_by, assessed_at_ms) VALUES (?, ?, ?, ?, ?)",
-                        [.text(routeID), .text(taskID), .text(evidence.relation.rawValue), .text(evidence.assessedBy), .integer(evidence.assessedAtMS)])
+                        [try DB2BKeys.key(transaction, routeID, table: "memory_routes", id: "route_id", uuid: "route_uuid"), try SQLiteRowIdentity(transaction).key(.attempt, taskID), .text(evidence.relation.rawValue), .text(evidence.assessedBy), .integer(evidence.assessedAtMS)])
                 case .step(let stepID, let occurrenceID):
                     try transaction.execute(
                         "INSERT INTO memory_step_evidence (step_id, step_occurrence_id, relation, assessed_by, assessed_at_ms) VALUES (?, ?, ?, ?, ?)",
-                        [.text(stepID), .text(occurrenceID), .text(evidence.relation.rawValue), .text(evidence.assessedBy), .integer(evidence.assessedAtMS)])
+                        [try DB2CIdentity.key(transaction, "memory_route_steps", stepID), try DB2BKeys.local(transaction, occurrenceID), .text(evidence.relation.rawValue), .text(evidence.assessedBy), .integer(evidence.assessedAtMS)])
             }
             return .committed
         }
@@ -158,8 +181,8 @@ enum SQLiteStepRows {
 
     static func occurrence(_ handle: some SQLiteQuerying, id: String) throws -> StoredStepOccurrence? {
         try handle.query(
-            "SELECT started_at_ms, ended_at_ms, status, task_occurrence_id, step_id, assigned_by FROM memory_step_occurrences WHERE step_occurrence_id = ?",
-            [.text(id)]
+            "SELECT started_at_ms, ended_at_ms, status, \(try SQLiteRowIdentity(handle).publicReference(.attempt, column: "memory_step_occurrences.task_occurrence_id")), \(try DB2CIdentity.publicReference(handle, "memory_route_steps", "step_id")), assigned_by FROM memory_step_occurrences WHERE step_occurrence_id = ?",
+            [try DB2BKeys.local(handle, id)]
         ) { row in
             let statusCode = try row.text(2) ?? ""
             guard let status = SQLiteRouteRows.code(TaskStatus.self, statusCode) else {
@@ -202,7 +225,7 @@ enum SQLiteStepRows {
         }
         try transaction.execute(
             "INSERT INTO memory_step_events (step_occurrence_id, event_id, position, attempt_number, role) VALUES (?, ?, ?, ?, ?)",
-            [.text(occurrenceID), .text(membership.eventID), .integer(membership.position), membership.attemptNumber.map(SQLiteValue.integer) ?? .null,
+            [try DB2BKeys.local(transaction, occurrenceID), try SQLiteRowIdentity(transaction).key(.event, membership.eventID), .integer(membership.position), membership.attemptNumber.map(SQLiteValue.integer) ?? .null,
              .text(membership.role.rawValue)]
         )
         return .committed
@@ -210,8 +233,8 @@ enum SQLiteStepRows {
 
     static func memberships(_ handle: some SQLiteQuerying, of occurrenceID: String) throws -> [StepMembership] {
         try handle.query(
-            "SELECT event_id, position, attempt_number, role FROM memory_step_events WHERE step_occurrence_id = ? ORDER BY position",
-            [.text(occurrenceID)]
+            "SELECT \(try SQLiteRowIdentity(handle).publicReference(.event, column: "memory_step_events.event_id")), position, attempt_number, role FROM memory_step_events WHERE step_occurrence_id = ? ORDER BY position",
+            [try DB2BKeys.local(handle, occurrenceID)]
         ) { row in
             let eventID = try row.text(0) ?? "", roleCode = try row.text(3) ?? ""
             guard let role = SQLiteRouteRows.code(TaskEventRole.self, roleCode) else {
@@ -235,7 +258,14 @@ enum SQLiteStepRows {
             case .step(let stepID, _):
                 (sql, id, table) = ("SELECT step_occurrence_id, relation, assessed_by, assessed_at_ms FROM memory_step_evidence WHERE step_id = ?", stepID, "memory_step_evidence")
         }
-        let rows = try handle.query(sql, [.text(id)]) { row -> DefinitionEvidence in
+        let key: SQLiteValue
+        let selected: String
+        if try SQLiteRowIdentity(handle).usesIntegerKeys, table == "memory_route_evidence" {
+            key = try DB2BKeys.key(handle, id, table: "memory_routes", id: "route_id", uuid: "route_uuid")
+            selected = sql.replacingOccurrences(of: "SELECT task_occurrence_id,", with:
+                "SELECT " + (try SQLiteRowIdentity(handle).publicReference(.attempt, column: "memory_route_evidence.task_occurrence_id")) + ",")
+        } else { key = try DB2CIdentity.key(handle, "memory_route_steps", id); selected = sql }
+        let rows = try handle.query(selected, [key]) { row -> DefinitionEvidence in
             let other = try row.text(0) ?? "", relationCode = try row.text(1) ?? ""
             guard let relation = SQLiteRouteRows.code(EvidenceRelation.self, relationCode) else {
                 throw EventFactError.malformedRow(table: table, id: "\(id):\(other)", malformation: .unknownCode(column: "relation", code: relationCode))

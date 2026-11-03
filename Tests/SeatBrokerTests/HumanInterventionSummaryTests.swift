@@ -122,7 +122,7 @@ struct HumanInterventionSummaryTests {
         }
         initial.elements += nativeScene(["Audio 1"]).elements
         initial.elements.append(.init(id: "colour", kind: .control, label: "Colour",
-            bounds: .init(x: 0, y: 0, width: 0.1, height: 0.1), role: "AXTextField", value: "Blue"))
+            bounds: .init(x: 0, y: 0, width: 0.1, height: 0.1), role: "AXTextField", value: "Blue", labelOrigin: .title))
         var findings: [HumanSceneFinding] = []
         var final = initial
         for index in 1...35 {
@@ -430,7 +430,7 @@ struct HumanInterventionSummaryTests {
             try finding(UInt64($0.offset + 1), $0.element, scene: unchanged)
         }
         let text = HumanInterventionSummary.build(try await review(findings, final: [7: unchanged]))
-        #expect(text == "No changes made.\nDetails: human_step step 1 (4 actions, 4 without an observed change).")
+        #expect(text == "No changes made.\nDetails: handoff step 1 (4 actions, 4 without an observed change).")
     }
 
     @Test func unknownClickDoesNotProveCreation() async throws {
@@ -501,7 +501,7 @@ struct HumanInterventionSummaryTests {
         #expect(digest.evidence.steps.first?.text == "F1")
         #expect(digest.evidence.steps.last?.text == "F20")
         #expect(digest.evidence.threads.actions.count == 20)
-        #expect(digest.text == "No changes made.\nDetails: human_step steps 1-20 (20 actions, 20 without an observed change).")
+        #expect(digest.text == "No changes made.\nDetails: handoff steps 1-20 (20 actions, 20 without an observed change).")
     }
 
     @Test func byteLimitKeepsWholeDifferenceLinesAndLazyStepCount() async throws {
@@ -512,7 +512,7 @@ struct HumanInterventionSummaryTests {
         }
         let text = HumanInterventionSummary.build(try await review(findings, final: [7: final]))
         #expect(text.utf8.count <= 1000)
-        #expect(text == "No changes made.\nDetails: human_step steps 1-20 (20 actions, 20 without an observed change).")
+        #expect(text == "No changes made.\nDetails: handoff steps 1-20 (20 actions, 20 without an observed change).")
         #expect(!text.contains("\nF20") && !text.contains("�"))
         let complete = Set(final.elements.map { "+ " + $0.label })
         for line in text.split(separator: "\n") where line.hasPrefix("+ ") {

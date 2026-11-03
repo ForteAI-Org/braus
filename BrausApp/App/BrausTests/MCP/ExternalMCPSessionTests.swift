@@ -5,6 +5,7 @@ import Foundation
 import LocalMCP
 import PerceptionCore
 import Testing
+import Switches
 @testable import Braus
 
 @MainActor
@@ -46,6 +47,25 @@ struct ExternalMCPSessionTests {
         await session.close()
     }
 
+    @Test func delegatedCallReachesActivityUnderItsRealName() async throws {
+        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2", "task_cycle": "v2"])) {
+            let desktop = SyntheticMCPDesktop()
+            var activity: [String] = []
+            let session = ExternalMCPSession(profile: MCPClientProfile(name: "Synthetic"), session: desktop,
+                activity: { activity.append($0) })
+            let listed = try #require(await session.router.handle(request("tools/list")))
+            #expect(listed["result"]["tools"].array?.compactMap { $0["name"].string } == ToolList.core.map(\.rawValue))
+            let answer = try #require(await session.router.handle(request("tools/call", params: .object([
+                "name": .string("call"), "arguments": .object([
+                    "name": .string("select"),
+                    "arguments": .object(["control": .string("Mono"), "item": .string("Stereo")])])]))))
+            #expect(answer["result"]["isError"] == .bool(false))
+            #expect(activity == ["select"])
+            #expect(desktop.selections == 1)
+            await session.close()
+        }
+    }
+
     private func request(_ method: String, params: JSONValue = .object([:])) -> JSONValue {
         .object(["jsonrpc": .string("2.0"), "id": .number(1), "method": .string(method), "params": params])
     }
@@ -77,4 +97,14 @@ final class SyntheticMCPDesktop: AutomationSessionOperating {
     }
     func applications(matching query: String?) async throws -> [ApplicationCandidate] { [] }
     func close() async { id = nil; closes += 1 }
+}
+
+extension ExternalMCPSessionTests {
+    @Test func sessionProfileDefaultsToAnAttendedClientWithoutPersistedFields() throws {
+        let client = MCPClientProfile(name: "Juniper", desktop: false)
+        #expect(client.sessionProfile == .mcpClient(name: "Juniper", attendance: .client))
+        let encoded = try JSONEncoder().encode(client)
+        let keys = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(Set(keys.keys) == ["id", "name", "desktop", "enabled"])
+    }
 }

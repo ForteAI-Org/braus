@@ -1,10 +1,12 @@
 # Schema 22
 
-Proposed DDL for DB1. This resource is not active: SQLiteMemorySchema.version remains 19.
-Tommaso must approve the full DDL before DB2 activates the single conversion. No source archive was opened or converted for this increment.
+Tommaso approved this DDL on 2026-11-02 (d67ff53e). SQLiteMemorySchema.version is 22.
+Ordinary producer openings use the approved schema;
+existing archives migrate only when MigrationPolicy permits and no person episode is open.
+CLI producers require the memory --migrate command. Readers never migrate.
 
 The source audit uses revision `0e594d722e139a29e1801d0fc4b9afebab200d46`.
-All 121 source tables have a destination. The 40 new tables bring the proposed total to 161.
+All 121 source tables have a destination. The 42 new tables bring the proposed total to 163.
 The file has 91 explicit indexes and 330 triggers: 119 retained source triggers, 98 source triggers transferred to code, and 211 new triggers.
 Old tables: 110 changed, 11 frozen, 0 unchanged, 0 out. Frozen takes precedence over physical key changes in these counts.
 
@@ -12,12 +14,128 @@ Old tables: 110 changed, 11 frozen, 0 unchanged, 0 out. Frozen takes precedence 
 
 DB2 creates `tables`, transfers and derives rows, then executes `indexes` and `triggers` in that order inside its controlled conversion.
 The same destination applies to 19, private 20 and 21. Preserve rows and resolve local integer identities before adding constraints.
-An added surrogate for a formerly composite parent has a simple FK; the retained contextual columns are checked by SchemaCoherence.
+An added surrogate for a formerly composite parent has a simple FK; the retained contextual columns are checked by SchemaCoherence. The derived memory_phase_family_attempt_labels table uses a composite FK to its attempt contribution so deletion cascades through both integer keys.
 Each removed source trigger needs a pure DB2 check with that trigger name in its doc comment and a coverage case.
 UUIDs occur once per globally identified entity; dependent rows refer to integer PKs. Rows keyed by parent and position remain ordered associations.
-Private 20 operations become generic capability calls. The private 21 memory_learned_facts table, person preferences, parameter defaults and conversation state are outside this DDL (R-C-44, R-X-14, R-X-41).
+Private 20 operations become generic capability calls. The legacy 21 memory_learned_facts table is retained only in its historical source copy; it is not imported or used by this engine (R-X-14, R-X-41).
 ME1 §3.5 answers DB1’s value-retention question: ordinary values retain text_value; personal and secret values use reference plus value_digest. Historic text remains until the declared VK4 exception is used.
 No historic caption can be distinguished from a value label: retain value; caption is for new rows only (RF2).
+
+## File exchange and rollback
+
+SQLiteMigration22 separates admission and closed-file exchange from row conversion. Admission requires
+canMigrate(), exclusive archive presence and available capacity of at least 1.5 times the combined main,
+WAL and SHM lengths, rounded up. Historical normalization requires 2.5 times that length. Insufficient
+capacity reports needed and available bytes in a typed refusal. Capacity lookup errors remain errors.
+The source uses a file URI with mode=ro and readonly_shm=1, one read transaction, and no automatic close
+checkpoint. The SHM option prevents even shared-memory read marks from changing the source family.
+
+Before exchange, the coordinator must verify converted row counts and SchemaCoherence and prevent
+intervening source writes. Exchange independently checks the built file's exact DDL, integrity, foreign
+keys, version 22 and DELETE journal mode, with no sidecars. It synchronizes the built file with
+F_FULLFSYNC, then writes a private recovery record containing member names, sizes and SHA-256 digests.
+The record is synchronized and published before the first archive rename. Each rename is exclusive
+and followed by directory fsync; WAL and SHM move before the outgoing main file.
+
+A pending .migration-22 or .rollback-22 record blocks ordinary store opens with interruptedRecovery.
+Explicit recovery completes the recorded exchange if incoming bytes match, or restores the outgoing
+family while retaining damaged incoming files as .abandoned. Records finish by exclusive rename to
+.done; no exchange file is deleted. Recovery can itself stop and resume between renames.
+The .abandoned suffix belongs to the archive base, before -wal and -shm, so the preserved family can
+be retired intact through SQLiteArchiveRetirement.retire(_:into:).
+
+Call rollBack(live:to:) only with all connections closed and a recognized earlier schema copy beside
+the archive. It retains the live 22, including subsequent writes and sidecars, as .schema-22-<instant>,
+then restores the earlier family. A taken destination refuses before any archive moves. Opening the
+restored archive with an older build preserves its earlier schema; the retained 22 requires a build
+that understands 22. Store openings apply MigrationPolicy; memory --migrate authorizes CLI conversion
+and --rollback preserves both archives.
+
+SQLiteMigration22Normalization pins the historical chain to historical19Text(), independent of the
+active schema version. It accepts an exact recognized shape in an existing source read transaction,
+copies it through SQLiteBackup into an exclusive private working file, and runs the chain only there.
+Conversion borrows that working file read-only at user_version 19. Successful work, including retained
+WAL/SHM members, moves by exclusive renames to `.used`; interrupted or refused work stays unpublished.
+Direct unified-19 sources are borrowed without a working copy. Private 20/21 recognition awaits T-B3.
+
+SQLiteMigration22Outcomes converts copied gesture actions before destination triggers are installed.
+It uses saved effect delivery, the first verification in the historical reader's event order, saved
+act/set_toggle context for no-ops, and attached after scenes. Missing effect or verdict produces
+converted_partial with no check. Only a complete confirmed conversion is learnable. Non-gesture
+results, dry runs and pending actions retain their historical representation.
+Dry runs keep result_kind because the ES1 columns cannot distinguish a preview from a no-op. Not-applicable effects use the
+DDL's `effect = unknown`, `effect_reason = not_applicable` pair. The coordinator applies
+row conversion and SchemaCoherence before publication.
+
+SQLiteMigration22Keys keeps identity catalogs only in the destination's temporary schema. Event IDs
+retain source local_order, and dependent identities resolve through the parent's catalog. Composite
+keys use typed, byte-length-delimited fields, preserving embedded NULs and distinct UTF-8 spellings.
+Missing identities refuse conversion; the caller must roll back the destination transaction.
+
+SQLiteMigration22RowCopy streams individual tables with explicit rules for changed columns. Unchanged
+storage classes copy directly; integer references resolve through SQLiteMigration22Keys. Required new
+columns and storage-class changes refuse without a rule. Each transferred table must have exactly its
+source count before later derivation. The family converter still owns the full field rules, structural
+and privacy conversions, and final SchemaCoherence verification.
+
+SQLiteMigration22Plan resolves the structural rules across all 121 historical tables from the two
+frozen resources. Subtype identities inherit their parent's integer; formerly composite references
+resolve their complete source key to the new surrogate. Any NULL component preserves an optional
+reference as NULL. Required content changes still require an explicit family conversion rule.
+
+SQLiteMigration22Observations preserves historical observation rows and adds shared element content
+and unordered sets, using SQLiteElementSetRows' byte-length-delimited canonical form and sorted
+unsigned varints. Saved capture quality supplies rejection codes and window subrole; an unavailable
+historic window number remains NULL. Scene skeletons are reconstructed from the converted structural
+rows and hashed only with SkeletonDigest. Equivalent historical scenes remain separate rows.
+
+SQLiteMigration22Content converts historical part authorship (`braus-cli` to `person`, otherwise
+`braus`) and reasons (`migrated`), and derives value digests only from available text. Saved query
+and need text uses RecallQueryMasking with available archived task values. Recall documents acquire
+content text identities; vectors retain their exact bytes and their complete catalogued space.
+
+SQLiteMigration22Rows combines these families in one destination transaction. It transfers and
+recounts every historical table, reconstructs candidate digests from saved event UUIDs and policy,
+and reconstructs ProcedureInterpretation.canonical from converted parts, parameters and argument
+segments, with decimal candidate identity and global route UUIDs. Both digests use Digest16.
+It queues one index_rebuild with ref_id = 0 (the DDL requires a non-NULL global-work reference)
+without computing vectors. SchemaCoherence and activation remain prerequisites for ordinary migration.
+
+SchemaCoherence has a pure predicate for each of the 98 retired trigger names. Its at-rest check
+loads saved relationships from one snapshot, checks cycles and ordered histories, and independently
+checks all 99 historical composite-FK contexts after their physical keys become simple FKs.
+The coverage audit assigns each retired name to snapshot or mutation coverage. Mutation predicates
+need old and new facts and belong to the writer: a final snapshot cannot prove past transition or
+rebuild authorization. Historical Recall entries may remain in retired generations at rest.
+Repository writes resolve integer owners and validate coherence in their transaction.
+Ordinary openings select schema 22. The explicit historical19 opening retains the old version guard
+for historical fixtures and compatibility tests. Migration never runs the historical chain on the source.
+
+SQLiteCallFieldRows is adapted to integer event/attempt keys on schema 22 through SQLiteRowIdentity,
+which resolves UUIDs only at repository boundaries and renders public references back as UUIDs.
+Schema 19 keeps its text-key behavior. Field writes apply the named concluded-call and result-reference
+coherence predicates in their write transaction. Account salting remains a normal first-use write.
+Procedure, Route, Recall and Brain repositories use integer keys on schema 22.
+Route children expose qualified step:N and parameter:N references. Procedure state reasons use
+closed reason_code values; unknown historical free text becomes migrated.
+Archive transfer opens its historical staging copies through the retained schema-19 chain,
+preserving their application_id ownership token. A schema-22 staging copy opens directly at 22;
+transfer never activates a second migration on that unpublished copy.
+
+SQLiteMigration22.build combines admission, read-only normalization, row conversion, exact counts,
+DDL/integrity/FK checks, SchemaCoherence, and the schema-22 ledger before closing and synchronizing
+the new file. Progress counts copied source rows and emits each conversion phase; index work is
+queued without computing vectors. SQLiteMigration22.migrate holds one exclusive reservation from
+admission until all source connections close and durable exchange finishes. Standalone build
+releases admission after constructing an unpublished file and cannot guarantee the source remains
+unchanged afterward. Ordinary store openings use schema 22 under the selected migration policy.
+
+Equal Recall document text in two historical formats shares one text_id while retaining both
+document rows through UNIQUE(text_id,document_format). Schema 19 identifies documents by SHA-256
+of format plus text; labelled and contextual formats can emit identical procedure text.
+SchemaMigration22DocumentCollisionTests preserves both counts and formats without an expected failure.
+SchemaMigration22RecallWriterTests exercises equal text in labelled and contextual generations.
+No document deduplication exception is needed.
 
 ## Table inventory
 
@@ -82,7 +200,7 @@ General conversion: preserve scalar content and observable ordering, allocate in
 | `memory_task_message_refs` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteTaskContextRepository.swift:302`. All references: `SQLiteTaskContextRepository.swift:302,331` |
 | `memory_task_attempts` | 19 (also 20/21) | changed | R-A-42, R-F-06, R-G-17 | TU6, TU13, EC3, EC5, EE4, PP1 | task cycle, person review | Reuse the occurrence integer identity; preserve ordinal and resume chain; takeover = none for historical rows. | Direct writes: `SQLiteTaskContextRepository.swift:423`. All references: `SQLiteCallFieldRows.swift:134`; `SQLiteMemoryInspection.swift:279,289,290,304`; `SQLiteRecallRows.swift:257`; `SQLiteTaskContextRepository.swift:13,423,441,452,464` |
 | `memory_task_checkpoints` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteTaskContextRepository.swift:487`. All references: `SQLiteProcedureRepository.swift:1173,1216`; `SQLiteTaskContextRepository.swift:487,505,512,516` |
-| `memory_task_values` | 19 (also 20/21) | changed | R-C-14, R-C-15, R-C-20, R-C-35, R-C-40 | ME1, PE3 | Recall, ME5, VK4 | Preserve historical text_value, content, kind and source; resolve optional task_revision_id or checkpoint_id according to its owner. Derive value_digest only from an available canonical value; missing/withheld have NULL digest. | Direct writes: `SQLiteTaskContextRepository.swift:361`. All references: `SQLiteCallFieldRows.swift:134`; `SQLiteTaskContextRepository.swift:361,383,393,400` |
+| `memory_task_values` | 19 (also 20/21) | changed | R-C-14, R-C-15, R-C-20, R-C-35, R-C-40 | ME1 | Recall, ME5, VK4 | Preserve historical text_value, content, kind and source; resolve optional task_revision_id or checkpoint_id according to its owner. Derive value_digest only from an available canonical value; missing/withheld have NULL digest. | Direct writes: `SQLiteTaskContextRepository.swift:361`. All references: `SQLiteCallFieldRows.swift:134`; `SQLiteTaskContextRepository.swift:361,383,393,400` |
 | `memory_task_call_revisions` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteOperationFactRepository.swift:276`. All references: `SQLiteOperationFactRepository.swift:276,287` |
 | `memory_call_effects` | 19 (also 20/21) | changed | R-E-01, R-E-11, R-E-15, R-E-18, R-E-22, R-E-40 | ES1, ES2, ES4, ES5, AT1, EC2, EC3, SC4 | ES4, qualification, BR5 | Preserve the distinct delivery detail and target evidence; canonical typed outcome is on memory_agent_actions. Do not reinterpret result_kind as an execution state. | Direct writes: `SQLiteOperationFactRepository.swift:332`. All references: `SQLiteArchiveTransfer.swift:69`; `SQLiteOperationFactRepository.swift:332,471,477`; `SQLiteReconciliationRows.swift:79` |
 | `memory_call_routes` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteOperationFactRepository.swift:356`. All references: `SQLiteArchiveTransfer.swift:72`; `SQLiteMemorySchema.swift:62`; `SQLiteOperationFactRepository.swift:356,364,368` |
@@ -104,15 +222,15 @@ General conversion: preserve scalar content and observable ordering, allocate in
 | `memory_procedure_versions` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteProcedureRepository.swift:850`. All references: `SQLiteMemoryInspection.swift:290`; `SQLiteProcedureRepository.swift:140,342,416,465,819,825,839,850,940,953,1169,1189,1214,1586,1624`; `SQLiteRecallChoices.swift:135`; `SQLiteRecallRepository.swift:418` |
 | `memory_procedure_parts` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteProcedureRepository.swift:861`. All references: `SQLiteProcedureRepository.swift:433,480,861,1059,1068,1195,1338,1649,1656,1668`; `SQLiteRecallRepository.swift:209,387`; `SQLiteRecallRows.swift:283` |
 | `memory_part_contract_items` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteProcedureRepository.swift:884`. All references: `SQLiteProcedureRepository.swift:884,1097,1104` |
-| `memory_parameter_details` | 19 (also 20/21) | changed | R-C-14, R-C-15, R-C-20, R-C-35, R-C-40 | ME1, PE3 | Recall, ME5, VK4 | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteProcedureRepository.swift:872`. All references: `SQLiteProcedureRepository.swift:872,920,928` |
+| `memory_parameter_details` | 19 (also 20/21) | changed | R-C-14, R-C-15, R-C-20, R-C-35, R-C-40 | ME1 | Recall, ME5, VK4 | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteProcedureRepository.swift:872`. All references: `SQLiteProcedureRepository.swift:872,920,928` |
 | `memory_operation_argument_segments` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteRouteRepository.swift:286`. All references: `SQLiteRouteRepository.swift:286,502,516,527` |
-| `memory_parameter_bindings` | 19 (also 20/21) | changed | R-C-14, R-C-15, R-C-20, R-C-35, R-C-40 | ME1, PE3 | Recall, ME5, VK4 | Preserve historical binding content and text_value; derive value_digest only when available. source_ref denotes an event or output, never a task value. | Direct writes: `SQLiteProcedureRepository.swift:900`. All references: `RecallSource.swift:208`; `SQLiteProcedureRepository.swift:900,960,971`; `SQLiteRecallRows.swift:256` |
+| `memory_parameter_bindings` | 19 (also 20/21) | changed | R-C-14, R-C-15, R-C-20, R-C-35, R-C-40 | ME1 | Recall, ME5, VK4 | Preserve historical binding content and text_value; derive value_digest only when available. source_ref denotes an event or output, never a task value. | Direct writes: `SQLiteProcedureRepository.swift:900`. All references: `RecallSource.swift:208`; `SQLiteProcedureRepository.swift:900,960,971`; `SQLiteRecallRows.swift:256` |
 | `memory_procedure_step_occurrences` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteProcedureRepository.swift:910`. All references: `SQLiteProcedureRepository.swift:910,979,1155,1365`; `SQLiteRecallRows.swift:169,180,199` |
 | `memory_qualification_policies` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteProcedureRepository.swift:524`, `SQLiteProcedureRepository.swift:1119`. All references: `SQLiteProcedureRepository.swift:513,518,524,1119,1127,1652` |
 | `memory_part_qualifications` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Resolve integer policy_id; preserve verdict and sequence; convert every historical complete to 1. ME7 readers use only complete = 1. | Direct writes: `SQLiteProcedureRepository.swift:1432`. All references: `SQLiteProcedureRepository.swift:434,435,1196,1197,1338,1428,1432,1463,1650,1651`; `SQLiteRecallRows.swift:145` |
 | `memory_part_qualification_reasons` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteProcedureRepository.swift:1441`. All references: `SQLiteProcedureRepository.swift:1441,1471,1477` |
 | `memory_part_qualification_evidence` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteProcedureRepository.swift:1451`. All references: `SQLiteProcedureRepository.swift:1198,1451,1483` |
-| `memory_part_states` | 19 (also 20/21) | changed | R-C-44, R-C-67, R-G-32 | VK4, VK5, DB2, RA1 | catalogue, Recall, archive import | Convert CLI authorship to recorded_by = braus and historical reason text to reason_code = migrated; preserve state and sequence. No off state. Imported rows carry origin_id; do not infer a person preference. | Direct writes: `SQLiteProcedureRepository.swift:496`. All references: `SQLiteProcedureRepository.swift:484,496,1335,1336,1494,1497,1661`; `SQLiteRecallRows.swift:147` |
+| `memory_part_states` | 19 (also 20/21) | changed | R-C-44, R-C-67, R-G-32 | VK4, VK5, DB2, RA1 | catalogue, Recall, archive import | Convert CLI authorship to recorded_by = person and historical reason text to reason_code = migrated; preserve state and sequence. No off state. Imported rows carry origin_id; do not infer a person preference. | Direct writes: `SQLiteProcedureRepository.swift:496`. All references: `SQLiteProcedureRepository.swift:484,496,1335,1336,1494,1497,1661`; `SQLiteRecallRows.swift:147` |
 | `brain_relations` | 19 (also 20/21) | changed | R-G-08, R-G-18, R-G-20 | SQLiteBrainRelationRepository after DB2, BR5 | Brain, archive inspection, VK3 | Preserve UUID and scene rows; materialize distinct (app, element_key) in brain_element_keys and resolve element_key_id. kind_id NULL on historical rows; the later BR5 writer adds type rows. Arrival scene belongs to proof evidence for type rows. | Direct writes: `SQLiteBrainRelationRepository.swift:449`. All references: `SQLiteArchiveTransfer.swift:71`; `SQLiteBrainRelationRepository.swift:255,449,465,481,490,528`; `SQLiteProcedureRepository.swift:1606`; `SQLiteRecallRows.swift:183,522` |
 | `brain_relation_proofs` | 19 (also 20/21) | changed | R-G-08, R-G-18 | BR5 | Brain, archive inspection, VK3 | Preserve historical proof rows; BR5 resumes writes and records to_scene_id. A lack of a writer in 19 does not freeze this future fact table. | Direct writes: No direct insert; see indirect/rare cases below. All references:  |
 | `brain_relation_applications` | 19 (also 20/21) | frozen | R-G-09, R-X-13, R-G-20 | DB2 transfer only; BR3 declared content exception where applicable | Brain, archive inspection, VK3 | Copy historical rows before freeze triggers; retain their observable ordering. | Direct writes: No direct insert; see indirect/rare cases below. All references: `SQLiteArchiveTransfer.swift:71`; `SQLiteBrainRelationRepository.swift:333`; `SQLiteProcedureRepository.swift:1553` |
@@ -124,7 +242,7 @@ General conversion: preserve scalar content and observable ordering, allocate in
 | `memory_variant_prefix_checks` | 19 (also 20/21) | changed | R-G-17, R-G-18, R-G-20, R-X-13, R-X-14 | DB2; existing repositories | existing repositories, archive inspection | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteProcedureRepository.swift:243`. All references: `SQLiteArchiveTransfer.swift:72`; `SQLiteProcedureRepository.swift:243,1038,1041,1044` |
 | `memory_recall_spaces` | 19 (also 20/21) | changed | R-C-14, R-C-22, R-C-33, R-G-18 | ME3, ME4, ME8, RA3, DB2 | Recall, VK2 | Allocate space_int_id; retain the full space_id and every original specification, including 64-character weights/tokenizer digests and float32 precision. Never merge by model_id alone. | Direct writes: `SQLiteRecallRepository.swift:50`. All references: `SQLiteRecallRepository.swift:50` |
 | `memory_recall_generations` | 19 (also 20/21) | changed | R-C-14, R-C-22, R-C-33, R-G-18 | ME3, ME4, ME8, RA3, DB2 | Recall, VK2 | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteRecallRepository.swift:74`. All references: `SQLiteRecallRepository.swift:74,78,92,96,99,103,113,123,215,367,406`; `SQLiteRecallRows.swift:24,31` |
-| `memory_recall_documents` | 19 (also 20/21) | changed | R-C-14, R-C-22, R-C-33, R-G-18 | ME3, ME4, ME8, RA3, DB2 | Recall, VK2 | Rebuild derived documents with integer document_id and shared text_id. The document has no duplicate text column. Recall generation cursor_route_id is also an integer reference to the enumerated procedure version. | Direct writes: `SQLiteRecallRows.swift:119`. All references: `SQLiteRecallRepository.swift:241,386`; `SQLiteRecallRows.swift:119` |
+| `memory_recall_documents` | 19 (also 20/21) | changed | R-C-14, R-C-22, R-C-33, R-G-18 | ME3, ME4, ME8, RA3, DB2 | Recall, VK2 | Rebuild derived documents with integer document_id and shared text_id; UNIQUE (text_id,document_format) preserves distinct formats with equal text. The document has no duplicate text column. Recall generation cursor_route_id is also an integer reference to the enumerated procedure version. | Direct writes: `SQLiteRecallRows.swift:119`. All references: `SQLiteRecallRepository.swift:241,386`; `SQLiteRecallRows.swift:119` |
 | `memory_recall_vectors` | 19 (also 20/21) | changed | R-C-14, R-C-22, R-C-33, R-G-18 | ME3, ME4, ME8, RA3, DB2 | Recall, VK2 | Rebuild vectors keyed by (text_id, space_int_id), WITHOUT ROWID. Never reuse across different complete spaces. | Direct writes: `SQLiteRecallRepository.swift:266`. All references: `SQLiteRecallRepository.swift:242,266,354,389`; `SQLiteRecallRows.swift:46` |
 | `memory_recall_entries` | 19 (also 20/21) | changed | R-C-14, R-C-22, R-C-33, R-G-18 | ME3, ME4, ME8, RA3, DB2 | Recall, VK2 | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteRecallRows.swift:127`. All references: `SQLiteMemoryInspection.swift:382`; `SQLiteRecallRepository.swift:240,385,396,599`; `SQLiteRecallRows.swift:45,94,127,140` |
 | `memory_recall_work` | 19 (also 20/21) | changed | R-C-14, R-C-22, R-C-33, R-G-18 | ME3, ME4, ME8, RA3, DB2 | Recall, VK2 | Preserve rows; apply the general integer-key and simple-FK conversion. | Direct writes: `SQLiteMemoryStore.swift:853`, `SQLiteRecallRepository.swift:177`, `SQLiteRecallRepository.swift:178`. All references: `SQLiteMemoryInspection.swift:377`; `SQLiteMemoryStore.swift:853`; `SQLiteRecallRepository.swift:146,158,167,177,178,338,370,596,613` |
@@ -160,8 +278,10 @@ General conversion: preserve scalar content and observable ordering, allocate in
 | `memory_operation_argument_links` | new | new | R-C-40 | ME1 | Recall, ME5, VK4 | Empty at migration; ME1 records new reference/template/derived/to_provide links. Format derivation templates contain tokens and separators, never values. | Future writer only; DB1 A–E. |
 | `memory_step_signatures` | new | new | R-C-17, R-C-45 | ME5 | ME5, repeated parts, VK2 | No historical source; start empty for its named writer. | Future writer only; DB1 A–E. |
 | `memory_step_signature_members` | new | new | R-C-17, R-C-45 | ME5 | ME5, repeated parts, VK2 | No historical source; start empty for its named writer. | Future writer only; DB1 A–E. |
-| `memory_phase_families` | new | new | R-C-17, R-C-22, R-C-45 | ME5 | ME5, repeated parts, VK2 | Empty at migration; ME5 reconstructs by app, kind and masked class. labels is the specified ordered JSON [[label,count],…] encoded as TEXT; the schema has no JSON column type or column named json. | Future writer only; DB1 A–E. |
+| `memory_phase_families` | new | new | R-C-17, R-C-22, R-C-45 | ME5 | ME5, repeated parts, VK2 | Empty at migration; ME5 reconstructs by app, kind and masked class. The majority label stays in label; ordered label counts are child rows in memory_phase_family_labels. | Future writer only; DB1 A–E. |
+| `memory_phase_family_labels` | new | new | R-C-17, R-C-22, R-C-45 | ME5 | ME5, repeated parts, VK2 | Empty at migration; derived and rebuildable. Family label counts in order of first date; position preserves that order. One row per label per family; deletion of a family cascades to its labels. | Future writer only; DB1 A–E. |
 | `memory_phase_family_attempts` | new | new | R-C-17, R-C-45 | ME5 | ME5, repeated parts, VK2 | Empty at migration; ME5 rebuilds per-attempt contributions; deletion of a family cascades to its contributions. | Future writer only; DB1 A–E. |
+| `memory_phase_family_attempt_labels` | new | new | R-C-17, R-C-22, R-C-45 | ME5 | ME5, repeated parts, VK2 | Empty at migration; derived and rebuildable. Per-attempt label counts in order of first date, subtracted when an attempt is excluded. One row per label per attempt contribution; deletion of the contribution cascades to its labels. | Future writer only; DB1 A–E. |
 | `memory_recall_texts` | new | new | R-C-22, R-G-18 | DB2, ME4 | Recall, VK2 | No historical source; start empty for its named writer. | Future writer only; DB1 A–E. |
 | `memory_recall_text_pieces` | new | new | R-C-22, R-G-18 | ME4 | Recall, VK2 | No historical source; start empty for its named writer. | Future writer only; DB1 A–E. |
 | `memory_recall_calibration` | new | new | R-C-26, R-C-33 | ME3, ME6 | ME3, ME6, VK2 | No historical source; start empty for its named writer. | Future writer only; DB1 A–E. |
@@ -179,7 +299,7 @@ General conversion: preserve scalar content and observable ordering, allocate in
 | `memory_consolidation_queue` | new | new | R-G-03 | DB2, SK4 and each job producer | consolidator | Empty at migration, then DB2 enqueues index_rebuild. Unknown lowercase job kinds remain queued, unprocessed and undeleted. | Future writer only; DB1 A–E. |
 | `memory_consolidation_cursors` | new | new | R-G-03 | SK4, ME7 | consolidator | Empty at migration; SK4 owns recovery bounds and generation; ME7 owns opaque continuation within one version. | Future writer only; DB1 A–E. |
 | `memory_part_judgments` | new | new | R-C-67, R-G-32 | VK4, VK5 | catalogue, Recall, archive import | No historical source; start empty for its named writer. | Future writer only; DB1 A–E. |
-| `memory_forget_tombstones` | new | new | R-C-44, R-C-67 | VK4 | catalogue, Recall, archive import | Empty at migration; local tombstones are consulted on import and never exported. Person preferences remain outside this archive. | Future writer only; DB1 A–E. |
+| `memory_forget_tombstones` | new | new | R-C-44, R-C-67 | VK4 | catalogue, Recall, archive import | Empty at migration; local tombstones are consulted on import and never exported. | Future writer only; DB1 A–E. |
 | `memory_part_origins` | new | new | R-G-14, R-C-67 | VK4 import, DB2 | catalogue, Recall, archive import | No historical source; start empty for its named writer. | Future writer only; DB1 A–E. |
 | `memory_procedure_provenance` | new | new | R-F-16, R-I-29 | EE4, PM2, VK4 import | qualification, provenance, procedure runner | No historical source; start empty for its named writer. | Future writer only; DB1 A–E. |
 | `memory_procedure_exit_points` | new | new | R-F-16 | EE4 | qualification, provenance, procedure runner | No historical source; start empty for its named writer. | Future writer only; DB1 A–E. |
@@ -445,7 +565,9 @@ An UPDATE naming an unlisted column is refused even if it assigns the same value
 | `memory_recall_entries` | * | yes | Derived entry deletion remains allowed; retained deletion trigger increments the generation revision. |
 | `memory_recall_work` | * | yes | Normal source writes in the reference inventory; identity columns remain protected. |
 | `memory_phase_families` | * | yes | Rebuildable derived rows (R-G-18). |
+| `memory_phase_family_labels` | * | yes | Rebuildable derived label rows (R-G-18). |
 | `memory_phase_family_attempts` | * | yes | Rebuildable derived rows (R-G-18). |
+| `memory_phase_family_attempt_labels` | * | yes | Rebuildable derived label rows (R-G-18). |
 | `memory_recall_texts` | * | yes | Rebuildable derived rows (R-G-18). |
 | `memory_recall_text_pieces` | * | yes | Rebuildable derived rows (R-G-18). |
 | `memory_recall_calibration` | used | no | ME3/ME6: used NULL → 0/1, once; adapted parts also count as used. |
@@ -482,6 +604,15 @@ R-A-50: at most 10 todo rows and 160 characters per expectation are TU6 code lim
 R-E-06 is superseded by R-E-40: the five outcome columns on memory_agent_actions carry the current contract.
 
 Other closed domains, including all 18 verification limits, settle detail codes, arrival conditions, sensitivity and link derivations, appear in the Required columns contract and their DDL CHECKs. job_kind is deliberately open with a lowercase/underscore format limit of 40 characters.
+
+## Recall document keys and constraints
+
+| Table | Keys and constraints |
+| --- | --- |
+| `memory_recall_documents` | INTEGER PRIMARY KEY (document_id); text_id NOT NULL REFERENCES memory_recall_texts(text_id); document_format NOT NULL with length > 0; recorded_at_ms NOT NULL; UNIQUE (text_id,document_format). |
+
+The composite UNIQUE replaces UNIQUE (text_id), retaining one implicit unique index for this table.
+Totals remain 163 tables, 1,319 columns, 91 explicit indexes, 123 implicit indexes and 330 triggers.
 
 ## Digest canonical forms
 
@@ -2067,18 +2198,25 @@ The resource tests read every (table, column) pair below and require the complet
 | `memory_phase_families` | `has_parameter` |
 | `memory_phase_families` | `length` |
 | `memory_phase_families` | `label` |
-| `memory_phase_families` | `labels` |
 | `memory_phase_families` | `members` |
 | `memory_phase_families` | `procedures` |
 | `memory_phase_families` | `first_member_seq` |
 | `memory_phase_families` | `first_attempt_id` |
 | `memory_phase_families` | `latest_route_id` |
 | `memory_phase_families` | `recorded_at_ms` |
+| `memory_phase_family_labels` | `family_id` |
+| `memory_phase_family_labels` | `position` |
+| `memory_phase_family_labels` | `label` |
+| `memory_phase_family_labels` | `count` |
 | `memory_phase_family_attempts` | `family_id` |
 | `memory_phase_family_attempts` | `task_occurrence_id` |
 | `memory_phase_family_attempts` | `members` |
 | `memory_phase_family_attempts` | `routes` |
-| `memory_phase_family_attempts` | `labels` |
+| `memory_phase_family_attempt_labels` | `family_id` |
+| `memory_phase_family_attempt_labels` | `task_occurrence_id` |
+| `memory_phase_family_attempt_labels` | `position` |
+| `memory_phase_family_attempt_labels` | `label` |
+| `memory_phase_family_attempt_labels` | `count` |
 | `memory_recall_texts` | `text_id` |
 | `memory_recall_texts` | `digest` |
 | `memory_recall_texts` | `format` |
@@ -2314,7 +2452,7 @@ At 1,020 actions the source plan's 3.45 MiB contextual-parent index saving is ab
 
 1. COERENZA still calls the state codes and todo limits provisional and proposes 20 rows. DB1 records R-G-32 and R-A-50 as approved and specifies 10 rows. DB1 is authoritative here; TU6 must use 10, title 120 and expectation 160.
 2. Owner-visible label note: memory_brain_command_detections.label is exactly the same minimized text that schema 19 already stores as detection_label/target_label in memory_operation_arguments. SK4 writes it only after ValueMinimization, including confidential-surface handling. The owner must be able to see that (a)/(b) retain a second copy of this existing minimized text; no different text-admission policy is introduced. The DDL field-capacity gate now passes: brainCommandFieldsHaveTypedStorage checks every observe/record command argument name, type and required/optional nullability against BrainApplicationContract; brainCommandInputsRoundTrip checks exact representative commands, including pixel-only detections, resolved target kind/bounds/state and the original Brain request timestamp. Both tests were red before the child tables existed, then green. See Durable Brain command inputs for the complete contract, SK4/DB2 writer duties and historical NULL rule. This closes the missing-storage question; SK4's production integration/full corpus and Tommaso's DDL approval are still pending.
-3. Owner approval required: memory_phase_families.labels and memory_phase_family_attempts.labels contain sorted JSON, which conflicts with the general “no JSON column” rule. Accept the encoding as an explicit exception for rebuildable derived data, or require child tables before approval. The current representation is provisional; no choice is assumed.
+3. Resolved by the owner: child tables. memory_phase_family_labels and memory_phase_family_attempt_labels store ordered label counts as STRICT rows, keyed by their integer owner keys and position. Labels are unique within each owner, position is nonnegative and count is positive. Family deletion cascades to family labels and attempt contributions; contribution deletion cascades to attempt labels. ME5 remains the future writer; both tables start empty at migration.
 4. Owner approval required: choose the extent of non-command sample evidence only after reviewing the following audited readers and all three budgets. All alternatives retain every command field and exact resolved target bounds/state; (c) derives observe detections from an extended sample. No alternative has been selected. The original 1.80 observations / 7.80 total omitted those durable inputs.
 
 ### Question 4: reader evidence at 0e594d72
@@ -2353,15 +2491,35 @@ The numbers are the explicit sensitivity scenarios in Space per action, not meas
 
 ## Deviations from the plan
 
+Owner decision delegated to the integrator (2026-11-02, 20:05): memory_recall_documents uses UNIQUE (text_id,document_format) instead of UNIQUE (text_id). Schema 19 identifies a Recall document by format plus text, so equal text in different formats must remain two documents. Schema 22 stores their text once while preserving both document identities; a duplicate text/format pair is still rejected. No object or constraint count changes.
+
 Seven derived-data triggers retained instead of the five named in the plan: the integrator explicitly instructed retaining memory_recall_work_on_policy_update and memory_recall_entries_removed as well, because they validate nothing and only maintain derived Recall data, just like the five named triggers. Both keep their original names and integer-key operations; policy status updates and Recall entry deletion remain permitted.
 
 The integrator subsequently required two immutable typed command-input child tables to satisfy DB1's pre-approval SK4 field-equivalence gate. These extend the named table list without changing the queue shape; historical input fields remain NULL, and no instance-value text column is added. Their additional space is included in (a)/(b); alternative (c) separately prices shared observe storage and would require another approved DDL change.
 
 ## Verification
 
+Recall document identity verification (2026-11-02), with TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault and temporary writable module caches:
+
+- `xcrun swift test --disable-sandbox --filter 'Schema22ResourceTests/recallDocumentsShareTextAcrossFormats'`: red before the DDL change, 1 test failed with 1 issue because UNIQUE (text_id) rejected the second format. The initial invocation without these environment workarounds was blocked by an unwritable compiler cache before test execution.
+- `swift build --disable-sandbox`: passed.
+- `xcrun swift test --disable-sandbox --filter 'Schema22|SQLiteMemoryTests'`: 431 tests in 65 suites passed, including all 38 Schema22ResourceTests and the new regression.
+- `make test SWIFT='xcrun swift'`: blocked before test execution by the nested sandbox (`sandbox_apply: Operation not permitted`); no TIER_RESULT was produced. The integrator must run this baseline outside the sandbox.
+- SQLite inspection of both the base and updated DDL confirmed unchanged table, column, explicit/implicit index and trigger counts. The document table still has one implicit unique index, now covering text_id and document_format. This DDL audit preceded DB2 activation; current producer policy is described above.
+
 Tests were written first. Before either proposed resource or document existed, all 28 Schema22ResourceTests compiled and ran, failing with missing-file errors (28 issues).
 This Mac requires TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault for Swift commands. The restricted environment additionally requires module caches inside .build and SwiftPM nested sandbox disabled; these do not alter the task filesystem restrictions.
 Validation of this resource uses isolated in-memory databases. The empty-database and populated historical-section tests enable foreign keys and CHECKs; vocabulary and transition cases disable foreign keys to isolate the tested contract. Trigger fixtures seed one row with CHECKs disabled before installing the triggers, so a rejected mutation must report a trigger error (1811) rather than a missing parent or CHECK failure. Digest boundary cases use valid CHECK-conforming rows. These tests do not prove migration or live application behavior.
+
+Label normalization verification (2026-11-02), with TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault and temporary writable module caches:
+
+- `xcrun swift test --disable-sandbox --filter 'Schema22ResourceTests/(noEncodedListColumns|phaseFamilyLabelsAreRows|attemptLabelsFollowTheirAttempt)'`: all three new tests failed before the DDL change (5 issues), then passed in the full run.
+- `swift build --disable-sandbox`: passed.
+- `xcrun swift test --disable-sandbox --filter 'Schema22|SQLiteMemoryTests'`: 404 tests in 63 suites passed, including all 37 Schema22ResourceTests. The first full run exposed a digest fixture still inserting the removed column; that fixture was corrected without changing its assertions.
+- `make test SWIFT='xcrun swift'`: blocked before test execution by the nested sandbox (`sandbox_apply: Operation not permitted`); no TIER_RESULT was produced. The integrator must run this baseline outside the sandbox.
+- Counts: 161 → 163 tables (40 → 42 new), 1,312 → 1,319 columns; 91 explicit indexes and 330 triggers remain unchanged. The complete column inventory matches the DDL. The space estimate uses row/index allowances, not column counts, so its figures are unchanged. The sole composite FK exception is checked against both attempt-owner columns and CASCADE; all other FK assertions remain in place.
+
+Earlier verification:
 
 - `xcrun swift test --disable-sandbox --filter 'Schema22ResourceTests/brainCommand'`: the two new command-input tests first failed against the absent tables (69 issues); both then passed after the DDL addition.
 - Command-input review tests were extended first: the effect-ownership regression failed because a different existing event's effect was accepted; cardinality/nullability and the added valueChanged/ordered-item round trips already passed. The ownership test passed after the same-event CHECK was added. Items on valueChanged are explicitly rejected by the existing typed effect contract.

@@ -19,6 +19,7 @@ struct RecallQueryStorageRegressionTests {
         let taskID = try #require(begun["task"].string)
         let attemptID = try #require(begun["attempt"].string)
         let producer = try TaskProducer(source: .app, streamID: "query-storage")
+        var queryIDs: [String] = []
         for index in 0..<20 {
             let name = "private-photo-\(index).png"
             let text = "Export the photo already rotated in Preview as \(name) in PNG"
@@ -39,13 +40,19 @@ struct RecallQueryStorageRegressionTests {
                 delivery: coverage == .absent || coverage == .unknown ? "nothing" : "delivered",
                 deliveryBytes: nil, durationUS: nil, needs: before
             )
-            try await memory.perform { try await $0.recall.record(query, at: 1_000 + Int64(index)) }
+            let (saved, _) = try await memory.perform {
+                try await $0.recall.recordPrepared(proposedID: query.queryID, at: 1_000 + Int64(index)) { id in
+                    (query.withIdentity(id, deliveryBytes: query.deliveryBytes), id)
+                }
+            }
+            queryIDs.append(saved.queryID)
             let after = service.outcomes(try await service.prepare(request))
             try #require(before == after)
             #expect(request.remainingWork == text && request.searchedNeeds[0].text == text)
         }
-        let work = try P.rows("SELECT remaining_work FROM memory_recall_queries WHERE query_id LIKE 'stored-query-%'", in: session)
-        let needs = try P.rows("SELECT text FROM memory_recall_needs WHERE query_id LIKE 'stored-query-%'", in: session)
+        let storedIDs = queryIDs.joined(separator: ",")
+        let work = try P.rows("SELECT remaining_work FROM memory_recall_queries WHERE query_id IN (\(storedIDs))", in: session)
+        let needs = try P.rows("SELECT text FROM memory_recall_needs WHERE query_id IN (\(storedIDs))", in: session)
         #expect(work.count == 20 && needs.count == 20)
         #expect((work + needs).allSatisfy { $0.contains("{file}") && !$0.contains("private-photo-") })
         await L.close(session)

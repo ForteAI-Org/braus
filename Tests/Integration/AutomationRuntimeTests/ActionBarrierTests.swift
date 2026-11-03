@@ -1,6 +1,7 @@
 import AutomationRuntime
 import LocalMCP
 import Testing
+import Switches
 
 @MainActor
 @Suite("A refusal stops other actions in its context")
@@ -38,5 +39,16 @@ struct ActionBarrierTests {
         first.note(.refusedByPerson(.null), of: "app_call", .object([:]))
         #expect(first.isClosed)
         #expect(!ActionBarrier().isClosed)
+    }
+}
+
+extension ActionBarrierTests {
+    @Test func refusalCannotBeReportedAsCompleted() {
+        SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2"])) {
+            let barrier = ActionBarrier()
+            barrier.note(.refusedByPerson(.null), of: "act", .object([:]))
+            #expect(barrier.refusal(of: "end", .object(["outcome": .string("completed")])) != nil)
+            #expect(barrier.refusal(of: "end", .object(["outcome": .string("abandoned")])) == nil)
+        }
     }
 }

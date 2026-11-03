@@ -4,9 +4,13 @@ import Foundation
 import LocalMCP
 import Memory
 import PerceptionCore
+import os
 
 /// TaskCycleHandler owns the open task, candidates and explicit interruption, borrowing the producer records.
 final class TaskCycleHandler {
+    let profile: SessionProfile
+    let reportsProfile: Bool
+    var access: MemoryAccess { memoryAccess }
     let session: any AutomationSessionOperating
     unowned let producerSecrets: ProducerSecrets
     unowned let formatter: ResultFormatter
@@ -14,8 +18,12 @@ final class TaskCycleHandler {
     init(
         session: any AutomationSessionOperating,
         secrets: ProducerSecrets,
-        formatter: ResultFormatter
+        formatter: ResultFormatter,
+        profile: SessionProfile = .app,
+        reportsProfile: Bool = true
     ) {
+        self.profile = profile
+        self.reportsProfile = reportsProfile
         self.session = session
         self.producerSecrets = secrets
         self.formatter = formatter
@@ -28,17 +36,83 @@ final class TaskCycleHandler {
     /// The task the agent declared through `memory_task` and has not ended: its calls are attributed to it.
     var openTask: OpenTask?
 
-    private var interruptedProducer: CallProducer?
+    var todo: Todo?
+    var todoSink: (@MainActor @Sendable (TodoEvent) -> Void)?
+    var bufferedCalls: [CallAttribution] = []
+    var bufferedGestures: [TodoGesture] = []
+    struct RowOpening {
+        let expectation: TaskResultCheck.Expectation
+        let openedAtMS: Int64
+        let before: TaskResultCheck.FileFacts?
+    }
+    var rowOpenings: [TodoRowID: RowOpening] = [:]
+    var todoRecordedAtMS: Int64 = 0
+    var rowExpectationTimes: [TodoRowID: Int64] = [:]
+
+    /// The active row's volatile predicates, for readers that need its declared file result.
+    var currentRowExpectations: [TaskResultCheck.Expectation] {
+        guard let row = todo?.rows.first(where: { $0.status == .inProgress }),
+              let expected = rowChecks[row.id]?.read ?? row.expected else { return [] }
+        return [expected]
+    }
+
+    var rowChecks: [TodoRowID: MemoryTaskTool.ResultCheck] = [:]
+    var deliveredRows: Set<TodoRowID> = []
+    var rowMemory: [TodoRowID: RowMemory] = [:]
+    var stoppedReference: StoppedTask?
+    var previousConversationTask: String?
+    var planGuardArmed = false
+    var gesturesWithoutPlan = 0
+    var lastGestureUncertain: Bool?
+    var guardThreshold = GuardThreshold()
+
+    var memoryAccess: MemoryAccess = .readLearn
+    var appGuides: AppGuides?
+    var resolveGuideApp: @MainActor (String) -> OpenedApp = {
+        OpenedApp(bundleID: $0, version: nil, locale: Locale.current.identifier)
+    }
+    var availableRecallChannels: @MainActor () -> Set<String> = { [] }
+    var planRevisionWritten: (@MainActor () async throws -> Void)?
+    var planMemoryBudget = RecallRendering.answerBudget
+    var deliveredOffers: [TodoRowID: [RecallRendering.OfferedPart]] = [:]
+    var deliveredComposition: [TodoRowID: [String: RecallChoice.CompositionPart]] = [:]
+    var deliveredPlanParts: [TodoRowID: String] = [:]
+    var deliveredGuideApps: Set<String> = []
+    var activePlan: UUID?
+    var interruptionIdentity = UUID()
+    private var isPlanning = false
+    private var planWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Serializes plan commits while leaving Stop free to invalidate the active call.
+    func acquirePlan() async {
+        if isPlanning { await withCheckedContinuation { planWaiters.append($0) } }
+        else { isPlanning = true }
+    }
+
+    func releasePlan() {
+        if planWaiters.isEmpty { isPlanning = false }
+        else { planWaiters.removeFirst().resume() }
+    }
+
+    var interruptedProducer: CallProducer?
 
     /// Marks an explicit Stop, not a temporary human suspension. The host drains admitted calls
     /// before finishing this task, so a call already in flight retains its original attribution.
     func markTaskInterrupted(producer: CallProducer) {
+        activePlan = nil
+        interruptionIdentity = UUID()
         if interruptedProducer == nil { interruptedProducer = producer }
     }
 
     /// Closes the stopped attempt without claiming success or interpreting a candidate.
     /// A failed write keeps both the task and the interruption pending for a later retry.
     func finishInterruptedTask() async throws {
+        if TaskCycleArm.current == .v2 {
+            guard interruptedProducer != nil else { return }
+            _ = try await closeStoppedTask(.person)
+            interruptedProducer = nil
+            return
+        }
         guard let interruptedProducer else { return }
         guard let current = openTask else {
             self.interruptedProducer = nil
@@ -66,12 +140,24 @@ final class TaskCycleHandler {
         try formatter.transcribe("Braus stopped task", .object(["task": .string(current.taskID), "outcome": .string("abandoned")]))
     }
 
-    private var stoppedTaskNotice: String?
+    var stoppedTaskNotice: String?
+
+    /// Keeps the stopped notice pending if rendering fails.
+    func withStoppedTaskNotice<T>(_ render: (String?) throws -> T) rethrows -> T {
+        let result = try render(stoppedTaskNotice)
+        stoppedTaskNotice = nil
+        return result
+    }
 
     /// Supplies the next turn with the stopped task identity once, without replaying its action history.
     func takeStoppedTaskNotice() -> String? {
         defer { stoppedTaskNotice = nil }
         return stoppedTaskNotice
+    }
+
+    /// Reads the open task and the admitted procedure count when the Recall arm enables it.
+    func taskFacts(for bundleID: String?) async -> SeatTaskFacts {
+        SeatTaskFacts(isOpen: openTask != nil, learnedForApp: await learnedForPlanApp(bundleID))
     }
 
     /// The candidate the last checkpoint or end answered that no interpretation has taken yet: until one does,
@@ -93,6 +179,7 @@ final class TaskCycleHandler {
     /// nil when there is none or it was asked already. Haiku 5.5 answered the person after an end and left the
     /// candidate, so nothing of a completed task was learned (canary of 14/10/2026).
     func takeInterpretationReminder() -> String? {
+        guard access.learns, TaskCycleArm.current == .v1 else { return nil }
         guard let candidate = pendingCandidate, candidate != remindedCandidate else { return nil }
         remindedCandidate = candidate
         return (ModelText.text(.init(rawValue: "task_cycle_handler.candidate.v1"))
@@ -122,6 +209,7 @@ final class TaskCycleHandler {
     /// (`ProcedureProducer.brausInterpretation`), through the same `memory_task interpret` as the agent's, so the
     /// transcript shows it. Answers the candidate and the answer, or nil when nothing was left or the task did not complete.
     func interpretLeftCandidate(call: (String, JSONValue) async throws -> JSONValue) async -> (candidate: String, answer: JSONValue)? {
+        guard access.learns else { pendingCandidate = nil; return nil }
         guard let candidate = pendingCandidate, let directory = session.memoryDirectory,
               let producer = try? TaskProducer(source: self.producer.source, streamID: self.producer.streamID),
               let stated = try? await ProcedureProducer.brausInterpretation(
@@ -145,6 +233,10 @@ final class TaskCycleHandler {
     func forgetConversation() {
         pendingCandidate = nil
         remindedCandidate = nil
+        forgetDeliveredMemory()
+        previousConversationTask = nil
+        stoppedReference = nil
+        if TaskCycleArm.current == .v2 { stoppedTaskNotice = nil }
     }
 
     /// Answers a `memory_task` call: decodes it, writes the task's declaration through `TaskChannel`, and

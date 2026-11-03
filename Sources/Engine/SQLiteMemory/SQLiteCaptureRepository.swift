@@ -31,12 +31,12 @@ public struct SQLiteCaptureRepository: CaptureStoring {
 
     public func record(_ event: MemoryEventRecord) async throws -> MemoryReceipt {
         try event.validate()
-        return try await store.write { transaction in try SQLiteEventRows.record(transaction, event) }
+        return try await store.db2BWrite { transaction in try SQLiteEventRows.record(transaction, event) }
     }
 
     public func record(_ sample: CaptureSample) async throws -> MemoryReceipt {
         try sample.validate()
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             guard try SQLiteEventRows.appID(transaction, eventID: sample.key.eventID) != nil else {
                 throw ObservationContractError.missingEvent(eventID: sample.key.eventID)
             }

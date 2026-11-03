@@ -17,33 +17,66 @@ import SwiftUI
 /// stand apart from the group's own row, one under the other between dividers.
 struct BrainListView: View {
 
-    let brain: UIBrain
+    /// Content indexes one loaded Brain once and is retained by the detail page.
+    struct Content {
+        let brain: UIBrain
+        let windows: [String]
+        let groupsByWindow: [String: [SiblingGroup]]
+        let membersByGroup: [UUID: [ObjectAnchor]]
+        let looseByWindow: [String: [ObjectAnchor]]
+        let anchorsByKey: [String: ObjectAnchor]
+
+        init(brain: UIBrain) {
+            self.brain = brain
+            let anchors = Dictionary(brain.objects.map { ($0.anchorKey, $0) }, uniquingKeysWith: { first, _ in first })
+            anchorsByKey = anchors
+            windows = Array(Set(brain.objects.map { $0.window ?? "window" })).sorted()
+            var groups: [String: [SiblingGroup]] = [:]
+            var members: [UUID: [ObjectAnchor]] = [:]
+            for group in brain.groups {
+                members[group.id] = group.memberAnchors.compactMap { anchors[$0] }
+                if let first = group.memberAnchors.first, let anchor = anchors[first] {
+                    groups[anchor.window ?? "window", default: []].append(group)
+                }
+            }
+            groupsByWindow = groups
+            membersByGroup = members
+            let grouped = Set(brain.groups.flatMap(\.memberAnchors))
+            looseByWindow = Dictionary(grouping: brain.objects.filter { !grouped.contains($0.anchorKey) }) {
+                $0.window ?? "window"
+            }
+        }
+    }
+
+    let content: Content
+    private var brain: UIBrain { content.brain }
 
     /// The groups open.
     @State private var open: Set<UUID>
 
-    /// - Parameter opens: the groups open from the start, as a snapshot draws them.
-    init(
-        brain: UIBrain,
-        opens: Set<UUID> = []
-    ) {
-        self.brain = brain
-        _open      = State(initialValue: opens)
+    init(content: Content, opens: Set<UUID> = []) {
+        self.content = content
+        _open = State(initialValue: opens)
+    }
+
+    /// Builds independent content for previews and snapshots.
+    init(brain: UIBrain, opens: Set<UUID> = []) {
+        self.init(content: Content(brain: brain), opens: opens)
     }
 
     var body: some View {
         Form {
-            ForEach(windows, id: \.self) { window in
-                Section(window == "window" ? "Window" : window.capitalized) {
+            ForEach(content.windows, id: \.self) { window in
+                Section(window == "window" ? String(localized: "Window") : window.capitalized) {
                     ForEach(groups(in: window), id: \.id) { group in
                         DisclosureGroup(isExpanded: isOpen(group)) {
                             members(members(of: group))
                         } label: {
                             LabeledContent {
-                                Text(count(group.memberAnchors.count, of: group.sharedKind.rawValue))
+                                Text(count(group.memberAnchors.count, of: group.sharedKind))
                             } label: {
                                 Label {
-                                    Text(group.name ?? "Unnamed \(group.axis.rawValue)")
+                                    Text(group.name ?? String(localized: "Unnamed \(axisTitle(group.axis))"))
                                 } icon: {
                                     dot(BrainPalette.colour(of: group.sharedKind))
                                 }
@@ -56,11 +89,11 @@ struct BrainListView: View {
             }
 
             if !brain.transitions.isEmpty {
-                Section("Learned Actions") {
+                Section(String(localized: "Learned Actions")) {
                     ForEach(brain.transitions.indices, id: \.self) { index in
                         let transition = brain.transitions[index]
-                        LabeledContent("\(label(of: transition.anchorKey)), \(triggerTitle(transition.trigger))") {
-                            Text("\(transition.summary). \(evidence(transition.evidence))")
+                        LabeledContent(String(localized: "\(label(of: transition.anchorKey)), \(triggerTitle(transition.trigger))")) {
+                            Text(String(localized: "\(transition.summary). \(evidence(transition.evidence))"))
                         }
                     }
                 }
@@ -109,10 +142,10 @@ struct BrainListView: View {
 
     private func row(_ anchor: ObjectAnchor) -> some View {
         LabeledContent {
-            if anchor.seenCount > 1 { Text("Seen \(anchor.seenCount) times") }
+            if anchor.seenCount > 1 { Text(evidence(anchor.seenCount)) }
         } label: {
             Label {
-                Text(anchor.label.isEmpty ? "Unlabelled \(anchor.kind.rawValue)" : anchor.label)
+                Text(anchor.label.isEmpty ? String(localized: "Unlabelled \(kindTitle(anchor.kind))") : anchor.label)
                     .foregroundStyle(anchor.label.isEmpty ? .secondary : .primary)
             } icon: {
                 dot(BrainPalette.colour(of: anchor.kind))
@@ -132,47 +165,50 @@ struct BrainListView: View {
 
     // MARK: Reading
 
-    private func family(_ anchor: ObjectAnchor) -> String { anchor.window ?? "window" }
+    private func groups(in window: String) -> [SiblingGroup] { content.groupsByWindow[window] ?? [] }
 
-    private var windows: [String] {
-        Array(Set(brain.objects.map(family))).sorted()
-    }
+    private func members(of group: SiblingGroup) -> [ObjectAnchor] { content.membersByGroup[group.id] ?? [] }
 
-    private func groups(in window: String) -> [SiblingGroup] {
-        brain.groups.filter { group in
-            group.memberAnchors.first.flatMap { key in brain.objects.first { $0.anchorKey == key } }.map(family) == window
-        }
-    }
-
-    private func members(of group: SiblingGroup) -> [ObjectAnchor] {
-        group.memberAnchors.compactMap { key in brain.objects.first { $0.anchorKey == key } }
-    }
-
-    private func loose(in window: String) -> [ObjectAnchor] {
-        let grouped = Set(brain.groups.flatMap(\.memberAnchors))
-        return brain.objects.filter { family($0) == window && !grouped.contains($0.anchorKey) }
-    }
+    private func loose(in window: String) -> [ObjectAnchor] { content.looseByWindow[window] ?? [] }
 
     private func label(of anchorKey: String) -> String {
-        guard let anchor = brain.objects.first(where: { $0.anchorKey == anchorKey }), !anchor.label.isEmpty else {
-            return "A control"
+        guard let anchor = content.anchorsByKey[anchorKey], !anchor.label.isEmpty else {
+            return String(localized: "A control")
         }
         return anchor.label
     }
 
-    private func count(_ value: Int, of noun: String) -> String {
-        "\(value) \(noun)\(value == 1 ? "" : "s")"
+    private func count(_ value: Int, of noun: ElementKind) -> String {
+        String(localized: "\(value) \(kindTitle(noun, plural: value != 1))")
     }
 
     private func evidence(_ value: Int) -> String {
-        value == 1 ? "Seen once" : "Seen \(value) times"
+        value == 1 ? String(localized: "Seen once") : String(localized: "Seen \(value) times")
+    }
+
+    private func axisTitle(_ axis: GroupAxis) -> String {
+        switch axis {
+        case .row: String(localized: "row")
+        case .column: String(localized: "column")
+        }
+    }
+
+    private func kindTitle(_ kind: ElementKind, plural: Bool = false) -> String {
+        switch kind {
+        case .text: plural ? String(localized: "texts") : String(localized: "text")
+        case .icon: plural ? String(localized: "icons") : String(localized: "icon")
+        case .control: plural ? String(localized: "controls") : String(localized: "control")
+        case .image: plural ? String(localized: "images") : String(localized: "image")
+        case .overlayCandidate:
+            plural ? String(localized: "overlay-candidates") : String(localized: "overlay-candidate")
+        }
     }
 
     private func triggerTitle(_ trigger: TransitionTrigger) -> String {
         switch trigger {
-        case .hover:      "Hover"
-        case .click:      "Click"
-        case .rightClick: "Right-click"
+        case .hover:      String(localized: "Hover")
+        case .click:      String(localized: "Click")
+        case .rightClick: String(localized: "Right-click")
         }
     }
 }

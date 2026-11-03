@@ -39,7 +39,7 @@ public enum PerceivedCommand {
         bundleID: String,
         recorder: CallRecorder?,
         perceive: @escaping () async throws -> PerceivedWindow,
-        command : (_ observe: () async throws -> SceneSnapshot) async throws -> ActOutcome
+        command : (_ observe: @escaping @MainActor () async throws -> SceneSnapshot) async throws -> ActOutcome
     ) async throws -> ActOutcome {
         try Task.checkCancellation()
         let before: PerceivedWindow?
@@ -74,7 +74,12 @@ public enum PerceivedCommand {
         guard let recorder else { return checked }
         await recorder.record(before: before, menu: nil, after: after, bundleID: bundleID)
         guard let scene = checked.scene else { return checked }
-        return checked.with(scene: await recorder.enrich(scene))
+        let enriched = await recorder.enrich(scene)
+        guard !Task.isCancelled, BatchStepBoundary.sceneReadWait?.stopRequested != true,
+              AutomationCallInterruption.current?.wasInterrupted != true else {
+            return checked.with(scene: nil)
+        }
+        return checked.with(scene: enriched)
     }
 
     /// A command whose windows did not change, judged again on its own window. The application's windows
@@ -96,9 +101,11 @@ public enum PerceivedCommand {
         else { return outcome }
         let inWindow = OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: .passed,
                                       expected: "a change in the window", observed: effect.family,
-                                      limits: [.windowWide, .noExpectation], performed: .requested)
+                                      limits: [.windowWide, .noExpectation]
+                                        + check.limits.filter { [.settleCapped, .settleUnwatched].contains($0) },
+                                      performed: .requested)
         let pressed = outcome.message.components(separatedBy: MenuBarCommand.unchangedWindows).first ?? outcome.message
         return ActOutcome(.foundActed, "\(pressed): no window opened or closed, the window changed in place (\(effect.summary))",
-                          scene: outcome.scene, check: inWindow)
+                          scene: outcome.scene, check: inWindow, lookedAgain: outcome.lookedAgain, waited: outcome.waited)
     }
 }

@@ -54,7 +54,7 @@ final class ChatTranscript {
             }
         case .assistant(let text):
             let kept = withholding(text)
-            output("\n\(conversation.provider.displayName) › \(kept)\n")
+            output("\n\(conversation.modelProvider ?? conversation.provider.displayName) › \(kept)\n")
             conversation.append(.assistant, kept)
             try save()
         case .activity(let text): print(text)

@@ -29,9 +29,19 @@ extension ActionEngine {
         /// Whether the read-back that judged the action came from the scene's element, not from the control.
         var readBackFromScene: Bool { lock.withLock { fromScene } }
 
-        func note(_ result: SettleResult) { lock.withLock { ended = result } }
+        func note(_ result: SettleResult) {
+            lock.withLock {
+                guard !VerdictTrace.rejudgeStopped else { return }
+                ended = result
+            }
+        }
 
-        func noteReadBackFromScene() { lock.withLock { fromScene = true } }
+        func noteReadBackFromScene() {
+            lock.withLock {
+                guard !VerdictTrace.rejudgeStopped else { return }
+                fromScene = true
+            }
+        }
     }
 
     /// The trail of the waits of the action being performed in this task, when one is.

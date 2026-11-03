@@ -9,23 +9,24 @@ import CryptoKit
 import Foundation
 import Memory
 
-/// SQLiteMemorySchema is the DDL this module ships and what the bootstrap and the migration need to
-/// know about it: the `user_version` the current schema carries, the one text that creates it, the part
-/// of that text an earlier schema an archive migrates from is, and the tables they create. The text is
-/// edited in place; a new archive runs it whole. Its part 1 is version 1: an archive at exactly that shape
-/// gets, in its migration, every object of the later parts it lacks, each as the text writes it, so all
-/// end at one shape. The text carries no `PRAGMA`, `BEGIN` or `COMMIT` of its own; the store owns those
-/// boundaries. Documentation/Engine/MemorySchema.md says what the resource is and how the schema came to
-/// one text; the header of brain-living-memory-schema.sql names the document of each of its parts.
+/// SQLiteMemorySchema supplies the active schema 22 resource and exact historical recognition.
+/// The frozen schema 19 resource belongs to the chain run only on migration working copies.
 enum SQLiteMemorySchema {
 
     /// The schema version bootstrapped by this build. Public historical schemas are recognized by their
-    /// exact object digests and rebuilt transactionally; unknown or modified shapes are refused.
-    static let version: Int32 = 19
+    /// exact object digests and converted through the coordinator; unknown or modified shapes are refused.
+    static let version: Int32 = 22
 
     /// The resource of the current schema, the one text a new archive runs.
-    static let resourceName      = "brain-living-memory-schema"
+    static let resourceName      = "memory-schema-22"
     static let resourceExtension = "sql"
+
+    /// The frozen destination of the historical chain, independently of the active store version.
+    static let historical19Version: Int32 = 19
+
+    static func historical19Text() throws -> String {
+        try resource("brain-living-memory-schema")
+    }
 
     /// The earlier schemas an archive migrates from, by version, each the parts of the one text that are that
     /// schema whole, from part 1 to the part named: version 1 is part 1, the base. Only its exact shape is read from it,
@@ -77,7 +78,7 @@ enum SQLiteMemorySchema {
         return SHA256.hash(data: Data(canonical.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Brings an archive at a historical shape to the current one, inside the caller's write transaction, on a connection
+    /// Brings an archive at a historical shape to frozen schema 19, inside the caller's write transaction, on a connection
     /// whose foreign keys are off (a pragma that a transaction cannot change). Nothing is guessed: the archive must hold no
     /// object the current text does not; each table the current text writes otherwise is rebuilt under that text, its rows
     /// copied column by column, the columns it lacks left NULL as the current text allows (a field no earlier build knew
@@ -87,7 +88,7 @@ enum SQLiteMemorySchema {
     /// reference left dangling, fails the statement or the check that follows, and the caller rolls everything back.
     /// Answers the tables it created.
     static func rebuild(_ connection: SQLiteConnection, from shape: HistoricalShape) throws -> [String] {
-        let current = try orderedObjects(of: try text())
+        let current = try orderedObjects(of: try historical19Text())
         let wanted = Dictionary(uniqueKeysWithValues: current.map { ("\($0.type)|\($0.name)", $0) })
         let found = try connection.query(
             "SELECT type, name, sql, tbl_name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY rowid"
@@ -162,10 +163,11 @@ enum SQLiteMemorySchema {
     /// an earlier one this build migrates from.
     static func text(of version: Int32) throws -> String {
         if version == Self.version { return try text() }
+        if version == historical19Version { return try historical19Text() }
         guard let last = migrations[version] else {
             throw MemoryStoreError.unavailable(.resourceMissing("schema \(version)"))
         }
-        let whole = try text()
+        let whole = try historical19Text()
         return try (1...last).map { try self.part($0, of: whole) }.joined()
     }
 
@@ -180,13 +182,13 @@ enum SQLiteMemorySchema {
         return segments[2 * number]
     }
 
-    /// The text that migrates a file at the exact shape of `version` to the current schema: every table the
+    /// The text that migrates a file at the exact shape of `version` to frozen schema 19: every table the
     /// current text creates and that version does not, in creation order, then the rows derived from its own,
     /// then the indexes, then the triggers, each statement as the current text writes it. Refused when an
     /// object of that version is not in the current text exactly as that version wrote it: a migration only adds.
     static func migrationText(from version: Int32) throws -> String {
         let earlier = try objects(of: try text(of: version))
-        let current = try orderedObjects(of: try text())
+        let current = try orderedObjects(of: try historical19Text())
         guard earlier.isSubset(of: Set(current)) else {
             throw MemoryStoreError.unavailable(.resourceMissing("migration from \(version)"))
         }

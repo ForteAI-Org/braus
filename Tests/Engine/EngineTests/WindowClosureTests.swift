@@ -91,9 +91,9 @@ struct WindowClosureTests {
         #expect(actuator.gestures.isEmpty)
         #expect(actuator.confirmations.isEmpty)
         #expect(outcome.message.first?.isUppercase == true, Comment(rawValue: outcome.message))
-        #expect(outcome.message.contains("'Project Manager', the only window of DaVinci Resolve"))
+        #expect(outcome.message.contains("'Project Manager', the only window of 'DaVinci Resolve'"))
         #expect(outcome.message.contains("Nothing was sent"))
-        #expect(outcome.message.contains("(Open, New Project)"))
+        #expect(outcome.message.contains("('Open', 'New Project')"))
         #expect(!outcome.message.contains("Cancel"), "a Cancel the window has is not an alternative")
     }
 
@@ -188,7 +188,7 @@ struct WindowClosureTests {
                                    permissions: atRisk).act(act(label))
         #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
         #expect(outcome.message.contains("Clicking '\(label)' would close"))
-        #expect(outcome.message.contains("(Open)"))
+        #expect(outcome.message.contains("('Open')"))
         #expect(actuator.gestures.isEmpty)
     }
 

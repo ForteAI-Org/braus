@@ -10,6 +10,8 @@ import EngineCore
 import Foundation
 import Memory
 import TestScratch
+import PerceptionCore
+import Switches
 @testable import braus
 @testable import SQLiteMemory
 import Testing
@@ -206,6 +208,72 @@ struct CommandLineBatchTests {
         #expect(try await status(memory, children[0]) == .failed, "a refused act is never left started")
         #expect(try await status(memory, children[1]) == .skipped)
         #expect(try await status(memory, children[2]) == .skipped)
+        await memory.close()
+    }
+}
+
+extension CommandLineBatchTests {
+    @Test @MainActor func policySummaryKeepsUnknownIntermediate() async throws {
+        let memory = memory()
+        let steps = try BatchPlan(arguments: ["batch", "TextEdit", "--window", "Untitled", "--seat", "--",
+            "act", "Next", "--then", "act", "Next", "--then", "act", "Next"]).steps
+        let scene = PerceptionCore.SceneSnapshot(bundleID: app.bundleID, appName: "TextEdit", windowTitle: "Untitled",
+            viewportPixelSize: .init(width: 100, height: 100), elements: [
+                .init(id: "next", kind: .control, label: "Next", bounds: .init(x: 0, y: 0, width: 0.2, height: 0.2))
+            ])
+        let (parent, children) = recorders(memory, count: steps.count)
+        try await SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "task_cycle": "v2"])) {
+            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
+                entryScene: scene, prepare: { _, _ in scene }) { number, _, recorder in
+                    let done = ActOutcome(number == 2 ? .actedUnverified : .foundActed, "answered", scene: scene,
+                        check: .init(condition: .structuralEffect, method: .sceneDifference,
+                                     verdict: number == 2 ? .unknown : .passed, performed: .requested))
+                    try await CommandLineCall.end(recorder, outcome: done, tool: .act)
+                    return done
+                }
+        }
+        let call = try #require(try await memory.call(parent.eventID))
+        #expect(call.progress.batchConclusion == .ranToEnd)
+        #expect(call.progress.result?.isExactly(.batch(stopped: false, attempted: 3, verified: 2)) == true)
+        await memory.close()
+    }
+}
+
+
+extension CommandLineBatchTests {
+    @Test @MainActor func missingEntrySkipsAllChildren() async throws {
+        let memory = memory()
+        let steps = try plan().steps
+        let (parent, children) = recorders(memory, count: steps.count)
+        try await SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "task_cycle": "v2"])) {
+            await #expect(throws: (any Error).self) {
+                try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) { _, _, _ in
+                    Issue.record("No step may start without an entry scene")
+                    return ActOutcome(.refused, "Unavailable")
+                }
+            }
+        }
+        for child in children { #expect(try await status(memory, child) == .skipped) }
+        await memory.close()
+    }
+}
+
+
+extension CommandLineBatchTests {
+    @Test @MainActor func incompatibleCycleIsTypedAndPrecedesRecording() async throws {
+        let memory = memory()
+        let steps = try plan().steps
+        let (parent, children) = recorders(memory, count: steps.count)
+        try await SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "task_cycle": "v1"])) {
+            await #expect(throws: BatchConfigurationError.taskCycleV2Required) {
+                try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) { _, _, _ in
+                    Issue.record("An incompatible batch may not act")
+                    return ActOutcome(.refused, "Unavailable")
+                }
+            }
+        }
+        #expect(try await status(memory, parent) == nil)
+        for child in children { #expect(try await status(memory, child) == nil) }
         await memory.close()
     }
 }

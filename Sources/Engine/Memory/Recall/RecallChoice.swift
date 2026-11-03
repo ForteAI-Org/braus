@@ -164,17 +164,31 @@ public enum RecallChoice {
     /// (relevance of their offered parts, above nothing), at most `sourcesPerNeed`, and at most `sourceLimit` distinct
     /// versions in all, each named once (`s1`, `s2`, … in order of appearance). A version is shortlisted whether or not the
     /// automatic selector names a tract in it; its suggestion, when it made one in that version, is kept beside it.
-    public static func shortlist(_ scored: [[ScoredSource]], suggestions: [NeedOutcome]) -> [Shortlisted] {
+    public static func shortlist(_ scored: [[ScoredSource]], suggestions: [NeedOutcome],
+                                 v2: Bool = false, trust: [String: RecallTrust] = [:]) -> [Shortlisted] {
         var keys: [String: String] = [:]
         var shortlisted: [Shortlisted] = []
         for (need, sources) in scored.enumerated() {
-            let ranked = sources.map { source -> (ScoredSource, Double) in
-                let parts = source.source.parts.filter(\.isOffered).compactMap { source.partRelevance[$0.partID] }
-                return (source, (Array(source.stepRelevance.values) + parts).max() ?? -.infinity)
-            }.filter { $0.1 > 0 }.sorted { ($0.1, $1.0.source.routeID) > ($1.1, $0.0.source.routeID) }
+            let ranked = sources.compactMap { source -> (ScoredSource, Double)? in
+                let parts = source.source.parts.filter { $0.isOffered && (!v2 || $0.kind != .step) }
+                    .compactMap { source.partRelevance[$0.partID] }
+                let partScore = parts.max() ?? -.infinity
+                let stepScore = source.stepRelevance.values.max() ?? -.infinity
+                let relevance = max(partScore, stepScore)
+                guard v2 ? (partScore >= 0.60 || stepScore >= 0.68) : relevance > 0 else { return nil }
+                return (source, relevance)
+            }.sorted {
+                let left = $0.1 * (v2 && trust[$0.0.source.routeID] != nil ? 0.9 : 1)
+                let right = $1.1 * (v2 && trust[$1.0.source.routeID] != nil ? 0.9 : 1)
+                if left != right { return left > right }
+                if v2, $0.0.source.confirmedUses != $1.0.source.confirmedUses {
+                    return $0.0.source.confirmedUses > $1.0.source.confirmedUses
+                }
+                return $0.0.source.routeID < $1.0.source.routeID
+            }
             for (source, relevance) in ranked.prefix(sourcesPerNeed) {
                 let route = source.source.routeID
-                guard keys[route] != nil || keys.count < sourceLimit else { continue }
+                guard v2 || keys[route] != nil || keys.count < sourceLimit else { continue }
                 let key = keys[route] ?? "s\(keys.count + 1)"
                 keys[route] = key
                 let suggestion = suggestions.indices.contains(need) ? suggestions[need].selected : nil
@@ -183,6 +197,56 @@ public enum RecallChoice {
             }
         }
         return shortlisted
+    }
+
+    public struct CompositionPart: Sendable, Equatable {
+        public let bundleID: String?
+        public let entry: RecallSource.Entry
+        public let exit: RecallSource.Entry
+        public let inputs: Set<String>
+        public let outputs: Set<String>
+        public init(bundleID: String?, entry: RecallSource.Entry, exit: RecallSource.Entry,
+                    inputs: Set<String>, outputs: Set<String>) {
+            self.bundleID = bundleID
+            self.entry = entry
+            self.exit = exit
+            self.inputs = inputs
+            self.outputs = outputs
+        }
+    }
+
+    public enum CompositionWarning: String, Sendable, Equatable {
+        case appChanges, stateChanges, unusedOutput
+    }
+
+    /// Reports composition facts without rejecting either independently valid row.
+    public static func compositionWarnings(_ first: CompositionPart, _ next: CompositionPart) -> [CompositionWarning] {
+        var warnings: [CompositionWarning] = []
+        if let app = first.bundleID, let other = next.bundleID, app != other { warnings.append(.appChanges) }
+        if case .state(let exit) = first.exit, case .state(let entry) = next.entry, exit != entry {
+            warnings.append(.stateChanges)
+        }
+        if !first.outputs.isEmpty, !first.outputs.isSubset(of: next.inputs) { warnings.append(.unusedOutput) }
+        return warnings
+    }
+
+    /// Validates one row with the original structural checks; every other need explicitly declines its offer.
+    public static func validateRow(_ planned: PlannedNeed, against proposal: Proposal,
+                                   sources: [String: RecallSource], superseded: Set<String>,
+                                   producer: TaskProducer, attemptID: String, revision: Int,
+                                   context: RecallSelector.Context, nowMS: Int64) -> Result<Chosen, Refusal> {
+        let answers = proposal.needs.indices.map { position in
+            position == planned.position ? planned : PlannedNeed(position: position, tracts: [], declared: .none, uncovered: nil)
+        }
+        guard proposal.needs.indices.contains(planned.position) else {
+            return .failure(Refusal(.invalid, ["the proposal has no need \(planned.position + 1)"]))
+        }
+        switch validate(Plan(proposalID: proposal.proposalID, needs: answers), against: proposal, sources: sources,
+                        superseded: superseded, producer: producer, attemptID: attemptID, revision: revision,
+                        context: context, nowMS: nowMS) {
+        case .failure(let refusal): return .failure(refusal)
+        case .success(let chosen): return .success(chosen[planned.position])
+        }
     }
 
     // MARK: Validation
@@ -546,4 +610,24 @@ public enum RecallChoice {
 
     /// Thresholds a choice never reads: the agent's tracts are not delimited by relevance.
     static let unread = SelectionThresholds(absolute: 0, stepMargin: 0, partMargin: 0, adequacy: 0, tie: 0)
+}
+
+/// RecallTrust labels methods not confirmed by a clean local execution.
+public enum RecallTrust: String, Sendable, Equatable {
+    case notYetVerified, shownByPerson, fromAnotherMac, fromClient
+}
+
+/// RecallAdmissibility holds immutable version metadata used before candidate limits.
+public struct RecallAdmissibility: Sendable, Equatable {
+    public let family: ProcedureFamilyID
+    public let channels: Set<String>
+    public let trust: RecallTrust?
+    public let fromFailedAttempt: Bool
+
+    public init(family: ProcedureFamilyID, channels: Set<String>, trust: RecallTrust?, fromFailedAttempt: Bool) {
+        self.family = family
+        self.channels = channels
+        self.trust = trust
+        self.fromFailedAttempt = fromFailedAttempt
+    }
 }

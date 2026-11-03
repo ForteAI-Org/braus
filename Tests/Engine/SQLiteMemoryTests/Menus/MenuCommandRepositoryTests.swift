@@ -20,6 +20,87 @@ struct MenuCommandRepositoryTests {
 
     private static let bundle = "test.fixture.menus"
 
+    @Test("conversion keeps the stored command identity and every observed field")
+    func storedIdentitySurvivesConversion() async throws {
+        let source = try temporaryDatabase()
+        let store = SQLiteMemoryStore(url: source, schema: .historical19)
+        try await store.open()
+        let original = try Self.record("m1", ["File", "Print…"], shortcut: "P")
+        #expect(try await SQLiteMenuCommandRepository(store: store).record(original) == .committed)
+        await store.close()
+
+        let target = source.appendingPathExtension("migrating-22-test")
+        _ = try await SQLiteMigration22.build(
+            from: source,
+            shape: .unified19,
+            into: target,
+            availableSpace: { _ in Int64.max },
+            progress: { _ in }
+        )
+        let converted = SQLiteMemoryStore(url: target, schema: .version22)
+        try await converted.open(.existingArchive)
+        let records = try await SQLiteMenuCommandRepository(store: converted)
+            .menuCommands(of: Self.bundle, pathKey: nil)
+        let storedID = try #require(try await converted.read { snapshot in
+            try snapshot.query("SELECT menu_command_id FROM brain_menu_commands") { try $0.text(0) }.first ?? nil
+        })
+        #expect(records.map(\.menuCommandID) == [storedID])
+        #expect(records.first?.isExactly(try Self.record(storedID, ["File", "Print…"], shortcut: "P")) == true)
+        await converted.close()
+    }
+
+    @Test("the assigned command identity survives closing and reopening", arguments: [false, true])
+    func assignedIdentitySurvivesReopening(schema22: Bool) async throws {
+        let url = try temporaryDatabase()
+        let store = schema22
+            ? SQLiteMemoryStore(url: url, schema: .version22)
+            : SQLiteMemoryStore(url: url, schema: .historical19)
+        try await store.open()
+        let original = try Self.record("m1", ["File", "Print…"], shortcut: "P")
+        let menus = SQLiteMenuCommandRepository(store: store)
+        let saved = try await menus.recordReturningID(original)
+        #expect(saved.receipt == .committed)
+        let assigned = try Self.record(saved.menuCommandID, ["File", "Print…"], shortcut: "P")
+        #expect(try await menus.record(assigned) == .alreadyApplied)
+        await store.close()
+
+        let reopened = schema22
+            ? SQLiteMemoryStore(url: url, schema: .version22)
+            : SQLiteMemoryStore(url: url, schema: .historical19)
+        try await reopened.open(.existingArchive)
+        let records = try await SQLiteMenuCommandRepository(store: reopened)
+            .menuCommands(of: Self.bundle, pathKey: nil)
+        #expect(records.map(\.menuCommandID) == [saved.menuCommandID])
+        #expect(records.first?.isExactly(assigned) == true)
+        await reopened.close()
+    }
+
+    @Test func assignedCommandsKeepConflictsAndUpdatesOn22() async throws {
+        let store = SQLiteMemoryStore(url: try temporaryDatabase(), schema: .version22)
+        try await store.open()
+        let menus = SQLiteMenuCommandRepository(store: store)
+        let first = try await menus.recordReturningID(Self.record("offered", ["View", "Sidebar"]))
+        let second = try await menus.recordReturningID(Self.record("another", ["View", "Sidebar"]))
+        #expect(first.menuCommandID != second.menuCommandID)
+        let original = try Self.record(first.menuCommandID, ["View", "Sidebar"])
+        let updated = try Self.record(first.menuCommandID, ["View", "Sidebar"], enabled: false, last: 1_700_000_200_000)
+        #expect(try await menus.record(original) == .alreadyApplied)
+        #expect(try await menus.update(from: original, to: updated) == .committed)
+        #expect(try await menus.update(from: original, to: updated) == .alreadyApplied)
+        let next = try Self.record(first.menuCommandID, ["View", "Sidebar"], last: 1_700_000_300_000)
+        #expect(await menuError { _ = try await menus.update(from: original, to: next) }
+                == .staleExpectation(menuCommandID: first.menuCommandID))
+        guard case .identity? = await storeError({ _ = try await menus.record(original) }) else {
+            Issue.record("expected an identity conflict")
+            await store.close()
+            return
+        }
+        #expect(try await menus.menuCommand(first.menuCommandID)?.isExactly(updated) == true)
+        #expect(try await menus.menuCommands(of: Self.bundle, pathKey: "View/Sidebar").count == 2)
+        #expect(try await store.read { try $0.query("PRAGMA foreign_key_check") { _ in () }.isEmpty })
+        await store.close()
+    }
+
     private struct Memory {
         let url: URL
         let store: SQLiteMemoryStore
@@ -37,7 +118,8 @@ struct MenuCommandRepositoryTests {
 
     private static func open(at url: URL? = nil) async throws -> Memory {
         let url = try url ?? temporaryDatabase()
-        let store = try await SQLiteMemoryStore.open(at: url)
+        let store = SQLiteMemoryStore(url: url, schema: .historical19)
+        try await store.open()
         return Memory(url: url, store: store, menus: SQLiteMenuCommandRepository(store: store))
     }
 

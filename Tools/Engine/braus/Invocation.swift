@@ -21,7 +21,7 @@ struct Invocation {
                                               "task", "part", "state", "reason", "requalify", "quarantine-policy",
                                               "recall-explain", "limit", "within", "last", "producer"]
 
-    init(arguments: [String]) {
+    init(arguments: [String], additionalValueOptions: Set<String> = []) {
         self.arguments = arguments
         var positionals: [String] = []
         var options: [String: String] = [:]
@@ -31,7 +31,7 @@ struct Invocation {
             let word = arguments[index]
             if word.hasPrefix("--") {
                 let name = String(word.dropFirst(2))
-                if Self.valued.contains(name), index + 1 < arguments.count {
+                if Self.valued.contains(name) || additionalValueOptions.contains(name), index + 1 < arguments.count {
                     options[name] = arguments[index + 1]
                     index += 1
                 } else {

@@ -80,7 +80,8 @@ struct ObservationContractTests {
 
     /// An event, a well-formed sample under it, and the id of its capture row.
     private func stored() async throws -> (SQLiteMemoryStore, SQLiteCaptureRepository, Int64) {
-        let store    = try await SQLiteMemoryStore.open(at: try temporaryDatabase())
+        let store = SQLiteMemoryStore(url: try temporaryDatabase(), schema: .version22)
+        try await store.open()
         let captures = SQLiteCaptureRepository(store: store)
         _ = try await captures.record(SceneFixtures.event("ev"))
         let window = SceneFixtures.perceive(SceneFixtures.window("W", [SceneFixtures.button("OK", y: 300)]))
@@ -108,24 +109,24 @@ struct ObservationContractTests {
     @Test("a child row of an unknown kind, or at a future version, makes the whole sample unreadable")
     func unknownKindOrVersion() async throws {
         let (store, captures, captureID) = try await stored()
-        _ = try await store.write { transaction in
+        _ = try await store.write { transaction in try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_event_observations_history_immutable", "memory_event_observations_history_kept"]) {
             try transaction.execute(
                 """
                 INSERT INTO memory_event_observations
                     (event_id, phase, sample_ordinal, observation_kind, status, parent_observation_id, text_value)
-                VALUES ('ev', 'current', 0, 'measurement', 'observed', ?, 'x')
+                VALUES ((SELECT event_id FROM memory_events WHERE event_uuid='ev'), 'current', 0, 'measurement', 'observed', ?, 'x')
                 """,
                 [.integer(captureID)]
             )
-        }
+        } }
         #expect(await readError(captures) == .unknownObservationKind("measurement"))
-        _ = try await store.write { transaction in
+        _ = try await store.write { transaction in try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_event_observations_history_immutable", "memory_event_observations_history_kept"]) {
             try transaction.execute("DELETE FROM memory_event_observations WHERE observation_kind = 'measurement'")
             try transaction.execute(
                 "UPDATE memory_event_observations SET observation_contract_version = 2 WHERE observation_id = ?",
                 [.integer(captureID)]
             )
-        }
+        } }
         #expect(await readError(captures) == .unsupportedContractVersion(kind: "capture", version: 2))
         await store.close()
     }
@@ -134,25 +135,25 @@ struct ObservationContractTests {
     func malformedFields() async throws {
         let (store, captures, captureID) = try await stored()
         func insert(_ columns: String, _ values: String) async throws {
-            _ = try await store.write { transaction in
+            _ = try await store.write { transaction in try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_event_observations_history_immutable", "memory_event_observations_history_kept"]) {
                 try transaction.execute(
                     """
                     INSERT INTO memory_event_observations
                         (event_id, phase, sample_ordinal, observation_kind, parent_observation_id, \(columns))
-                    VALUES ('ev', 'current', 0, 'capture_field', \(captureID), \(values))
+                    VALUES ((SELECT event_id FROM memory_events WHERE event_uuid='ev'), 'current', 0, 'capture_field', \(captureID), \(values))
                     """
                 )
-            }
+            } }
         }
         // The capture row is followed by its eight fields and the one element row of the "OK" button, so a
         // row inserted here takes the rowid after the element.
         func undo() async throws {
-            _ = try await store.write { transaction in
+            _ = try await store.write { transaction in try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_event_observations_history_immutable", "memory_event_observations_history_kept"]) {
                 try transaction.execute(
                     "DELETE FROM memory_event_observations WHERE observation_kind = 'capture_field' AND observation_id > ?",
                     [.integer(captureID + 9)]
                 )
-            }
+            } }
         }
         try await insert("field_name, status, integer_value", "'frames_dropped', 'observed', 3")
         #expect(await readError(captures) == .unknownCaptureField("frames_dropped"))
@@ -162,11 +163,11 @@ struct ObservationContractTests {
         #expect(await readError(captures) == .malformedObservation(observationID: captureID + 10, malformation: .duplicateField("nodes_visited")))
         try await undo()
 
-        _ = try await store.write { transaction in
+        _ = try await store.write { transaction in try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_event_observations_history_immutable", "memory_event_observations_history_kept"]) {
             try transaction.execute(
                 "DELETE FROM memory_event_observations WHERE field_name = 'nodes_visited' AND parent_observation_id = ?", [.integer(captureID)]
             )
-        }
+        } }
         #expect(await readError(captures) == .malformedObservation(observationID: captureID, malformation: .missingColumn("nodes_visited")))
         try await insert("field_name, status, text_value", "'nodes_visited', 'observed', 'many'")
         #expect(await readError(captures) == .malformedObservation(observationID: captureID + 10, malformation: .valueKindMismatch("nodes_visited")))
@@ -188,17 +189,17 @@ struct ObservationContractTests {
     @Test("a sample whose status disagrees with its fields, lacks its surface, or carries element columns is refused")
     func malformedCapture() async throws {
         let (store, captures, captureID) = try await stored()
-        _ = try await store.write { transaction in
+        _ = try await store.write { transaction in try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_event_observations_history_immutable", "memory_event_observations_history_kept"]) {
             try transaction.execute("UPDATE memory_event_observations SET status = 'partial' WHERE observation_id = ?", [.integer(captureID)])
-        }
+        } }
         #expect(await readError(captures) == .malformedObservation(observationID: captureID, malformation: .statusContradictsFields))
-        _ = try await store.write { transaction in
+        _ = try await store.write { transaction in try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_event_observations_history_immutable", "memory_event_observations_history_kept"]) {
             try transaction.execute("UPDATE memory_event_observations SET status = 'complete', surface_kind = NULL WHERE observation_id = ?", [.integer(captureID)])
-        }
+        } }
         #expect(await readError(captures) == .malformedObservation(observationID: captureID, malformation: .missingColumn("surface_kind")))
-        _ = try await store.write { transaction in
+        _ = try await store.write { transaction in try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_event_observations_history_immutable", "memory_event_observations_history_kept"]) {
             try transaction.execute("UPDATE memory_event_observations SET surface_kind = 'window', role = 'AXButton' WHERE observation_id = ?", [.integer(captureID)])
-        }
+        } }
         #expect(await readError(captures) == .malformedObservation(observationID: captureID, malformation: .forbiddenColumn("role")))
         await store.close()
     }
@@ -208,11 +209,11 @@ struct ObservationContractTests {
         let (store, captures, captureID) = try await stored()
         let elementID = captureID + 9
         func set(_ assignment: String) async throws {
-            _ = try await store.write { transaction in
+            _ = try await store.write { transaction in try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_event_observations_history_immutable", "memory_event_observations_history_kept"]) {
                 try transaction.execute(
                     "UPDATE memory_event_observations SET \(assignment) WHERE observation_id = ?", [.integer(elementID)]
                 )
-            }
+            } }
         }
         try await set("role = NULL")
         #expect(await readError(captures) == .malformedObservation(observationID: elementID, malformation: .missingRole))
@@ -231,17 +232,17 @@ struct ObservationContractTests {
         try await set("phase = 'current', parent_observation_id = \(captureID + 1)")
         #expect(await readError(captures) == .malformedObservation(observationID: elementID, malformation: .nestedUnderChild))
         try await set("parent_observation_id = \(captureID), observation_group = 1")
-        _ = try await store.write { transaction in
+        _ = try await store.write { transaction in try DB2BFixtureSQL.withoutGuards(transaction, names: ["memory_event_observations_history_immutable", "memory_event_observations_history_kept"]) {
             try transaction.execute(
                 """
                 INSERT INTO memory_event_observations
                     (event_id, phase, sample_ordinal, observation_kind, parent_observation_id, status, observation_group,
                      label, label_origin, container_path, role, element_kind, bounds_x, bounds_y, bounds_width, bounds_height)
-                VALUES ('ev', 'current', 0, 'element', ?, 'observed', 1, 'Alice', 'row_content', 'Other', 'AXRow', 'control', 0, 0, 0.1, 0.1)
+                VALUES ((SELECT event_id FROM memory_events WHERE event_uuid='ev'), 'current', 0, 'element', ?, 'observed', 1, 'Alice', 'row_content', 'Other', 'AXRow', 'control', 0, 0, 0.1, 0.1)
                 """,
                 [.integer(captureID)]
             )
-        }
+        } }
         #expect(await readError(captures) == .malformedObservation(observationID: elementID + 1, malformation: .collectionGroupInconsistent(1)))
         await store.close()
     }

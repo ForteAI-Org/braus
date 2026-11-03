@@ -13,14 +13,15 @@ import Testing
 /// The three writes the S0 closing review found the v5 candidate still admitted, now refused by
 /// the included resource, and the symmetry of the app-scope rules on INSERT and UPDATE. Every
 /// case runs through the store on a temporary file, so the resource proven is the one shipped.
-@Suite("The included schema resource")
+@Suite("The historical schema 19 resource")
 struct SchemaResourceTests {
 
     /// One app with a structural scene and its scope; three events: a complete sample with a
     /// confirmed scene, a partial sample with a candidate scene, and a sample nobody references.
     /// No sample has child rows, so no foreign key of a child can mask what the triggers decide.
     private func fixture() async throws -> SQLiteMemoryStore {
-        let store = try await SQLiteMemoryStore.open(at: try temporaryDatabase())
+        let store = SQLiteMemoryStore(url: try temporaryDatabase(), schema: .historical19)
+        try await store.open()
         try await store.write { transaction in
             try transaction.execute("INSERT INTO brain_apps (app_id, bundle_id) VALUES (1, 'test.synthetic')")
             try transaction.execute(

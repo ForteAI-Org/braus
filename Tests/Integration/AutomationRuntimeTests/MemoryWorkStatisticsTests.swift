@@ -36,13 +36,11 @@ struct MemoryWorkStatisticsTests {
         var labels: [String] = []
         for case let file as URL in files where file.pathExtension == "swift" {
             let source = try String(contentsOf: file, encoding: .utf8)
-            labels += source.components(separatedBy: ".enqueue(\"").dropFirst().map {
+            labels += source.components(separatedBy: "enqueue(\"").dropFirst().map {
                 String($0.prefix { $0 != "\"" })
             }
         }
-        #expect(labels.sorted() == [
-            "brain observe", "brain record", "brain relation", "scene \\(key.phase.rawValue)"
-        ].sorted())
+        #expect(labels == ["derived pause"])
         #expect(CapturePhase.allCases.filter(\.isAssociable).map(\.rawValue).sorted()
                 == ["after", "before", "current"])
     }

@@ -31,7 +31,7 @@ struct ElsewhereGuideTests {
     @Test("a new window is named, by title or by size")
     func windowAppeared() {
         let titled = ElsewhereGuide.forUnverifiedAct(app: "X", before: [verdict(1)], after: [verdict(2, title: "Export"), verdict(1)])
-        #expect(titled.sentence.contains("\"Export\""))
+        #expect(titled.sentence.contains("'Export'"))
         let untitled = ElsewhereGuide.forUnverifiedAct(app: "X", before: [verdict(1)], after: [verdict(2, title: nil, w: 300, h: 200), verdict(1)])
         #expect(untitled.sentence.contains("300×200pt"))
     }
@@ -42,16 +42,16 @@ struct ElsewhereGuideTests {
         #expect(popup.changed)
         #expect(popup.sentence.contains("pop-up menu closed"))
         let window = ElsewhereGuide.forUnverifiedAct(app: "X", before: [verdict(2, title: "Sheet"), verdict(1)], after: [verdict(1)])
-        #expect(window.sentence.contains("\"Sheet\" closed"))
+        #expect(window.sentence.contains("'Sheet' closed"))
     }
 
     @Test("a retitle is a navigation; a resize alone is nothing")
     func retitleAndResize() {
         let retitled = ElsewhereGuide.forUnverifiedAct(app: "X", before: [verdict(1, title: "A")], after: [verdict(1, title: "B")])
         #expect(retitled.changed)
-        #expect(retitled.sentence.contains("now titled \"B\""))
+        #expect(retitled.sentence.contains("now titled 'B'"))
         let resized = ElsewhereGuide.forUnverifiedAct(app: "X", before: [verdict(1)], after: [verdict(1, w: 900)])
         #expect(!resized.changed)
-        #expect(resized.sentence.contains("No window of X opened, closed or retitled"))
+        #expect(resized.sentence.contains("No window of 'X' opened, closed or retitled"))
     }
 }

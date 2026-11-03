@@ -22,13 +22,19 @@ public struct SQLiteTaskContextRepository: TaskContextStoring {
     }
 
     public func open(_ task: TaskRecord, revision: TaskRevision, attempt: TaskAttempt) async throws -> MemoryReceipt {
+        try await open(task, revision: revision, attempt: attempt, todo: nil)
+    }
+
+    public func open(_ task: TaskRecord, revision: TaskRevision, attempt: TaskAttempt,
+                     todo: TodoRevision?) async throws -> MemoryReceipt {
         func refuse(_ invalidity: TaskContextError.Invalidity) -> TaskContextError { .invalid(invalidity) }
         guard task.status == .open, task.currentRevision == 1, revision.revision == 1, attempt.ordinal == 1,
               revision.taskID.utf8.elementsEqual(task.taskID.utf8), attempt.taskID.utf8.elementsEqual(task.taskID.utf8),
               attempt.openedAtRevision == 1, attempt.producer.isExactly(task.producer) else {
             throw refuse(.revisionChangeMismatch)
         }
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
+            if todo != nil { try SQLiteTodoRepository.requireAvailable(in: transaction) }
             if let stored = try SQLiteTaskContextRows.task(transaction, task.taskID) {
                 let sameRevision = try SQLiteTaskContextRows.revision(transaction, task.taskID, 1).map {
                     $0.isExactly(revision)
@@ -44,6 +50,7 @@ public struct SQLiteTaskContextRepository: TaskContextStoring {
             try SQLiteTaskContextRows.insert(transaction, task)
             try SQLiteTaskContextRows.insert(transaction, revision)
             try SQLiteTaskContextRows.insert(transaction, attempt, traceID: task.traceID)
+            if let todo { _ = try SQLiteTodoRepository.append(todo, expecting: 0, in: transaction) }
             return .committed
         }
     }
@@ -53,7 +60,13 @@ public struct SQLiteTaskContextRepository: TaskContextStoring {
         expecting current: Int,
         by producer      : TaskProducer
     ) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await revise(revision, expecting: current, by: producer, todo: nil)
+    }
+
+    public func revise(_ revision: TaskRevision, expecting current: Int, by producer: TaskProducer,
+                       todo: TodoRevision?) async throws -> MemoryReceipt {
+        try await store.db2BWrite { transaction in
+            if todo != nil { try SQLiteTodoRepository.requireAvailable(in: transaction) }
             let task = try SQLiteTaskContextRows.owned(transaction, revision.taskID, by: producer)
             if let stored = try SQLiteTaskContextRows.revision(transaction, revision.taskID, revision.revision) {
                 guard stored.isExactly(revision) else {
@@ -76,7 +89,8 @@ public struct SQLiteTaskContextRepository: TaskContextStoring {
             }
             try SQLiteTaskContextRows.insert(transaction, revision)
             try transaction.execute("UPDATE memory_tasks SET current_revision = ? WHERE task_id = ?",
-                                    [.integer(Int64(revision.revision)), .text(task.taskID)])
+                                    [.integer(Int64(revision.revision)), try DB2BKeys.task(transaction, task.taskID)])
+            if let todo { _ = try SQLiteTodoRepository.append(todo, expecting: todo.number - 1, in: transaction) }
             return .committed
         }
     }
@@ -87,7 +101,14 @@ public struct SQLiteTaskContextRepository: TaskContextStoring {
         at recordedAtMS: Int64,
         by producer  : TaskProducer
     ) async throws -> (receipt: MemoryReceipt, checkpoint: TaskCheckpoint) {
-        try await store.write { transaction in
+        try await checkpoint(draft, attempt: attempt, at: recordedAtMS, by: producer, todo: nil, endCheck: nil)
+    }
+
+    public func checkpoint(_ draft: TaskCheckpointDraft, attempt: String, at recordedAtMS: Int64,
+                           by producer: TaskProducer, todo: TodoRevision?, endCheck: TaskEndCheck?) async throws
+        -> (receipt: MemoryReceipt, checkpoint: TaskCheckpoint) {
+        try await store.db2BWrite { transaction in
+            if todo != nil || endCheck != nil { try SQLiteTodoRepository.requireAvailable(in: transaction) }
             guard let stored = try SQLiteTaskContextRows.attempt(transaction, attempt) else {
                 throw TaskContextError.unknownAttempt(attemptID: attempt)
             }
@@ -110,6 +131,8 @@ public struct SQLiteTaskContextRepository: TaskContextStoring {
                 outputs     : draft.outputs
             )
             try SQLiteTaskContextRows.insert(transaction, checkpoint, taskID: task.taskID)
+            if let todo { _ = try SQLiteTodoRepository.append(todo, expecting: todo.number - 1, in: transaction) }
+            if let endCheck { try SQLiteTodoRepository.record(endCheck, attempt: attempt, in: transaction) }
             if checkpoint.kind == .end, let declared = checkpoint.declared {
                 let episode: TaskStatus = switch declared {
                     case .completed: .completed
@@ -118,12 +141,12 @@ public struct SQLiteTaskContextRepository: TaskContextStoring {
                 }
                 try transaction.execute(
                     "UPDATE memory_task_occurrences SET status = ?, ended_at_ms = ? WHERE task_occurrence_id = ?",
-                    [.text(episode.rawValue), .integer(checkpoint.recordedAtMS), .text(attempt)]
+                    [.text(episode.rawValue), .integer(checkpoint.recordedAtMS), try SQLiteRowIdentity(transaction).key(.attempt, attempt)]
                 )
                 try transaction.execute(
                     "UPDATE memory_tasks SET status = ?, closed_at_ms = ? WHERE task_id = ?",
                     [.text(declared.rawValue), .integer(max(checkpoint.recordedAtMS, task.openedAtMS)),
-                     .text(task.taskID)]
+                     try DB2BKeys.task(transaction, task.taskID)]
                 )
             }
             return (MemoryReceipt.committed, checkpoint)
@@ -131,7 +154,7 @@ public struct SQLiteTaskContextRepository: TaskContextStoring {
     }
 
     public func resume(_ attempt: TaskAttempt) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             if let stored = try SQLiteTaskContextRows.attempt(transaction, attempt.attemptID) {
                 guard SQLiteTaskContextRows.same(stored.attempt, attempt) else {
                     throw SQLiteFactRows.conflict(attempt.attemptID, stored: "attempt", offered: "another attempt")
@@ -159,7 +182,7 @@ public struct SQLiteTaskContextRepository: TaskContextStoring {
                     UPDATE memory_task_occurrences SET status = 'interrupted', ended_at_ms = ?
                     WHERE task_occurrence_id = ?
                     """,
-                    [.integer(max(attempt.openedAtMS, last.attempt.openedAtMS)), .text(last.attempt.attemptID)]
+                    [.integer(max(attempt.openedAtMS, last.attempt.openedAtMS)), try SQLiteRowIdentity(transaction).key(.attempt, last.attempt.attemptID)]
                 )
             }
             try SQLiteTaskContextRows.insert(transaction, attempt, traceID: task.traceID)
@@ -205,10 +228,10 @@ public struct SQLiteTaskContextRepository: TaskContextStoring {
             _ = try SQLiteTaskContextRows.owned(snapshot, stored.attempt.taskID, by: producer)
             return try snapshot.query(
                 """
-                SELECT event_id FROM memory_task_events
+                SELECT \(try SQLiteRowIdentity(snapshot).publicReference(.event, column: "memory_task_events.event_id")) FROM memory_task_events
                 WHERE task_occurrence_id = ? AND role IN ('action', 'context') ORDER BY position
                 """,
-                [.text(attemptID)]
+                [try SQLiteRowIdentity(snapshot).key(.attempt, attemptID)]
             ) { try $0.text(0) ?? "" }
         }
     }
@@ -223,7 +246,7 @@ enum SQLiteTaskContextRows {
     static func insert(_ transaction: SQLiteTransaction, _ task: TaskRecord) throws {
         try transaction.execute(
             """
-            INSERT INTO memory_tasks (task_id, contract_version, source, source_stream_id, trace_id, opened_at_ms,
+            INSERT INTO memory_tasks (\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? "task_uuid" : "task_id"), contract_version, source, source_stream_id, trace_id, opened_at_ms,
                                       status, closed_at_ms, current_revision)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -237,10 +260,10 @@ enum SQLiteTaskContextRows {
     static func task(_ handle: some SQLiteQuerying, _ taskID: String) throws -> TaskRecord? {
         try handle.query(
             """
-            SELECT task_id, contract_version, source, source_stream_id, trace_id, opened_at_ms, status, closed_at_ms,
+            SELECT \(try DB2BKeys.taskReference(handle, "memory_tasks.task_id")), contract_version, source, source_stream_id, trace_id, opened_at_ms, status, closed_at_ms,
                    current_revision FROM memory_tasks WHERE task_id = ?
             """,
-            [.text(taskID)]
+            [try DB2BKeys.task(handle, taskID)]
         ) { row in
             let source = try row.text(2) ?? "", status = try row.text(6) ?? ""
             guard let producerSource = MemoryEventSource(rawValue: source),
@@ -276,7 +299,7 @@ enum SQLiteTaskContextRows {
     // MARK: Revisions
 
     static func insert(_ transaction: SQLiteTransaction, _ revision: TaskRevision) throws {
-        let id = SQLiteValue.text(revision.taskID), number = SQLiteValue.integer(Int64(revision.revision))
+        let id = try DB2BKeys.task(transaction, revision.taskID), number = SQLiteValue.integer(Int64(revision.revision))
         let content = revision.content
         try transaction.execute(
             """
@@ -291,16 +314,16 @@ enum SQLiteTaskContextRows {
         for (position, constraint) in content.constraints.enumerated() {
             try transaction.execute(
                 """
-                INSERT INTO memory_task_constraints (task_id, revision, position, constraint_text)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO memory_task_constraints (task_id, revision, position, constraint_text\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", task_revision_id" : ""))
+                VALUES (?, ?, ?, ?\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", ?" : ""))
                 """,
-                [id, number, .integer(Int64(position)), .text(constraint)]
+                [id, number, .integer(Int64(position)), .text(constraint)] + (try SQLiteRowIdentity(transaction).usesIntegerKeys ? [DB2BKeys.revision(transaction, task: revision.taskID, number: revision.revision)] : [])
             )
         }
         for (position, reference) in content.messageRefs.enumerated() {
             try transaction.execute(
-                "INSERT INTO memory_task_message_refs (task_id, revision, position, message_ref) VALUES (?, ?, ?, ?)",
-                [id, number, .integer(Int64(position)), .text(reference)]
+                "INSERT INTO memory_task_message_refs (task_id, revision, position, message_ref\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", task_revision_id" : "")) VALUES (?, ?, ?, ?\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", ?" : ""))",
+                [id, number, .integer(Int64(position)), .text(reference)] + (try SQLiteRowIdentity(transaction).usesIntegerKeys ? [DB2BKeys.revision(transaction, task: revision.taskID, number: revision.revision)] : [])
             )
         }
         for (position, value) in content.inputs.enumerated() {
@@ -310,7 +333,7 @@ enum SQLiteTaskContextRows {
     }
 
     static func revision(_ handle: some SQLiteQuerying, _ taskID: String, _ number: Int) throws -> TaskRevision? {
-        let id = SQLiteValue.text(taskID), revision = SQLiteValue.integer(Int64(number))
+        let id = try DB2BKeys.task(handle, taskID), revision = SQLiteValue.integer(Int64(number))
         guard let row = try handle.query(
             """
             SELECT recorded_at_ms, change_kind, reason, goal, requested_result FROM memory_task_revisions
@@ -353,6 +376,20 @@ enum SQLiteTaskContextRows {
             case .missing       : ("missing", .null)
             case .withheld      : ("withheld", .null)
         }
+        var owner = owner
+        if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+            let digest: SQLiteValue
+            if case .text(let text) = value.content { digest = .blob(Array(Digest16.of(text))) }
+            else { digest = .null }
+            owner.append(("value_digest", digest))
+            if let revision = owner.first(where: { $0.column == "revision" }) {
+                owner.append(("task_revision_id", try transaction.query("SELECT task_revision_id FROM memory_task_revisions WHERE task_id=? AND revision=?", [DB2BKeys.task(transaction, taskID), revision.value]) { $0.integer(0).map(SQLiteValue.integer) ?? .null }.first ?? .null))
+            } else {
+                let attempt = owner.first(where: { $0.column == "task_occurrence_id" })!.value
+                let sequence = owner.first(where: { $0.column == "checkpoint_sequence" })!.value
+                owner.append(("checkpoint_id", try transaction.query("SELECT checkpoint_id FROM memory_task_checkpoints WHERE task_occurrence_id=? AND sequence=?", [attempt, sequence]) { $0.integer(0).map(SQLiteValue.integer) ?? .null }.first ?? .null))
+            }
+        }
         let columns = owner.map(\.column).joined(separator: ", ")
         let marks   = owner.map { _ in "?" }.joined(separator: ", ")
         // Column names are this codec's own literals; nothing from a caller is spliced in.
@@ -362,7 +399,7 @@ enum SQLiteTaskContextRows {
                                             sensitivity, source, source_ref, source_version)
             VALUES (?, \(marks), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [.text(taskID)] + owner.map(\.value)
+            [try DB2BKeys.task(transaction, taskID)] + owner.map(\.value)
                 + [.integer(Int64(position)), .text(value.name), value.role.map(SQLiteValue.text) ?? .null,
                    .text(value.kind.rawValue), .text(content), text, .text(value.sensitivity.rawValue),
                    .text(value.source.rawValue), value.sourceRef.map(SQLiteValue.text) ?? .null,
@@ -421,12 +458,12 @@ enum SQLiteTaskContextRows {
         try transaction.execute(
             """
             INSERT INTO memory_task_attempts (task_occurrence_id, task_id, ordinal, resumes_task_occurrence_id, source,
-                                              source_stream_id, opened_at_ms, opened_at_revision)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                              source_stream_id, opened_at_ms, opened_at_revision\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", task_revision_id" : ""))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", ?" : ""))
             """,
-            [.text(attempt.attemptID), .text(attempt.taskID), .integer(Int64(attempt.ordinal)),
-             attempt.resumes.map(SQLiteValue.text) ?? .null, .text(attempt.producer.source.rawValue),
-             .text(attempt.producer.streamID), .integer(attempt.openedAtMS), .integer(Int64(attempt.openedAtRevision))]
+            [try SQLiteRowIdentity(transaction).key(.attempt, attempt.attemptID), try DB2BKeys.task(transaction, attempt.taskID), .integer(Int64(attempt.ordinal)),
+             try SQLiteRowIdentity(transaction).key(.attempt, attempt.resumes), .text(attempt.producer.source.rawValue),
+             .text(attempt.producer.streamID), .integer(attempt.openedAtMS), .integer(Int64(attempt.openedAtRevision))] + (try SQLiteRowIdentity(transaction).usesIntegerKeys ? [DB2BKeys.revision(transaction, task: attempt.taskID, number: attempt.openedAtRevision)] : [])
         )
     }
 
@@ -435,25 +472,30 @@ enum SQLiteTaskContextRows {
         a.opened_at_ms, a.opened_at_revision, o.status, o.ended_at_ms
         """
 
+    private static func attemptColumns(_ handle: some SQLiteQuerying) throws -> String {
+        let ids = try SQLiteRowIdentity(handle)
+        return "\(ids.publicReference(.attempt, column: "a.task_occurrence_id")), \(try DB2BKeys.taskReference(handle, "a.task_id")), a.ordinal, \(ids.publicReference(.attempt, column: "a.resumes_task_occurrence_id")), a.source, a.source_stream_id, a.opened_at_ms, a.opened_at_revision, o.status, o.ended_at_ms"
+    }
+
     static func attempt(_ handle: some SQLiteQuerying, _ attemptID: String) throws -> StoredTaskAttempt? {
         try handle.query(
             """
-            SELECT \(attemptColumns) FROM memory_task_attempts a
+            SELECT \(try attemptColumns(handle)) FROM memory_task_attempts a
             JOIN memory_task_occurrences o ON o.task_occurrence_id = a.task_occurrence_id
             WHERE a.task_occurrence_id = ?
             """,
-            [.text(attemptID)], decodeAttempt
+            [try SQLiteRowIdentity(handle).key(.attempt, attemptID)], decodeAttempt
         ).first
     }
 
     static func attempts(_ handle: some SQLiteQuerying, of taskID: String) throws -> [StoredTaskAttempt] {
         try handle.query(
             """
-            SELECT \(attemptColumns) FROM memory_task_attempts a
+            SELECT \(try attemptColumns(handle)) FROM memory_task_attempts a
             JOIN memory_task_occurrences o ON o.task_occurrence_id = a.task_occurrence_id
             WHERE a.task_id = ? ORDER BY a.ordinal
             """,
-            [.text(taskID)], decodeAttempt
+            [try DB2BKeys.task(handle, taskID)], decodeAttempt
         )
     }
 
@@ -481,16 +523,16 @@ enum SQLiteTaskContextRows {
     // MARK: Checkpoints
 
     static func insert(_ transaction: SQLiteTransaction, _ checkpoint: TaskCheckpoint, taskID: String) throws {
-        let attempt = SQLiteValue.text(checkpoint.attemptID), sequence = SQLiteValue.integer(Int64(checkpoint.sequence))
+        let attempt = try SQLiteRowIdentity(transaction).key(.attempt, checkpoint.attemptID), sequence = SQLiteValue.integer(Int64(checkpoint.sequence))
         try transaction.execute(
             """
             INSERT INTO memory_task_checkpoints (task_occurrence_id, sequence, checkpoint_kind, task_id, revision,
-                                                 recorded_at_ms, declared_status, note)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                                 recorded_at_ms, declared_status, note\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", task_revision_id" : ""))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?\(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", ?" : ""))
             """,
-            [attempt, sequence, .text(checkpoint.kind.rawValue), .text(taskID), .integer(Int64(checkpoint.revision)),
+            [attempt, sequence, .text(checkpoint.kind.rawValue), try DB2BKeys.task(transaction, taskID), .integer(Int64(checkpoint.revision)),
              .integer(checkpoint.recordedAtMS), checkpoint.declared.map { SQLiteValue.text($0.rawValue) } ?? .null,
-             checkpoint.note.map(SQLiteValue.text) ?? .null]
+             checkpoint.note.map(SQLiteValue.text) ?? .null] + (try SQLiteRowIdentity(transaction).usesIntegerKeys ? [DB2BKeys.revision(transaction, task: taskID, number: checkpoint.revision)] : [])
         )
         for (position, value) in checkpoint.outputs.enumerated() {
             try insert(transaction, value, taskID: taskID, position: position,
@@ -504,7 +546,7 @@ enum SQLiteTaskContextRows {
             SELECT sequence, checkpoint_kind, revision, recorded_at_ms, declared_status, note
             FROM memory_task_checkpoints WHERE task_occurrence_id = ? ORDER BY sequence
             """,
-            [.text(attemptID)]
+            [try SQLiteRowIdentity(handle).key(.attempt, attemptID)]
         ) { (sequence: Int($0.integer(0) ?? 0), kind: try $0.text(1) ?? "", revision: Int($0.integer(2) ?? 0),
              at: $0.integer(3) ?? 0, declared: try $0.text(4), note: try $0.text(5)) }
         return try rows.map { row in
@@ -518,7 +560,7 @@ enum SQLiteTaskContextRows {
                 return status
             }
             let outputs = try values(handle, "task_occurrence_id = ? AND checkpoint_sequence = ?",
-                                     [.text(attemptID), .integer(Int64(row.sequence))], id: attemptID)
+                                     [try SQLiteRowIdentity(handle).key(.attempt, attemptID), .integer(Int64(row.sequence))], id: attemptID)
             return try TaskCheckpoint(attemptID: attemptID, sequence: row.sequence, kind: kind, revision: row.revision,
                                       recordedAtMS: row.at, declared: declared, note: row.note, outputs: outputs)
         }

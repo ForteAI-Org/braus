@@ -141,7 +141,7 @@ public struct AppAdapters: Sendable {
     public func call(app: String, verb: String, arguments: JSONValue,
                      invoking: (@Sendable (AdapterDispatch) async -> Void)? = nil) async throws -> AdapterOutcome {
         let (adapter, found) = try resolve(app: app, verb: verb, arguments: arguments)
-        let arguments = arguments == .null ? JSONValue.object([:]) : arguments
+        var arguments = arguments == .null ? JSONValue.object([:]) : arguments
         let qualified = "\(adapter.name).\(found.name)"
         let readBack: IrreversiblePolicy.ReadBack = found.confirmation == .readBack ? .confirms : .cannotConfirm
         // A call nobody here can allow, or one that could not confirm its change, is refused before anyone is asked.
@@ -163,7 +163,15 @@ public struct AppAdapters: Sendable {
             case .needsPermission(let reason), .unavailable(let reason):
                 return .refused(reason)
         }
-        if found.safety == .irreversible, let approver {
+        let confirmation = await adapter.confirmation(found.name, arguments)
+        if let confirmation {
+            if let refusal = confirmation.refusal { return refusal }
+            arguments = confirmation.resolvedArguments
+            if confirmation.reason != nil, approver == nil {
+                return .refused(AdapterText.protectedPathRefusal)
+            }
+        }
+        if found.safety == .irreversible || confirmation?.reason != nil, let approver {
             let consent = AdapterConsent(
                 adapter  : adapter.name,
                 app      : adapter.appNames.first ?? adapter.name,
@@ -172,7 +180,7 @@ public struct AppAdapters: Sendable {
             )
             // The yes is for this one call; a call cancelled while it waited does not run.
             let allowed = await approver.approve(consent) && !Task.isCancelled
-            guard IrreversiblePolicy.decision(allowed: allowed, readBack: readBack) == .allowed else {
+            guard allowed else {
                 return .refused("The person did not allow \(qualified), or did not answer in time: nothing was done. "
                                 + "Do not try it again unless the person asks.")
             }
@@ -196,7 +204,7 @@ public struct AppAdapters: Sendable {
     private func missing(_ app: String) -> JSONValue {
         .object([
             "adapter": .null,
-            "message": .string("No adapter for \(app): use open_session to drive it through its interface. "
+            "message": .string("No adapter for \(OutcomeText.quoted(app)): use open_session to drive it through its interface. "
                                + "Adapters: \(adapters.map(\.name).joined(separator: ", ")).")
         ])
     }

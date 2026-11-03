@@ -16,9 +16,10 @@ public protocol MenuCommanding: Sendable {
     /// Presses the item `path` names ("Format > Font > Bold") in the menu bar of `processID` and
     /// answers that command's own outcome, its scene read through `observe` after the press. Nil
     /// when nothing was dispatched: no such item, or one that is disabled or refused.
+    /// A cancellable reading may retain `observe` until its child task finishes after takeover.
     func performMenuItem(
         _ path      : String,
         in processID: pid_t,
-        observe     : @Sendable () async throws -> SceneSnapshot
+        observe     : @escaping @Sendable () async throws -> SceneSnapshot
     ) async -> ActOutcome?
 }

@@ -1,0 +1,9 @@
+Frozen source schemas extracted from Git, without archive data.
+Schema 20: commit 2fc6084fbe519d0a24eeed2df5e270f9e288e606, blob 97bf6f457a176b60841c0e1f2addfcdc49237cae.
+Schema 21: commit cc1244484e3609c92c2b8fd55835dc5fb4c549c8, blob 875c8432f0d38925e4e5689fc10f676023f844ac.
+The fixtures contain sqlite_schema.sql in original creation order and the corresponding user_version.
+Comments outside schema objects were omitted; object SQL is unchanged.
+Object digests (type|name|sql, sorted by type/name, SHA-256):
+20 d911c182cc4e5aa4bb2d2b31efbcb6a9cc8e5b52fd71af4eddc84e9ac0177289
+21 031790e0ce7e886248d09819968cffad09e3df4af1acfd99060b9519593be81f
+Rows are synthetic. Schema 21 is schema 20 plus the learned-fact table, index and provenance trigger.

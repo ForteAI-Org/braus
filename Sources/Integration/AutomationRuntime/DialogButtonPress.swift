@@ -196,7 +196,7 @@ public enum DialogButtonPress {
         dialogs          : [Int],
         allowsDestructive: Bool,
         closingRefusal   : ((String) -> String?)? = nil,
-        observe          : () async throws -> SceneSnapshot
+        observe          : @escaping @MainActor () async throws -> SceneSnapshot
     ) async throws -> ActOutcome {
 
         let application = AXUIElementCreateApplication(processID)
@@ -241,6 +241,11 @@ public enum DialogButtonPress {
                         "Pressing '\(title)' failed with AXError \(error.rawValue).",
                         check: MenuBarCommand.windowCheck(.unknown, limits: [.deliveryUncertain], performed: .uncertain)
                     )
+                }
+                if SecondLook.isEnabled {
+                    return try await MenuBarCommand.observedOutcome("'\(title)'",
+                        outcome: ActOutcome(.foundActed, "pressed '\(title)'"), processID: processID,
+                        before: before, observe: observe)
                 }
                 try? await Task.sleep(for: .milliseconds(400))
                 return try await observed(title, observe: observe) { MenuBarCommand.windowSignature(of: processID) != before }

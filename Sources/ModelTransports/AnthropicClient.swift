@@ -6,23 +6,51 @@ import Foundation
 ///
 /// A tool turn keeps its content as a `TurnRecord`, because thinking blocks
 /// must return complete and unmodified beside the calls they led to, and a
-/// conversation turn sets the top-level `cache_control`, so each round of a
-/// tool loop reads the tools, the instructions and the history before it from
-/// the cache instead of paying for them again.
+/// conversation turn marks the stable instruction prefix and the latest history block for caching.
 struct AnthropicClient: ModelTransport {
     let model: String
     let effort: ReasoningEffort
     let apiKey: String
     var streaming: StreamingSupport { .incremental }
 
-    private static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
+    var host: String = "https://api.anthropic.com"
+
+    /// Validates the destination before a credential can be attached to a request.
+    func endpointURL() throws -> URL {
+        guard let parts = URLComponents(string: host),
+              let hostname = parts.host?.lowercased(),
+              parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
+              parts.path.isEmpty || parts.path == "/",
+              parts.scheme == "http" || parts.scheme == "https",
+              (parts.scheme == "https" && hostname == "api.anthropic.com" && parts.port == nil)
+                || ["localhost", "127.0.0.1", "[::1]", "::1"].contains(hostname),
+              let base = parts.url else {
+            throw ProviderError.badResponse("Anthropic host must be https://api.anthropic.com or a loopback URL.")
+        }
+        return base.appendingPathComponent("v1/messages")
+    }
+
+    private static let destinationPolicy = DestinationPolicy()
+
+    /// DestinationPolicy refuses redirects, so credentials never leave the validated endpoint.
+    final class DestinationPolicy: NSObject, URLSessionTaskDelegate {
+        func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest,
+            completionHandler: @escaping @Sendable (URLRequest?) -> Void
+        ) {
+            completionHandler(nil)
+        }
+    }
 
     func complete(prompt: String, schema: Data, timeout: TimeInterval)
         async throws -> (text: String, usage: ModelUsage) {
         guard !apiKey.isEmpty else { throw ProviderError.missingAPIKey(.anthropic) }
         let body = try structuredBody(prompt: prompt, schema: schema)
-        let (json, elapsed) = try await HTTPTransport.postJSON(Self.endpoint, headers: headers,
-                                                               body: body, timeout: timeout)
+        let (json, elapsed) = try await HTTPTransport.postJSON(try endpointURL(), headers: headers,
+                                                               body: body, timeout: timeout, delegate: Self.destinationPolicy)
 
         if let stop = json["stop_reason"] as? String, stop == "refusal" || stop == "max_tokens" {
             throw ProviderError.badResponse("stop_reason \(stop)")
@@ -62,9 +90,10 @@ struct AnthropicClient: ModelTransport {
         guard !apiKey.isEmpty else { throw ProviderError.missingAPIKey(.anthropic) }
         let names = try ToolNameAliases(tools: tools, messages: messages)
         let body = try requestBody(messages: messages, tools: tools)
-        let request = try HTTPTransport.request(Self.endpoint, headers: headers, body: body, timeout: timeout)
+        let request = try HTTPTransport.request(try endpointURL(), headers: headers, body: body, timeout: timeout)
         return HTTPTransport.stream(request, assembler: TurnAssembler(format: .serverSentEvents, decode: Self.decode,
-                                                                      recording: .anthropic, toolNames: names))
+                                                                      recording: .anthropic, toolNames: names),
+                                    delegate: Self.destinationPolicy)
     }
 
     /// Every current Claude model takes tools and images, and thinks, so this
@@ -74,30 +103,43 @@ struct AnthropicClient: ModelTransport {
     }
 
     /// The streamed Messages body: the system instruction beside the turns,
-    /// the tools as `{name, description, input_schema}`, and one automatic
-    /// cache breakpoint, which the API moves to the last block of each request.
+    /// the tools as `{name, description, input_schema}`, and two cache breakpoints:
+    /// the stable instruction prefix and the last block of the current history.
     func requestBody(messages: [TurnMessage], tools: [ToolDefinition]) throws -> [String: Any] {
         let names = try ToolNameAliases(tools: tools, messages: messages)
         var body: [String: Any] = [
             "model": model,
             "max_tokens": 16000,
             "stream": true,
-            "cache_control": ["type": "ephemeral"],
-            "messages": try Self.messages(messages.map(names.sending)),
         ]
         // The Messages API takes the system instruction beside the turns, not
         // as one of them.
         let system = messages.filter { $0.role == .system }.map(\.text).joined(separator: "\n\n")
-        if !system.isEmpty { body["system"] = system }
+        if !system.isEmpty {
+            body["system"] = [["type": "text", "text": system, "cache_control": ["type": "ephemeral"]]]
+        }
         if !ModelSelection.supportedEfforts(provider: .anthropic, model: model).isEmpty {
             body["output_config"] = ["effort": effort.rawValue]
         }
         if !tools.isEmpty {
-            body["tools"] = try tools.map { tool in
+            var definitions: [[String: Any]] = try tools.map { tool in
                 ["name": ToolNameAliases.wireName(tool.name), "description": tool.description,
                  "input_schema": try JSONSerialization.jsonObject(with: tool.parameters)]
             }
+            if system.isEmpty { definitions[definitions.count - 1]["cache_control"] = ["type": "ephemeral"] }
+            body["tools"] = definitions
         }
+        var history = try Self.messages(messages.map(names.sending))
+        for index in history.indices {
+            var blocks = (history[index]["content"] as? [[String: Any]])
+                ?? [["type": "text", "text": history[index]["content"] as? String ?? ""]]
+            for block in blocks.indices { blocks[block].removeValue(forKey: "cache_control") }
+            if index == history.count - 1, !blocks.isEmpty {
+                blocks[blocks.count - 1]["cache_control"] = ["type": "ephemeral"]
+            }
+            history[index]["content"] = blocks
+        }
+        body["messages"] = history
         return body
     }
 
@@ -168,6 +210,8 @@ struct AnthropicClient: ModelTransport {
             progress.inputTokens = usage?["input_tokens"] as? Int
             progress.cacheReadTokens = usage?["cache_read_input_tokens"] as? Int
             progress.cacheWriteTokens = usage?["cache_creation_input_tokens"] as? Int
+            progress.cacheWriteHourTokens = (usage?["cache_creation"] as? [String: Any])?["ephemeral_1h_input_tokens"] as? Int
+            progress.reasoningTokens = usage?["reasoning_tokens"] as? Int
         case "content_block_start":
             guard let index, let block = event["content_block"] as? [String: Any] else { return nil }
             progress.streamingBlocks[index] = StreamingBlock(start: try JSONSerialization.data(withJSONObject: block))
@@ -182,7 +226,9 @@ struct AnthropicClient: ModelTransport {
             if let index, let piece = piece as? String { progress.streamingBlocks[index]?.appended += piece }
             return delta["text"] as? String
         case "message_delta":
-            progress.outputTokens = (event["usage"] as? [String: Any])?["output_tokens"] as? Int
+            let usage = event["usage"] as? [String: Any]
+            progress.outputTokens = usage?["output_tokens"] as? Int
+            if let reasoning = usage?["reasoning_tokens"] as? Int { progress.reasoningTokens = reasoning }
             progress.recordStop((event["delta"] as? [String: Any])?["stop_reason"] as? String,
                                 wholeAnswerReasons: ["end_turn", "stop_sequence", "tool_use"])
         case "message_stop":

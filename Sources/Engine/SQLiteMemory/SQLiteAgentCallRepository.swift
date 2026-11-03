@@ -27,14 +27,14 @@ public struct SQLiteAgentCallRepository: AgentCallStoring {
     public func record(_ call: AgentCallRecord) async throws -> MemoryReceipt {
         guard call.event.parentEventID == nil else { throw AgentCallError.invalidRequest(.stepOutsideBatch) }
         guard call.request.tool != .batch else { throw AgentCallError.invalidRequest(.batchOutsideBatchRecord) }
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             try SQLiteAgentCallRows.record(transaction, call, requestedSteps: nil)
         }
     }
 
     public func record(batch: AgentCallRecord, steps: [AgentCallRecord]) async throws -> MemoryReceipt {
         try SQLiteAgentCallRows.validate(batch: batch, steps: steps)
-        return try await store.write { transaction in
+        return try await store.db2BWrite { transaction in
             let receipt = try SQLiteAgentCallRows.record(transaction, batch, requestedSteps: steps.count)
             for step in steps {
                 // A batch's steps are written with it, never alone: under a stored batch every step
@@ -44,7 +44,7 @@ public struct SQLiteAgentCallRepository: AgentCallStoring {
                 }
             }
             let stored = try transaction.query(
-                "SELECT count(*) FROM memory_events WHERE parent_event_id = ?", [.text(batch.event.eventID)]
+                "SELECT count(*) FROM memory_events WHERE parent_event_id = ?", [try SQLiteRowIdentity(transaction).key(.event, batch.event.eventID)]
             ) { $0.integer(0) ?? -1 }.first ?? -1
             guard stored == Int64(steps.count) else { throw SQLiteAgentCallRows.batchConflict(batch, steps: steps) }
             return receipt
@@ -52,7 +52,7 @@ public struct SQLiteAgentCallRepository: AgentCallStoring {
     }
 
     public func advance(_ transitions: [AgentCallTransition]) async throws -> MemoryReceipt {
-        try await store.write { transaction in
+        try await store.db2BWrite { transaction in
             var moved = false
             for transition in transitions {
                 moved = try SQLiteAgentCallRows.advance(transaction, transition) || moved
@@ -70,8 +70,8 @@ public struct SQLiteAgentCallRepository: AgentCallStoring {
         return try await store.read { snapshot in
             let ids = try snapshot.query(
                 """
-                SELECT e.event_id FROM memory_events e JOIN memory_agent_actions a ON a.event_id = e.event_id
-                WHERE e.trace_id = ? AND e.local_order > ? ORDER BY e.local_order LIMIT ?
+                SELECT \(try DB2BEventSQL.uuid(snapshot, alias: "e")) FROM memory_events e JOIN memory_agent_actions a ON a.event_id = e.event_id
+                WHERE e.trace_id = ? AND \(try DB2BEventSQL.order(snapshot, alias: "e")) > ? ORDER BY \(try DB2BEventSQL.order(snapshot, alias: "e")) LIMIT ?
                 """,
                 [.text(traceID), .integer(localOrder ?? 0), .integer(Int64(limit))]
             ) { try $0.text(0) ?? "" }
@@ -83,10 +83,10 @@ public struct SQLiteAgentCallRepository: AgentCallStoring {
         try await store.read { snapshot in
             let ids = try snapshot.query(
                 """
-                SELECT e.event_id FROM memory_events e JOIN memory_agent_actions a ON a.event_id = e.event_id
+                SELECT \(try DB2BEventSQL.uuid(snapshot, alias: "e")) FROM memory_events e JOIN memory_agent_actions a ON a.event_id = e.event_id
                 WHERE e.parent_event_id = ? ORDER BY e.parent_position
                 """,
-                [.text(eventID)]
+                [try SQLiteRowIdentity(snapshot).key(.event, eventID)]
             ) { try $0.text(0) ?? "" }
             return try ids.compactMap { try SQLiteAgentCallRows.call(snapshot, eventID: $0) }
         }
@@ -125,7 +125,7 @@ enum SQLiteAgentCallRows {
         var seen: [[UInt8]] = []
         for (position, step) in steps.enumerated() {
             let event = step.event
-            guard step.request.tool.isBatchStep else { throw refuse(.notABatchStep(position: position, tool: step.request.tool)) }
+            guard step.request.tool.maySitInBatch else { throw refuse(.notABatchStep(position: position, tool: step.request.tool)) }
             guard let parentID = event.parentEventID, parentID.utf8.elementsEqual(parent.eventID.utf8),
                   event.parentPosition == position else { throw refuse(.stepParent(position: position)) }
             let id = Array(event.eventID.utf8)
@@ -173,7 +173,7 @@ enum SQLiteAgentCallRows {
             INSERT INTO memory_agent_actions (event_id, app_id, tool_kind, contract_version, execution_status, requested_count)
             VALUES (?, (SELECT app_id FROM memory_events WHERE event_id = ?), ?, ?, 'planned', ?)
             """,
-            [.text(eventID), .text(eventID), .text(call.request.tool.rawValue), .integer(Int64(AgentCallContract.version)),
+            [try SQLiteRowIdentity(transaction).key(.event, eventID), try SQLiteRowIdentity(transaction).key(.event, eventID), .text(call.request.tool.rawValue), .integer(Int64(AgentCallContract.version)),
              requestedSteps.map { .integer(Int64($0)) } ?? .null]
         )
         for argument in call.request.arguments {
@@ -188,7 +188,7 @@ enum SQLiteAgentCallRows {
                 INSERT INTO memory_operation_arguments (event_id, app_id, argument_name, position, value_kind, \(column))
                 VALUES (?, (SELECT app_id FROM memory_agent_actions WHERE event_id = ?), ?, ?, ?, ?)
                 """,
-                [.text(eventID), .text(eventID), .text(argument.name), .integer(Int64(argument.position)), .text(kind), value]
+                [try SQLiteRowIdentity(transaction).key(.event, eventID), try SQLiteRowIdentity(transaction).key(.event, eventID), .text(argument.name), .integer(Int64(argument.position)), .text(kind), value]
             )
         }
         return .committed
@@ -207,7 +207,7 @@ enum SQLiteAgentCallRows {
     /// Applies one transition: `true` when it moved the call, `false` for a retry of the stored
     /// state. A step starts only once its batch has; a batch concludes with a result only when that
     /// result is the summary its steps allow (`producerSummary`).
-    static func advance(_ transaction: SQLiteTransaction, _ transition: AgentCallTransition) throws -> Bool {
+    static func advance(_ transaction: SQLiteTransaction, _ transition: AgentCallTransition, conclusion: OperationConclusion? = nil) throws -> Bool {
         let eventID = transition.eventID, progress = transition.progress
         guard let stored = try stored(transaction, eventID: eventID) else { throw AgentCallError.missingCall(eventID: eventID) }
         try progress.validate(for: stored.tool)
@@ -218,11 +218,16 @@ enum SQLiteAgentCallRows {
             }
         }
         if case .batch(let stopped, let attempted, let verified)? = progress.result {
-            guard let summary = try producerSummary(transaction, batchID: eventID, requestedSteps: stored.requestedSteps),
+            let proposed = try progress.batchConclusion.map {
+                try policySummary(transaction, batchID: eventID, requestedSteps: stored.requestedSteps, conclusion: $0)
+            } ?? producerSummary(transaction, batchID: eventID, requestedSteps: stored.requestedSteps)
+            guard let summary = proposed,
                   summary == BatchSummary(stopped: stopped, attempted: attempted, verified: verified) else {
                 throw AgentCallError.batchNotSettled(eventID: eventID)
             }
         }
+        let outcome = try SQLiteRowIdentity(transaction).usesIntegerKeys
+            ? DB2BOutcomes.columns(transaction, eventID: eventID, progress: progress, conclusion: conclusion) : nil
         let columns = resultColumns(progress)
         let effect  = progress.observedEffect
         // The start is written once, by the `started` move, and kept by every later one.
@@ -231,22 +236,27 @@ enum SQLiteAgentCallRows {
             UPDATE memory_agent_actions SET execution_status = ?, started_at_ms = COALESCE(?, started_at_ms), completed_at_ms = ?,
                 duration_ms = ?, result_kind = ?, result_message = ?, attempted_count = ?, verified_count = ?,
                 observed_effect_kind = ?, observed_effect_text = ?, observed_state_before = ?, observed_state_after = ?,
-                observed_effect_label = ?, observed_effect_value = ?
+                observed_effect_label = ?, observed_effect_value = ?\(outcome == nil ? "" : ", gesture=?, effect=?, effect_reason=?, recovery=?, recovery_reason=?, outcome_origin=?, learnable=?")
             WHERE event_id = ?
             """,
             [.text(progress.status.rawValue), progress.startedAtMS.map(SQLiteValue.integer) ?? .null,
              progress.endedAtMS.map(SQLiteValue.integer) ?? .null, progress.durationMS.map(SQLiteValue.integer) ?? .null,
-             columns.kind, columns.message, columns.attempted, columns.verified,
+             outcome == nil ? columns.kind : .null, columns.message, columns.attempted, columns.verified,
              effect.map { .text($0.kind) } ?? .null, effect?.title.map(SQLiteValue.text) ?? .null,
              effect?.stateBefore.map { .text($0.rawValue) } ?? .null, effect?.stateAfter.map { .text($0.rawValue) } ?? .null,
-             effect?.label.map(SQLiteValue.text) ?? .null, effect?.value.map(SQLiteValue.text) ?? .null,
-             .text(eventID)]
+             effect?.label.map(SQLiteValue.text) ?? .null, effect?.value.map(SQLiteValue.text) ?? .null] + (outcome ?? []) + [try SQLiteRowIdentity(transaction).key(.event, eventID)]
         )
+        if case .stopped(let position, let reason)? = progress.batchConclusion {
+            try transaction.execute(
+                "INSERT INTO memory_batch_stops (event_id, stopped_at_position, reason) VALUES (?, ?, ?)",
+                [try SQLiteRowIdentity(transaction).key(.event, eventID), .integer(Int64(position)), .text(reason.rawValue)]
+            )
+        }
         if let effect {
             for (position, label) in effect.labels.enumerated() {
                 try transaction.execute(
                     "INSERT INTO memory_agent_action_effect_labels (event_id, position, label) VALUES (?, ?, ?)",
-                    [.text(eventID), .integer(Int64(position)), .text(label)]
+                    [try SQLiteRowIdentity(transaction).key(.event, eventID), .integer(Int64(position)), .text(label)]
                 )
             }
         }
@@ -271,13 +281,13 @@ enum SQLiteAgentCallRows {
                     INSERT INTO memory_agent_action_status (event_id, session_id, screen_recording, accessibility, post_event)
                     VALUES (?, ?, ?, ?, ?)
                     """,
-                    [.text(eventID), status.sessionID.map(SQLiteValue.text) ?? .null, .integer(status.screenRecording ? 1 : 0),
+                    [try SQLiteRowIdentity(transaction).key(.event, eventID), status.sessionID.map(SQLiteValue.text) ?? .null, .integer(status.screenRecording ? 1 : 0),
                      .integer(status.accessibility ? 1 : 0), .integer(status.postEvent ? 1 : 0)]
                 )
             case .listing(let listing):
                 try transaction.execute(
                     "INSERT INTO memory_agent_action_listings (event_id, listing_kind, hidden_count) VALUES (?, ?, ?)",
-                    [.text(eventID), .text(listing.kind.rawValue), .integer(Int64(listing.hiddenCount))]
+                    [try SQLiteRowIdentity(transaction).key(.event, eventID), .text(listing.kind.rawValue), .integer(Int64(listing.hiddenCount))]
                 )
                 for (position, application) in listing.applications.enumerated() {
                     try transaction.execute(
@@ -286,7 +296,7 @@ enum SQLiteAgentCallRows {
                             (event_id, position, name, bundle_id, pid, app_version, is_running, location, is_default_browser)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        [.text(eventID), .integer(Int64(position)), .text(application.name), .text(application.bundleID),
+                        [try SQLiteRowIdentity(transaction).key(.event, eventID), .integer(Int64(position)), .text(application.name), .text(application.bundleID),
                          application.pid.map(SQLiteValue.integer) ?? .null, application.version.map(SQLiteValue.text) ?? .null,
                          application.isRunning.map { .integer($0 ? 1 : 0) } ?? .null,
                          application.location.map(SQLiteValue.text) ?? .null,
@@ -295,11 +305,15 @@ enum SQLiteAgentCallRows {
                     for (windowPosition, window) in application.windows.enumerated() {
                         try transaction.execute(
                             """
-                            INSERT INTO memory_agent_action_windows (event_id, application_position, position, window_number, title)
-                            VALUES (?, ?, ?, ?, ?)
+                            INSERT INTO memory_agent_action_windows (event_id, application_position, position, window_number, title
+                                \(try SQLiteRowIdentity(transaction).usesIntegerKeys ? ", listing_application_id" : ""))
+                            VALUES (?, ?, ?, ?, ? \(try SQLiteRowIdentity(transaction).usesIntegerKeys
+                                ? ", (SELECT listing_application_id FROM memory_agent_action_applications WHERE event_id = ? AND position = ?)" : ""))
                             """,
-                            [.text(eventID), .integer(Int64(position)), .integer(Int64(windowPosition)),
+                            [try SQLiteRowIdentity(transaction).key(.event, eventID), .integer(Int64(position)), .integer(Int64(windowPosition)),
                              .integer(window.number), window.title.map(SQLiteValue.text) ?? .null]
+                                + (try SQLiteRowIdentity(transaction).usesIntegerKeys
+                                    ? [SQLiteRowIdentity(transaction).key(.event, eventID), .integer(Int64(position))] : [])
                         )
                     }
                 }
@@ -310,7 +324,7 @@ enum SQLiteAgentCallRows {
                     SELECT observation_id FROM memory_event_observations
                     WHERE event_id = ? AND phase = ? AND sample_ordinal = ? AND observation_kind = 'capture'
                     """,
-                    [.text(sample.eventID), .text(sample.phase.rawValue), .integer(Int64(sample.ordinal))],
+                    [try SQLiteRowIdentity(transaction).key(.event, sample.eventID), .text(sample.phase.rawValue), .integer(Int64(sample.ordinal))],
                     { $0.integer(0) }
                 ).first ?? nil else {
                     throw AgentCallError.missingSample(eventID: eventID, sample: sample)
@@ -322,8 +336,8 @@ enum SQLiteAgentCallRows {
                          sample_observation_id, sample_kind)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'capture')
                     """,
-                    [.text(eventID), .text(observation.sessionID), .integer(observation.sessionRevision),
-                     .integer(observation.observedAtMS), .text(sample.eventID), .text(sample.phase.rawValue),
+                    [try SQLiteRowIdentity(transaction).key(.event, eventID), .text(observation.sessionID), .integer(observation.sessionRevision),
+                     .integer(observation.observedAtMS), try SQLiteRowIdentity(transaction).key(.event, sample.eventID), .text(sample.phase.rawValue),
                      .integer(Int64(sample.ordinal)), .integer(observationID)]
                 )
             case .outcome, .batch, .closed, .error:
@@ -349,7 +363,7 @@ enum SQLiteAgentCallRows {
     /// producer's, not a verdict on any step's or task's result.
     static func producerSummary(_ handle: some SQLiteQuerying, batchID: String, requestedSteps: Int?) throws -> BatchSummary? {
         let ids = try handle.query(
-            "SELECT event_id FROM memory_events WHERE parent_event_id = ? ORDER BY parent_position", [.text(batchID)]
+            "SELECT \(try DB2BEventSQL.uuid(handle)) FROM memory_events WHERE parent_event_id = ? ORDER BY parent_position", [try SQLiteRowIdentity(handle).key(.event, batchID)]
         ) { try $0.text(0) ?? "" }
         guard ids.count == requestedSteps else { return nil }
         var attempted = 0, verified = 0, stopped = false
@@ -382,6 +396,58 @@ enum SQLiteAgentCallRows {
         return BatchSummary(stopped: stopped, attempted: attempted, verified: verified)
     }
 
+    /// Checks a policy run without treating an intermediate unknown as a producer stop.
+    static func policySummary(_ handle: some SQLiteQuerying, batchID: String, requestedSteps: Int?,
+                              conclusion: BatchConclusion) throws -> BatchSummary? {
+        let ids = try handle.query(
+            "SELECT \(try DB2BEventSQL.uuid(handle)) FROM memory_events WHERE parent_event_id = ? ORDER BY parent_position",
+            [try SQLiteRowIdentity(handle).key(.event, batchID)]
+        ) { try $0.text(0) ?? "" }
+        guard ids.count == requestedSteps, !ids.isEmpty else { return nil }
+        let stop: Int?
+        switch conclusion {
+        case .ranToEnd: stop = nil
+        case .stopped(let position, _):
+            guard ids.indices.contains(position) else { return nil }
+            stop = position
+        }
+        let facts = try DB2CReadRows(handle)
+        var attempted = 0, verified = 0, skipped = false
+        for (position, id) in ids.enumerated() {
+            guard let step = try stored(handle, eventID: id) else { return nil }
+            if let stop, position > stop {
+                guard step.progress.status == .skipped else { return nil }
+            }
+            switch (step.progress.status, step.progress.result) {
+            case (.skipped, _):
+                guard stop == position || skipped else { return nil }
+                skipped = true
+            case (.completed, .outcome(let kind, _)?):
+                guard !skipped else { return nil }
+                attempted += 1
+                let request = try request(handle, eventID: id, stored: step)
+                let verificationIDs = try handle.query(
+                    "SELECT \(try DB2CIdentity.publicReference(handle, "memory_events", "event_id")) FROM memory_operation_verifications WHERE call_event_id = ? ORDER BY event_id",
+                    [try SQLiteRowIdentity(handle).key(.event, id)]
+                ) { try $0.text(0) ?? "" }
+                let check = try verificationIDs.last.flatMap { try SQLiteOperationFactRows.verification(facts, $0)?.check }
+                let fact = try SQLiteOperationFactRows.effect(facts, id)
+                let noop: NoopKind? = {
+                    if kind == .actedNoop, case .act(_, .setToggle, _, _) = request { return .statePresent }
+                    return nil
+                }()
+                let outcome = Outcome.converting(kind, check: check,
+                    notSent: fact?.notSentReason.flatMap(NotSentCause.init(rawValue:)), noop: noop, sceneAttached: false)
+                if outcome.effect == .confirmed { verified += 1 }
+            case (.failed, _):
+                guard !skipped, stop == position else { return nil }
+                attempted += 1
+            default: return nil
+            }
+        }
+        return BatchSummary(stopped: stop != nil, attempted: attempted, verified: verified)
+    }
+
     private static func resultColumns(_ progress: AgentCallProgress)
         -> (kind: SQLiteValue, message: SQLiteValue, attempted: SQLiteValue, verified: SQLiteValue) {
         switch progress.result {
@@ -390,7 +456,7 @@ enum SQLiteAgentCallRows {
             case .outcome(let kind, let message)?:
                 return (.text(kind.rawValue), .text(message), .null, .null)
             case .batch(let stopped, let attempted, let verified)?:
-                return (.text(stopped ? "stopped" : "completed"), .null, .integer(Int64(attempted)), .integer(Int64(verified)))
+                return (.text(stopped ? "stopped" : "completed"), progress.batchConclusion == nil ? .null : .text("batch:v2"), .integer(Int64(attempted)), .integer(Int64(verified)))
             case .closed(let message)?:
                 return (.text("closed"), .text(message), .null, .null)
             case .error(let message)?:
@@ -412,14 +478,14 @@ enum SQLiteAgentCallRows {
     static func stored(_ handle: some SQLiteQuerying, eventID: String) throws -> Stored? {
         try handle.query(
             """
-            SELECT e.local_order, a.tool_kind, a.contract_version, a.execution_status, a.completed_at_ms, a.result_kind,
+            SELECT \(try DB2BEventSQL.order(handle, alias: "e")), a.tool_kind, a.contract_version, a.execution_status, a.completed_at_ms, a.result_kind,
                    a.result_message, a.observed_effect_kind, a.observed_effect_text, a.requested_count, a.attempted_count,
-                   a.verified_count, e.parent_event_id, a.started_at_ms, a.duration_ms, a.observed_state_before,
-                   a.observed_state_after, a.observed_effect_label, a.observed_effect_value
+                   a.verified_count, \(try SQLiteRowIdentity(handle).publicReference(.event, column: "e.parent_event_id")), a.started_at_ms, a.duration_ms, a.observed_state_before,
+                   a.observed_state_after, a.observed_effect_label, a.observed_effect_value\(try SQLiteRowIdentity(handle).usesIntegerKeys ? ", a.gesture, a.effect, a.effect_reason, a.recovery, a.recovery_reason" : "")
             FROM memory_agent_actions a JOIN memory_events e ON e.event_id = a.event_id
             WHERE a.event_id = ?
             """,
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row -> Stored in
             func refuse(_ malformation: AgentCallError.Malformation) -> AgentCallError {
                 .malformedCall(eventID: eventID, malformation: malformation)
@@ -438,7 +504,7 @@ enum SQLiteAgentCallRows {
             if let effectKind = try row.text(7) {
                 let labels = try handle.query(
                     "SELECT position, label FROM memory_agent_action_effect_labels WHERE event_id = ? ORDER BY position",
-                    [.text(eventID)]
+                    [try SQLiteRowIdentity(handle).key(.event, eventID)]
                 ) { (Int($0.integer(0) ?? -1), try $0.text(1) ?? "") }
                 guard labels.enumerated().allSatisfy({ $0.offset == $0.element.0 }) else {
                     throw refuse(.positionsNotContiguous("effect labels"))
@@ -468,8 +534,13 @@ enum SQLiteAgentCallRows {
             let result: AgentCallResult?
             switch kind {
                 case nil:
-                    guard message == nil else { throw refuse(.resultShape("result_message")) }
-                    result = nil
+                    if try SQLiteRowIdentity(handle).usesIntegerKeys, let kind = try DB2BOutcomes.kind(row, eventID: eventID) {
+                        guard let message else { throw refuse(.resultShape("result_message")) }
+                        result = .outcome(kind, message: message)
+                    } else {
+                        guard message == nil else { throw refuse(.resultShape("result_message")) }
+                        result = nil
+                    }
                 case "error"?, "closed"?:
                     guard let message else { throw refuse(.resultShape("result_message")) }
                     result = kind == "error" ? .error(message: message) : .closed(message: message)
@@ -477,7 +548,7 @@ enum SQLiteAgentCallRows {
                     guard message == nil else { throw refuse(.resultShape("result_message")) }
                     result = try structuredResult(handle, eventID: eventID, kind: kind ?? "")
                 case let code? where tool == .batch && (code == "completed" || code == "stopped"):
-                    guard message == nil, let attempted, let verified else { throw refuse(.resultShape("batch")) }
+                    guard message == nil || message == "batch:v2", let attempted, let verified else { throw refuse(.resultShape("batch")) }
                     result = .batch(stopped: code == "stopped", attempted: Int(attempted), verified: Int(verified))
                 case let code?:
                     // An outcome is every operation's result, `menu` and `press` included, and `app_call`'s, as
@@ -494,8 +565,19 @@ enum SQLiteAgentCallRows {
             // effect, and a terminal move never carries the start it keeps.
             let startedAtMS = row.integer(13)
             if startedAtMS != nil, status == .planned { throw refuse(.resultShape("started_at_ms")) }
+            let conclusion: BatchConclusion?
+            if tool == .batch, message == "batch:v2" {
+                if kind == "stopped" {
+                    guard let stop = try handle.query(
+                        "SELECT stopped_at_position, reason FROM memory_batch_stops WHERE event_id = ?",
+                        [try SQLiteRowIdentity(handle).key(.event, eventID)],
+                        { (Int($0.integer(0) ?? -1), try $0.text(1) ?? "") }
+                    ).first, let reason = BatchStopReason(rawValue: stop.1) else { throw refuse(.resultShape("batch stop")) }
+                    conclusion = .stopped(at: stop.0, reason: reason)
+                } else { conclusion = .ranToEnd }
+            } else { conclusion = nil }
             let progress = AgentCallProgress(status, result: result, endedAtMS: row.integer(4), durationMS: row.integer(14),
-                                             observedEffect: observed)
+                                             observedEffect: observed, batchConclusion: conclusion)
             do {
                 try progress.validate(for: tool)
             } catch AgentCallError.invalidProgress(let invalidity) {
@@ -514,7 +596,7 @@ enum SQLiteAgentCallRows {
             case "status":
                 guard let status = try handle.query(
                     "SELECT session_id, screen_recording, accessibility, post_event FROM memory_agent_action_status WHERE event_id = ?",
-                    [.text(eventID)],
+                    [try SQLiteRowIdentity(handle).key(.event, eventID)],
                     { row in
                         StatusResult(sessionID: try row.text(0), screenRecording: row.integer(1) == 1,
                                      accessibility: row.integer(2) == 1, postEvent: row.integer(3) == 1)
@@ -523,7 +605,7 @@ enum SQLiteAgentCallRows {
                 return .status(status)
             case "listing":
                 guard let listing = try handle.query(
-                    "SELECT listing_kind, hidden_count FROM memory_agent_action_listings WHERE event_id = ?", [.text(eventID)],
+                    "SELECT listing_kind, hidden_count FROM memory_agent_action_listings WHERE event_id = ?", [try SQLiteRowIdentity(handle).key(.event, eventID)],
                     { (try $0.text(0) ?? "", Int($0.integer(1) ?? -1)) }
                 ).first else { throw refuse("listing row") }
                 guard let listingKind = ListingResult.Kind(rawValue: listing.0) else { throw refuse("listing kind \(listing.0)") }
@@ -532,7 +614,7 @@ enum SQLiteAgentCallRows {
                     SELECT application_position, position, window_number, title FROM memory_agent_action_windows
                     WHERE event_id = ? ORDER BY application_position, position
                     """,
-                    [.text(eventID)]
+                    [try SQLiteRowIdentity(handle).key(.event, eventID)]
                 ) { (Int($0.integer(0) ?? -1), Int($0.integer(1) ?? -1), ListedWindow(number: $0.integer(2) ?? 0, title: try $0.text(3))) }
                 let applications = try handle.query(
                     """
@@ -540,7 +622,7 @@ enum SQLiteAgentCallRows {
                     FROM memory_agent_action_applications
                     WHERE event_id = ? ORDER BY position
                     """,
-                    [.text(eventID)]
+                    [try SQLiteRowIdentity(handle).key(.event, eventID)]
                 ) { row -> (Int, ListedApplication) in
                     let position = Int(row.integer(0) ?? -1)
                     let own = windows.filter { $0.0 == position }
@@ -561,10 +643,10 @@ enum SQLiteAgentCallRows {
             case "observation":
                 guard let observation = try handle.query(
                     """
-                    SELECT session_id, session_revision, observed_at_ms, sample_event_id, sample_phase, sample_ordinal
+                    SELECT session_id, session_revision, observed_at_ms, \(try SQLiteRowIdentity(handle).publicReference(.event, column: "memory_agent_action_observations.sample_event_id")), sample_phase, sample_ordinal
                     FROM memory_agent_action_observations WHERE event_id = ?
                     """,
-                    [.text(eventID)],
+                    [try SQLiteRowIdentity(handle).key(.event, eventID)],
                     { row -> ObservationResult in
                         guard let phase = CapturePhase(rawValue: try row.text(4) ?? "") else { throw refuse("sample phase") }
                         return ObservationResult(
@@ -588,7 +670,7 @@ enum SQLiteAgentCallRows {
                    operation_id, brain_application_id, route_id, parameter_id, anchor_id, menu_command_id
             FROM memory_operation_arguments WHERE event_id = ? ORDER BY argument_id
             """,
-            [.text(eventID)]
+            [try SQLiteRowIdentity(handle).key(.event, eventID)]
         ) { row -> BrainArgument in
             func refuse(_ malformation: AgentCallError.Malformation) -> AgentCallError {
                 .malformedCall(eventID: eventID, malformation: malformation)
@@ -619,8 +701,10 @@ enum SQLiteAgentCallRows {
         guard let stored = try stored(handle, eventID: eventID),
               let event = try SQLiteEventRows.read(handle, eventID: eventID) else { return nil }
         if case .batch(let stopped, let attempted, let verified)? = stored.progress.result {
-            guard try producerSummary(handle, batchID: eventID, requestedSteps: stored.requestedSteps)
-                    == BatchSummary(stopped: stopped, attempted: attempted, verified: verified) else {
+            let summary = try stored.progress.batchConclusion.map {
+                try policySummary(handle, batchID: eventID, requestedSteps: stored.requestedSteps, conclusion: $0)
+            } ?? producerSummary(handle, batchID: eventID, requestedSteps: stored.requestedSteps)
+            guard summary == BatchSummary(stopped: stopped, attempted: attempted, verified: verified) else {
                 throw AgentCallError.malformedCall(eventID: eventID, malformation: .resultShape("batch summary"))
             }
         }

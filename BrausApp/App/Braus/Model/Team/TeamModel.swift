@@ -18,6 +18,7 @@ import ModelTransports
 import Observation
 import PerceptionCore
 import Router
+import Turn
 import os
 import SeatBroker
 import WebSession
@@ -756,11 +757,6 @@ final class TeamModel {
                         in: conversationID,
                         on: frozen.provider
                     )
-                    let searchesWeb = AppPreferences.bool(
-                        AppPreferences.workersSearchWeb,
-                        default: AppPreferences.workersSearchWebDefault,
-                        in     : preferences
-                    )
                     // The memory traces this turn's calls to the message it answers, which a task names as its origin.
                     host.callProducer.traceID    = message.id.uuidString
                     host.callProducer.messageRef = message.id.uuidString
@@ -774,7 +770,6 @@ final class TeamModel {
                             role                      : worker.instructions,
                             history                   : history,
                             lastUsage                 : lastUsage,
-                            allowsWebSearch           : searchesWeb,
                             reviewingHumanIntervention: beforeRun != nil,
                             onEvent                   : { event in
                                 self.report(
@@ -869,6 +864,10 @@ final class TeamModel {
             webs[conversationID] = (workerID, session)
             web = session
         }
+        var profileOptions = SessionProfile.app.options
+        profileOptions.harnessWebSearch = AppPreferences.bool(AppPreferences.workersSearchWeb,
+            default: AppPreferences.workersSearchWebDefault, in: preferences)
+        let profile = SessionProfile.app.replacing(options: profileOptions)
         let host     = WorkerAgentHost(
             workingDirectory: workingFolder(of: conversationID),
             bridgeExecutable: bridgeExecutable,
@@ -889,7 +888,8 @@ final class TeamModel {
                                             context: "conversation-" + conversationID.uuidString),
             adapterApprover: approvals.map { AdapterApprover(approvals: $0) },
             approvals: approvals,
-            approvalScope: conversationID
+            approvalScope: conversationID,
+            profile: profile
         )
         host.callProducer = CallProducer(source: .app, streamID: "worker-" + workerID.uuidString)
         hosts[conversationID] = (host, desktop)
@@ -1654,7 +1654,8 @@ final class TeamModel {
         // The summary is the turn's input; the transcript shows it as one row, not as the person's bubble.
         let message = try await store.appendMessage(
             to              : episode.conversation,
-            text            : episode.host.withheld(summary),
+            text            : ModelText.text(.init(rawValue: "handoff.returned")) + "\n"
+                + DataBlock.wrap(episode.host.withheld(summary), tag: "human_handoff"),
             quote           : nil,
             endsHumanControl: true
         )

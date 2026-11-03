@@ -363,7 +363,7 @@ struct RecallSharingTests {
         try await Self.learnPhotoWithSelectedFile(worker)
         // The click on a result row is keyed by the list's item template, which every row shares.
         let keys = try Self.rows("""
-            SELECT DISTINCT r.element_key FROM brain_relations r JOIN brain_relation_evidence v ON v.relation_id = r.relation_id
+            SELECT DISTINCT k.key_text FROM brain_relations r JOIN brain_element_keys k ON k.element_key_id = r.element_key_id JOIN brain_relation_evidence v ON v.relation_id = r.relation_id
             JOIN memory_operation_arguments a ON a.event_id = v.call_event_id AND a.argument_name = 'target' AND a.text_value = 'foto_demo.png'
             JOIN memory_agent_actions c ON c.event_id = v.call_event_id AND c.tool_kind = 'act'
             """, worker)
@@ -380,7 +380,7 @@ struct RecallSharingTests {
         #expect(missing["coverage"].string == "ambiguous", "\(missing)")
         #expect(unbound == [1], "a row the task left unresolved is not confirmed by the template")
         let calls = try Self.rows("""
-            SELECT count(DISTINCT r.element_key) FROM brain_relations r JOIN brain_relation_evidence v ON v.relation_id = r.relation_id
+            SELECT count(DISTINCT k.key_text) FROM brain_relations r JOIN brain_element_keys k ON k.element_key_id = r.element_key_id JOIN brain_relation_evidence v ON v.relation_id = r.relation_id
             JOIN memory_operation_arguments a ON a.event_id = v.call_event_id AND a.argument_name = 'target' AND a.text_value IN ('altro.png', 'foto_demo.png')
             JOIN memory_agent_actions c ON c.event_id = v.call_event_id AND c.tool_kind = 'act'
             """, worker)

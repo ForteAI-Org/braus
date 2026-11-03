@@ -114,7 +114,7 @@ enum ToolGolden {
             return String(decoding: try JSONSerialization.data(withJSONObject: object,
                 options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
         }
-        func stablePayload(_ value: JSONValue) -> JSONValue {
+        func stablePayload(_ value: JSONValue, assignedCandidateIdentity: String? = nil) -> JSONValue {
             // Only memory_task end's candidate.id suffix and its exact identity in next use this regex:
             // ^candidate-[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}-([0-9a-f]{1,16})$
             guard case .object(var object) = value else { return value }
@@ -127,9 +127,14 @@ enum ToolGolden {
             guard case .object(var candidate)? = object["candidate"],
                   let id = candidate["id"]?.string else { return .object(object) }
             let pattern = "^candidate-[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}-([0-9a-f]{1,16})$"
-            guard id.range(of: pattern, options: .regularExpression) != nil,
-                  let separator = id.lastIndex(of: "-") else { return .object(object) }
-            let kept = String(id[...separator]) + "<suffix>"
+            let kept: String
+            if let assigned = Int64(id), assigned > 0 {
+                kept = assignedCandidateIdentity ?? "candidate-<uuid>-<suffix>"
+            } else {
+                guard id.range(of: pattern, options: .regularExpression) != nil,
+                      let separator = id.lastIndex(of: "-") else { return .object(object) }
+                kept = String(id[...separator]) + "<suffix>"
+            }
             candidate["id"] = .string(kept)
             object["candidate"] = .object(candidate)
             if let next = object["next"]?.string {
@@ -137,10 +142,10 @@ enum ToolGolden {
             }
             return .object(object)
         }
-        func payload(_ text: String) throws -> String? {
+        func payload(_ text: String, assignedCandidateIdentity: String? = nil) throws -> String? {
             guard let json = try embedded(text) else { return nil }
             let value = try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
-            return String(decoding: try encoder.encode(stablePayload(value)), as: UTF8.self)
+            return String(decoding: try encoder.encode(stablePayload(value, assignedCandidateIdentity: assignedCandidateIdentity)), as: UTF8.self)
         }
         var rows = value.array ?? [value]
         for index in rows.indices {
@@ -148,7 +153,7 @@ enum ToolGolden {
                 for position in line.indices where line[position] == " " {
                     let start = line.index(after: position)
                     guard start < line.endIndex, line[start] == "{" || line[start] == "[" else { continue }
-                    if let json = try payload(String(line[start...])) {
+                    if let json = try payload(String(line[start...]), assignedCandidateIdentity: "[withheld]") {
                         rows[index] = .string(String(line[...position]) + json)
                         break
                     }
@@ -198,6 +203,29 @@ enum ToolGolden {
 @Suite
 @MainActor
 struct CandidateIdentityGoldenTests {
+    @Test(arguments: ["1", "42", "9223372036854775807"])
+    func assignedIdentityKeepsTheSameGoldenIdentity(_ id: String) throws {
+        let payload: JSONValue = .object([
+            "candidate": .object(["id": .string(id)]),
+            "next": .string("Interpret " + id),
+            "unchanged": .string("Keep " + id)
+        ])
+        let result = try ToolGolden.normalized(.array([.object(["structuredContent": payload])]))
+        let decoded = try JSONDecoder().decode(JSONValue.self, from: result)
+        let kept = try #require(decoded.array?.first?["structuredContent"])
+        #expect(kept["candidate"]["id"].string == "candidate-<uuid>-<suffix>")
+        #expect(kept["next"].string == "Interpret candidate-<uuid>-<suffix>")
+        #expect(kept["unchanged"].string == "Keep " + id)
+        let text = String(decoding: try JSONEncoder().encode(payload), as: UTF8.self)
+        let transcript = try ToolGolden.normalized(.array([.string("← memory_task " + text)]))
+        let lines = try JSONDecoder().decode([String].self, from: transcript)
+        let line = try #require(lines.first)
+        let delivered = try JSONDecoder().decode(JSONValue.self, from: Data(line.dropFirst("← memory_task ".count).utf8))
+        #expect(delivered["candidate"]["id"].string == "[withheld]")
+        #expect(delivered["next"].string == "Interpret [withheld]")
+        #expect(delivered["unchanged"].string == "Keep " + id)
+    }
+
     @Test(arguments: ["1", "1e8595fe991593", "0123456789abcdef"])
     func variableWidthSuffixKeepsTheSameGoldenIdentity(_ suffix: String) throws {
         let id = "candidate-00000000-0000-0000-0000-000000000000-" + suffix

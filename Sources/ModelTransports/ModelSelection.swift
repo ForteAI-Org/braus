@@ -99,6 +99,7 @@ public struct ModelSelection: Sendable, Hashable, Codable {
 public struct ProviderSettings: Sendable, Hashable, Codable {
     public var anthropicAPIKey: String
     public var geminiAPIKey: String
+    public var anthropicHost: String
     public var ollamaHost: String
     public var ollamaTemperature: Double
     public var ollamaTopP: Double
@@ -114,12 +115,14 @@ public struct ProviderSettings: Sendable, Hashable, Codable {
     /// precise tasks (temperature 0.6, top_p 0.95, top_k 20); thinking tokens
     /// count against the output budget, so it is 8k rather than 1k.
     public init(anthropicAPIKey: String = "", geminiAPIKey: String = "",
+                anthropicHost: String = "https://api.anthropic.com",
                 ollamaHost: String = "http://127.0.0.1:11434", ollamaTemperature: Double = 0.6,
                 ollamaTopP: Double = 0.95, ollamaTopK: Int = 20, ollamaPresencePenalty: Double = 0,
                 ollamaContextTokens: Int = 32768, ollamaMaxOutputTokens: Int = 8192,
                 ollamaTimeoutSeconds: Double = 600) {
         self.anthropicAPIKey = anthropicAPIKey
         self.geminiAPIKey = geminiAPIKey
+        self.anthropicHost = anthropicHost
         self.ollamaHost = ollamaHost
         self.ollamaTemperature = ollamaTemperature
         self.ollamaTopP = ollamaTopP
@@ -128,6 +131,29 @@ public struct ProviderSettings: Sendable, Hashable, Codable {
         self.ollamaContextTokens = ollamaContextTokens
         self.ollamaMaxOutputTokens = ollamaMaxOutputTokens
         self.ollamaTimeoutSeconds = ollamaTimeoutSeconds
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case anthropicAPIKey, geminiAPIKey, anthropicHost, ollamaHost
+        case ollamaTemperature, ollamaTopP, ollamaTopK, ollamaPresencePenalty
+        case ollamaContextTokens, ollamaMaxOutputTokens, ollamaTimeoutSeconds
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            anthropicAPIKey: try values.decode(String.self, forKey: .anthropicAPIKey),
+            geminiAPIKey: try values.decode(String.self, forKey: .geminiAPIKey),
+            anthropicHost: try values.decodeIfPresent(String.self, forKey: .anthropicHost) ?? "https://api.anthropic.com",
+            ollamaHost: try values.decode(String.self, forKey: .ollamaHost),
+            ollamaTemperature: try values.decode(Double.self, forKey: .ollamaTemperature),
+            ollamaTopP: try values.decode(Double.self, forKey: .ollamaTopP),
+            ollamaTopK: try values.decode(Int.self, forKey: .ollamaTopK),
+            ollamaPresencePenalty: try values.decode(Double.self, forKey: .ollamaPresencePenalty),
+            ollamaContextTokens: try values.decode(Int.self, forKey: .ollamaContextTokens),
+            ollamaMaxOutputTokens: try values.decode(Int.self, forKey: .ollamaMaxOutputTokens),
+            ollamaTimeoutSeconds: try values.decode(Double.self, forKey: .ollamaTimeoutSeconds)
+        )
     }
 }
 
@@ -140,14 +166,20 @@ public struct ModelUsage: Sendable, Hashable {
     /// `inputTokens` (Anthropic). Nil for one that does not report them that way.
     public let cacheReadTokens: Int?
     public let cacheWriteTokens: Int?
+    /// Hour-lived writes and reasoning are parts of total cache writes and output, respectively.
+    public var cacheWriteHourTokens: Int?
+    public var reasoningTokens: Int?
 
     public init(inputTokens: Int?, outputTokens: Int?, duration: Duration,
-                cacheReadTokens: Int? = nil, cacheWriteTokens: Int? = nil) {
+                cacheReadTokens: Int? = nil, cacheWriteTokens: Int? = nil,
+                cacheWriteHourTokens: Int? = nil, reasoningTokens: Int? = nil) {
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.duration = duration
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
+        self.cacheWriteHourTokens = cacheWriteHourTokens
+        self.reasoningTokens = reasoningTokens
     }
 
     /// Output tokens per second of generation, when both are known.

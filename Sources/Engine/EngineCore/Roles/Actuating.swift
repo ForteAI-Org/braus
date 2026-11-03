@@ -46,6 +46,15 @@ public struct KeyModifiers: OptionSet, Sendable, Equatable {
     public static let control = KeyModifiers(rawValue: 1 << 3)
 }
 
+/// GestureMayHaveActed is an actuator's explicit declaration that a refused gesture may have acted.
+public struct GestureMayHaveActed: Error, Sendable, Equatable, CustomStringConvertible {
+    public let sentence: String
+
+    public init(sentence: String) { self.sentence = sentence }
+
+    public var description: String { sentence }
+}
+
 /// Actuating delivers a gesture to a process. Which process, and whether the delivery needs the
 /// window in front, is the conformer's contract: a foreground actuator posts through the HID
 /// system, a background one delivers to an adopted window on a hidden display.

@@ -57,13 +57,13 @@ public enum ElsewhereGuide {
             let was = (previous.row.title ?? "").trimmingCharacters(in: .whitespaces)
             let now = (current.row.title ?? "").trimmingCharacters(in: .whitespaces)
             if was != now, !now.isEmpty {
-                return Elsewhere(changed: true, sentence: "Elsewhere the window is now titled \"\(now)\": that was "
+                return Elsewhere(changed: true, sentence: "Elsewhere the window is now titled \(OutcomeText.quoted(now)): that was "
                     + "the effect.")
             }
         }
         return Elsewhere(
             changed : false,
-            sentence: "No window of \(app) opened, closed or retitled. This census does not verify changes "
+            sentence: "No window of \(OutcomeText.quoted(app)) opened, closed or retitled. This census does not verify changes "
                 + "inside a window; read the intended result before deciding on further input."
         )
     }
@@ -74,7 +74,7 @@ public enum ElsewhereGuide {
 
     private static func name(_ verdict: SurfaceVerdict) -> String {
         let title = (verdict.row.title ?? "").trimmingCharacters(in: .whitespaces)
-        if !title.isEmpty { return "\"\(title)\"" }
+        if !title.isEmpty { return OutcomeText.quoted(title) }
         return "\(Int(verdict.row.frame.width))×\(Int(verdict.row.frame.height))pt"
     }
 }

@@ -344,7 +344,7 @@ struct MenuBarCommandTests {
             Issue.record("Observation erased an acknowledged dispatch: \(error)")
         }
         #expect(presses == 1)
-        #expect(observations == 1)
+        #expect(observations == (SecondLook.isEnabled ? 2 : 1))
     }
 
     private static let scene = SceneSnapshot(

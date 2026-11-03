@@ -10,6 +10,7 @@ import Foundation
 import Memory
 import PerceptionCore
 import SQLiteMemory
+import Switches
 
 /// CallRecorder writes what one call did, saw and taught into the living memory, under the call's
 /// context and, when the agent declared one, its task attempt.
@@ -20,9 +21,9 @@ import SQLiteMemory
 /// transaction with the samples the engine perceived, the effect the call really had and the
 /// verification the engine's oracle made (`OperationCheck`), suspends the memory when it cannot be
 /// saved, and `end` throws then, so the producer reports it and acts no more. An observation's
-/// sample is confirmed when it is taken, since the Brain learns from it before the scene is
-/// enriched. What can be rebuilt from these facts (the scene associations, the Brain's learning) is
-/// enqueued, never awaited.
+/// sample is confirmed when it is taken; its derived learning waits until the producer answers.
+/// What can be rebuilt from these facts (the scene associations, the Brain's learning) is queued,
+/// never awaited.
 ///
 /// Values the call may not keep are withheld before anything is written (`ValueMinimization`): from
 /// its arguments, its result's message, its samples' labels and titles, its verification's texts and
@@ -37,9 +38,6 @@ public actor CallRecorder: ActionObserving {
 
     /// The recorder of the call this task is performing, when a producer set one.
     @TaskLocal public static var current: CallRecorder?
-
-    /// How long an observation waits for its own ingest before it enriches the scene from the Brain.
-    public static let observationBudget: Duration = .milliseconds(50)
 
     nonisolated public let context: ActionContext
     nonisolated public let memory: MemoryService
@@ -58,6 +56,8 @@ public actor CallRecorder: ActionObserving {
     private var startedNS: Int64?
     /// The effect the engine attributed, minimized, and why something of it was withheld.
     private var effect: SceneEffect?
+    private var gestureEvidence: GestureEvidence?
+    private var expectationCheck: OperationCheck?
     private var effectWithheld: WithholdingReason?
     private var attempt: ActionAttempt?
     private var target: OperationCheck.Target?
@@ -102,14 +102,44 @@ public actor CallRecorder: ActionObserving {
     private var resultLeaves: [StructuredField] = []
     private var dataContext: CallDataContext?
     private var profile: String?
+    public let access: MemoryAccess
 
     public init(memory: MemoryService, brain: BrainMemory, context: ActionContext,
-                minimization: ValueMinimization = ValueMinimization()) {
+                minimization: ValueMinimization = ValueMinimization(), access: MemoryAccess = .current) {
+        self.access = access
         self.memory       = memory
         self.brain        = brain
         self.context      = context
         self.minimization = minimization
         self.requestedAt  = memory.clock.brainNow()
+    }
+
+    private var pauseID: String?
+    private var ownsPause = true
+    private var holdsPause = false
+
+    /// The admitted minimization is copied once by a producer for the execution scope.
+    public func admittedMinimization() -> ValueMinimization { minimization }
+
+    /// Keeps the pause open through result formatting, until the producer signals its answer.
+    public func holdPauseUntilAnswered() { holdsPause = true }
+
+    /// Closes the held pause before the producer starts its next call, including error and cancellation exits.
+    public func answered() async {
+        await closePause()
+    }
+
+    /// Closes this recorder's pause once; a batch child leaves the parent's pause open.
+    private func closePause() async {
+        guard ownsPause, let id = pauseID else { return }
+        pauseID = nil
+        await memory.closePause(id)
+    }
+
+    private func openPause() async {
+        guard pauseID == nil else { return }
+        pauseID = context.eventID
+        await memory.openPause(context.eventID)
     }
 
     nonisolated public var eventID: String { context.eventID }
@@ -137,16 +167,22 @@ public actor CallRecorder: ActionObserving {
                 redactions : redactions
             )
             // P2-06: the process running the call is linked with its start.
-            opening.executor = MemoryExecutor.current(for: memory.directory, source: context.source)?.record
+            opening.executor = try await MemoryExecutor.current(memory: memory, source: context.source)?.record
         } catch {
             throw EssentialWriteFailure.refused(MemoryService.describe(error))
         }
         let started = opening
-        try await memory.confirm(
-            "call \(request.tool.rawValue) start",
-            beforeEffect: request.tool.requiresConfirmedStart
-        ) {
-            _ = try await $0.facts.open(started)
+        await openPause()
+        do {
+            try await memory.confirm(
+                "call \(request.tool.rawValue) start",
+                beforeEffect: request.tool.requiresConfirmedStart
+            ) {
+                _ = try await $0.facts.open(started)
+            }
+        } catch {
+            await closePause()
+            throw error
         }
         self.app          = app
         self.tool         = request.tool
@@ -183,14 +219,20 @@ public actor CallRecorder: ActionObserving {
                 attribution: attribution,
                 redactions : redactions
             )
-            opening.executor = MemoryExecutor.current(for: memory.directory, source: context.source)?.record
+            opening.executor = try await MemoryExecutor.current(memory: memory, source: context.source)?.record
         } catch {
             throw EssentialWriteFailure.refused(MemoryService.describe(error))
         }
         let batchOpening = opening
-        try await memory.confirm("call batch start", beforeEffect: true) { _ = try await $0.facts.open(batch: batchOpening) }
+        await openPause()
+        do {
+            try await memory.confirm("call batch start", beforeEffect: true) { _ = try await $0.facts.open(batch: batchOpening) }
+        } catch {
+            await closePause()
+            throw error
+        }
         for (step, request) in zip(steps.map(\.recorder), steps.map(\.request)) {
-            await step.planned(app: app, tool: request.tool, attribution: attribution)
+            await step.planned(app: app, tool: request.tool, attribution: attribution, pauseID: pauseID ?? context.eventID)
         }
         self.app         = app
         self.tool        = .batch
@@ -201,7 +243,9 @@ public actor CallRecorder: ActionObserving {
     }
 
     /// A batch step whose call the batch already recorded as planned: only its start is left.
-    private func planned(app: AppContextIdentity?, tool: AgentTool, attribution: TaskCallAttribution?) {
+    private func planned(app: AppContextIdentity?, tool: AgentTool, attribution: TaskCallAttribution?, pauseID: String) {
+        self.pauseID = pauseID
+        ownsPause = false
         self.app         = app
         self.tool        = tool
         self.attribution = attribution
@@ -302,9 +346,28 @@ public actor CallRecorder: ActionObserving {
         _ status: AgentCallStatus,
         result  : AgentCallResult?,
         tool    : AgentTool,
-        check   : OperationCheck? = nil
+        check   : OperationCheck? = nil,
+        batchConclusion: BatchConclusion? = nil
     ) async throws {
         guard callRecorded else { return }
+        defer { callRecorded = false }
+        do {
+            try await concludeInPause(status, result: result, tool: tool, check: check, batchConclusion: batchConclusion)
+        } catch {
+            if !holdsPause { await closePause() }
+            throw error
+        }
+        if !holdsPause { await closePause() }
+    }
+
+    private func concludeInPause(
+        _ status: AgentCallStatus,
+        result  : AgentCallResult?,
+        tool    : AgentTool,
+        check   : OperationCheck? = nil,
+        batchConclusion: BatchConclusion? = nil
+    ) async throws {
+        let check = check ?? expectationCheck
         let clock    = memory.clock
         let duration = startedNS.map { MemoryClock.durationMS(from: $0, to: clock.monotonicNS()) }
         let observed = status == .completed && tool.isBatchStep ? effect.map(ObservedEffect.init) : nil
@@ -325,7 +388,8 @@ public actor CallRecorder: ActionObserving {
                             message: minimization.minimize(text: $0.message).0)
         }
         let end = AgentCallTransition(context.eventID, AgentCallProgress(
-            status, result: kept, endedAtMS: clock.calendarMS(), durationMS: duration, observedEffect: observed
+            status, result: kept, endedAtMS: clock.calendarMS(), durationMS: duration, observedEffect: observed,
+            batchConclusion: batchConclusion
         ))
         var redactions = gaps + resultGap
         if let effectWithheld, observed != nil {
@@ -372,11 +436,11 @@ public actor CallRecorder: ActionObserving {
                                                  verifications: verifications, redactions: redactions, route: route,
                                                  adapterDispatch: adapterDispatch,
                                                  rung: rungTaken, advice: adviceTaken, argumentFields: arguments,
-                                                 resultFields: results, dataContext: dataContext)
+                                                 resultFields: results, dataContext: dataContext, gestureEvidence: gestureEvidence)
         // The least the end is saved as when the archive refuses the whole: its state and result, with
         // the parts it leaves out declared durably in the same transaction, and why.
         var omitted: [OperationRecordingGap.Part] = []
-        if !samples.isEmpty { omitted.append(.samples) }
+        if !samples.isEmpty || gestureEvidence != nil { omitted.append(.samples) }
         if operationEffect != nil { omitted.append(.effect) }
         if !verifications.isEmpty { omitted.append(.verification) }
         let callID = context.eventID, minimization = self.minimization, omittedParts = omitted
@@ -418,26 +482,18 @@ public actor CallRecorder: ActionObserving {
         await learn(tool: tool, check: saved == .whole ? check : nil)
     }
 
-    /// What the call's facts teach the Brain, derived after they are saved and queued behind the scene
-    /// associations its relation reads: the projection's transition only from an effect the check
-    /// verified as the requested gesture's, and the relations from every operation, which say why when
-    /// they learn nothing.
+    /// Keeps the call's derived learning behind its scene associations until the producer answers.
+    /// A verified menu reveal can still teach an anchor; transitions and groups remain historical.
     private func learn(tool: AgentTool, check: OperationCheck?) async {
-        if let command = projectionCommand, let check, check.condition == .structuralEffect, check.verdict == .passed,
+        guard access.teachesBrain else { projectionCommand = nil; return }
+        if let command = projectionCommand, let check, let pauseID,
+           check.condition == .structuralEffect, check.verdict == .passed,
            check.performed == .requested, !check.limits.contains(.deliveryUncertain), !check.limits.contains(.unattributed) {
-            await memory.enqueue("brain record") { repositories in
-                _ = try await repositories.applications.apply(command)
-            }
+            await memory.add(.brainObserve(command), to: pauseID)
         }
         projectionCommand = nil
-        guard tool.isOperation else { return }
-        let callID = context.eventID, nowMS = memory.clock.brainMS()
-        let memory = self.memory
-        await memory.enqueue("brain relation") { repositories in
-            let evaluation = try await repositories.relations.apply(callEventID: callID, at: nowMS)
-            // A call whose sample is not placed yet is evaluated again once it is, by the recovery.
-            if evaluation.exclusion == .awaitingState { await memory.scheduleRelationRecovery() }
-        }
+        guard tool.isOperation, let pauseID else { return }
+        await memory.add(.brainRelation(callEventID: context.eventID, atMS: memory.clock.brainMS()), to: pauseID)
     }
 
     // MARK: ActionObserving
@@ -450,6 +506,8 @@ public actor CallRecorder: ActionObserving {
         let contentTarget = controls != nil && SensitivityClassifier().classify(record.element).sensitivity != .ordinary
         if contentTarget { withholdConfidential(wholes: [record.element.label]) }
         keep(effect: record.effect, controls: controls)
+        gestureEvidence = record.evidence
+        if record.check?.expected != nil { expectationCheck = record.check }
         attempt = record.attempt
         if let after = record.after { lastPerceived = after }
         target  = OperationCheck.Target(record.element)
@@ -468,6 +526,8 @@ public actor CallRecorder: ActionObserving {
             withholdConfidential(wholes: [element.label])
         }
         keep(effect: input.effect, controls: controls)
+        gestureEvidence = input.evidence
+        if input.check?.expected != nil { expectationCheck = input.check }
         attempt = input.attempt
         if let seen = input.after ?? input.before { lastPerceived = seen }
         target  = input.target.map(OperationCheck.Target.init)
@@ -532,6 +592,14 @@ public actor CallRecorder: ActionObserving {
     /// event of the scene's application whose origin is this call. A sample the archive did not
     /// confirm leaves `lastObservation` nil, the record's gap; after an effect it suspends the memory.
     public func observe(_ window: PerceivedWindow) async -> SceneSnapshot {
+        let standalone = !callRecorded && pauseID == nil
+        await openPause()
+        let scene = await observeInPause(window)
+        if standalone { await closePause() }
+        return scene
+    }
+
+    private func observeInPause(_ window: PerceivedWindow) async -> SceneSnapshot {
         let scene    = window.scene
         let identity = AppContextIdentity(bundleID: scene.bundleID)
         let eventID: String?
@@ -566,18 +634,15 @@ public actor CallRecorder: ActionObserving {
         lastObservation = key
         storedSamples.append(key)
         await associate([key])
-        if let command = try? BrainApplicationCommand.observe(
+        if access.teachesBrain, let command = try? BrainApplicationCommand.observe(
             minimization.minimize(scene: scene, confidential: surface),
             sample     : key,
             requestedAt: requestedAt,
             // P2-07: only a complete capture of a window ages what it does not show; a partial one attests presences.
             coverage   : BrainObservationCoverage(capture: window.capture, surface: window.surface, route: route?.route)
         ) {
-            await memory.enqueue("brain observe") { repositories in
-                _ = try await repositories.applications.apply(command)
-            }
+            if let pauseID { await memory.add(.brainObserve(command), to: pauseID) }
         }
-        await memory.flush(within: Self.observationBudget)
         return await shown(scene, window: window)
     }
 
@@ -591,12 +656,18 @@ public actor CallRecorder: ActionObserving {
         return await shown(scene)
     }
 
-    /// The scene the caller shows: enriched from the Brain, or as perceived while a measure turns the Brain off
-    /// (`MeasureAblation`), what it learns unchanged.
+    /// The scene the caller shows, enriched only when both the profile and scene switch allow it.
     private func shown(_ scene: SceneSnapshot, window: PerceivedWindow? = nil) async -> SceneSnapshot {
-        guard !MeasureAblation.active.contains(.brain) else { return scene }
-        if let window { return await brain.enrich(scene, window: window) }
-        return await brain.enrich(scene)
+        guard access.enrichesScenes,
+              SwitchBoard.current.arm("brain_enrichment", default: BrainEnrichmentArm.on) == .on else { return scene }
+        let wait = BatchStepBoundary.sceneReadWait
+        let control = BrainReadControl(shouldStop: { wait?.stopRequested == true })
+        return await BrainReadControl.$current.withValue(control) {
+            await CallMinimization.$current.withValue(minimization) {
+                if let window { return await brain.enrich(scene, window: window) }
+                return await brain.enrich(scene)
+            }
+        }
     }
 
     /// A selection's or a contextual menu's perceptions, as its selector read them, written with the
@@ -617,6 +688,13 @@ public actor CallRecorder: ActionObserving {
     /// Keeps perceptions as the call's samples: with the call's end when the call is recorded, or at
     /// once under an event of its own for a call made outside the tools.
     private func keep(_ windows: [(PerceivedWindow?, CapturePhase)], bundleID: String) async {
+        let standalone = !callRecorded && pauseID == nil
+        if standalone { await openPause() }
+        await keepInPause(windows, bundleID: bundleID)
+        if standalone { await closePause() }
+    }
+
+    private func keepInPause(_ windows: [(PerceivedWindow?, CapturePhase)], bundleID: String) async {
         var kept: [CaptureSample] = []
         var keptGaps: [ValueRedaction] = []
         let eventID: String
@@ -698,9 +776,10 @@ public actor CallRecorder: ActionObserving {
 
     /// Offers the scene associations of samples now in the archive; a menu is kept but never associated.
     private func associate(_ keys: [CaptureSampleKey]) async {
+        guard access.teachesBrain else { return }
         let nowMS = memory.clock.brainMS()
         for key in keys where key.phase.isAssociable {
-            await memory.enqueue("scene \(key.phase.rawValue)") { _ = try await $0.scenes.associate(key, at: nowMS) }
+            if let pauseID { await memory.add(.associate(key, atMS: nowMS), to: pauseID) }
         }
     }
 

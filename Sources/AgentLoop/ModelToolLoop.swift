@@ -11,6 +11,9 @@ import Foundation
 import LocalMCP
 import ModelTransports
 
+/// ParallelSafety admits calls that touch no shared state outside their own result.
+public typealias ParallelSafety = @MainActor @Sendable (String, JSONValue) -> Bool
+
 /// ModelToolLoop is Braus's own agent loop for a model provider (§7.1): the
 /// turn a command line runs for itself, run here over the provider's transport
 /// with the same tools and instructions.
@@ -25,13 +28,17 @@ import ModelTransports
 ///
 /// Memory across turns is the history the caller passes; within a turn the
 /// loop keeps every call and result. `summarize` compacts that history into a
-/// summary the caller sends instead. A failure is never retried.
+/// summary the caller sends instead. Retryable requests before the first tool get at most two retries.
 /// The host supplies tools and system text; this module requires no application or UI types.
 @MainActor
 public final class ModelToolLoop {
 
     // ponytail: a fixed ceiling of 100 tool rounds per turn; make it a setting if real work needs more.
     public static let toolRoundLimit = 100
+
+    private let parallelSafe: ParallelSafety
+    private var retryDelay: Task<Void, any Error>?
+    var waitBeforeRetry: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     private let call: @MainActor (String, JSONValue) async throws -> JSONValue
 
@@ -61,13 +68,15 @@ public final class ModelToolLoop {
         reminder    : @escaping @MainActor () -> String? = { nil },
         definitions : [JSONValue],
         offersWeb   : Bool = false,
-        instructions: any LoopInstructionComposing
+        instructions: any LoopInstructionComposing,
+        parallelSafe: @escaping ParallelSafety = { _, _ in false }
     ) {
         self.call         = call
         self.reminder     = reminder
         self.definitions  = definitions
         self.offersWeb    = offersWeb
         self.instructions = instructions
+        self.parallelSafe = parallelSafe
     }
 
     /// The window a loop turn on `selection` runs in: the `num_ctx` Braus sends
@@ -141,19 +150,17 @@ public final class ModelToolLoop {
             }
         }
 
+        var anyToolRan = false
         var toolRounds = 0
         while true {
             if isStopRequested { throw CancellationError() }
 
-            let stream = try transport.converse(
-                messages,
-                tools  : tools,
-                timeout: transport.requestTimeout
+            let reply = try await request(
+                transport: transport,
+                messages: messages,
+                tools: tools,
+                anyToolRan: anyToolRan
             )
-            let task = Task { await Self.collect(stream) }
-            round = task
-            let reply = await task.value
-            round = nil
 
             if let usage = reply.usage, usage.inputTokens != nil || usage.outputTokens != nil {
                 let counted = Self.tokens(of: usage)
@@ -191,12 +198,8 @@ public final class ModelToolLoop {
                 toolCalls: reply.calls,
                 record   : reply.record
             ))
-            for toolCall in reply.calls {
-                if isStopRequested { throw CancellationError() }
-                messages.append(await result(
-                    of: toolCall
-                ))
-            }
+            anyToolRan = true
+            messages += try await results(of: reply.calls)
         }
     }
 
@@ -265,16 +268,100 @@ public final class ModelToolLoop {
         preservesObservedFailure = false
         isStopRequested = true
         round?.cancel()
+        retryDelay?.cancel()
     }
 
-    /// Interrupts generation for a human episode without erasing a transport failure the completed
-    /// round already observed. Such a failure still takes the host's ordinary failure-cleanup path.
+    /// Interrupts generation and backoff for a human episode. A retryable failure before any tool
+    /// becomes suspension; other observed failures retain the host's ordinary failure-cleanup path.
     public func suspendForHumanIntervention() {
         stop()
         preservesObservedFailure = true
     }
 
     // MARK: Rounds
+
+    /// Requests only the model again; no tool or tool result is replayed.
+    private func request(
+        transport: any ModelTransport,
+        messages: [TurnMessage],
+        tools: [ToolDefinition],
+        anyToolRan: Bool
+    ) async throws -> Round {
+        var attempt = 1
+        while true {
+            if isStopRequested { throw CancellationError() }
+            let task = Task {
+                if isStopRequested { return Round(failure: CancellationError()) }
+                do {
+                    return await Self.collect(try transport.converse(
+                        messages, tools: tools, timeout: transport.requestTimeout
+                    ))
+                } catch { return Round(failure: error) }
+            }
+            round = task
+            let reply = await task.value
+            round = nil
+            guard let failure = reply.failure else { return reply }
+            let decision = RequestRetry.decide(
+                RequestRetry.classify(failure), attempt: attempt,
+                anyToolRan: anyToolRan, isSuspended: preservesObservedFailure
+            )
+            switch decision {
+            case .suspend: return reply.interrupted()
+            case .fail: return reply
+            case .retry(let delay):
+                if isStopRequested { return reply.interrupted() }
+                let waiting = Task { try await waitBeforeRetry(delay) }
+                retryDelay = waiting
+                defer { retryDelay = nil }
+                do { try await waiting.value }
+                catch {
+                    if isStopRequested { return reply.interrupted() }
+                    throw error
+                }
+                if isStopRequested { return reply.interrupted() }
+                attempt += 1
+            }
+        }
+    }
+
+    /// Runs consecutive admitted calls together and restores the model's requested order.
+    /// An unadmitted call is a barrier; the default admission keeps every call sequential.
+    func results(of calls: [ToolCall]) async throws -> [TurnMessage] {
+        var results: [TurnMessage] = []
+        var index = 0
+        while index < calls.count {
+            if isStopRequested { throw CancellationError() }
+            guard admits(calls[index]) else {
+                results.append(await result(of: calls[index]))
+                index += 1
+                continue
+            }
+            let start = index
+            while index < calls.count, admits(calls[index]) { index += 1 }
+            let group = Array(calls[start..<index])
+            let tasks = group.map { call in
+                Task { @MainActor () -> TurnMessage? in
+                    if self.isStopRequested { return nil }
+                    return await self.result(of: call)
+                }
+            }
+            var ordered: [TurnMessage] = []
+            var interrupted = false
+            for task in tasks {
+                if let answer = await task.value { ordered.append(answer) }
+                else { interrupted = true }
+            }
+            if interrupted { throw CancellationError() }
+            results += ordered
+        }
+        return results
+    }
+
+    private func admits(_ call: ToolCall) -> Bool {
+        guard let arguments = try? JSONDecoder().decode(JSONValue.self, from: call.arguments) else { return false }
+        return parallelSafe(call.name, arguments)
+    }
 
     /// What one round delivered: its text, its calls, the provider's record of it, what it cost when
     /// it completed, and the failure that ended it early, if any.
@@ -284,6 +371,12 @@ public final class ModelToolLoop {
         var record : TurnRecord?
         var usage  : ModelUsage?
         var failure: (any Error)?
+
+        func interrupted() -> Self {
+            var reply = self
+            reply.failure = CancellationError()
+            return reply
+        }
     }
 
     private static func collect(_ stream: AsyncThrowingStream<TurnEvent, any Error>) async -> Round {
@@ -305,14 +398,16 @@ public final class ModelToolLoop {
 
     /// A round's counts, with the cache reads and writes a provider counts apart from its input
     /// added to it, so `input` is everything the model read.
-    private static func tokens(of usage: ModelUsage) -> ProviderUsage.Tokens {
+    static func tokens(of usage: ModelUsage) -> ProviderUsage.Tokens {
         let reads  = usage.cacheReadTokens ?? 0
         let writes = usage.cacheWriteTokens ?? 0
         return ProviderUsage.Tokens(
             input      : (usage.inputTokens ?? 0) + reads + writes,
             cacheReads : reads,
             cacheWrites: writes,
-            output     : usage.outputTokens ?? 0
+            cacheWritesHour: usage.cacheWriteHourTokens ?? 0,
+            output     : usage.outputTokens ?? 0,
+            reasoning  : usage.reasoningTokens ?? 0
         )
     }
 
@@ -322,7 +417,7 @@ public final class ModelToolLoop {
             ToolDefinition(
                 name       : definition["name"].string ?? "",
                 description: definition["description"].string ?? "",
-                parameters : try JSONEncoder().encode(definition["inputSchema"])
+                parameters : try JSONValue.canonicalEncoder().encode(definition["inputSchema"])
             )
         }
     }
@@ -347,7 +442,7 @@ public final class ModelToolLoop {
         }
 
         var text = result["content"].array?.first?["text"].string ?? ""
-        if result["structuredContent"] != .null, let data = try? JSONEncoder().encode(result["structuredContent"]) {
+        if result["structuredContent"] != .null, let data = try? JSONValue.canonicalEncoder().encode(result["structuredContent"]) {
             text += "\n" + String(decoding: data, as: UTF8.self)
         }
         return TurnMessage(

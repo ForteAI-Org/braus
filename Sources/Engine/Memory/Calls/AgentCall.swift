@@ -82,7 +82,10 @@ public enum AgentTool: String, Sendable, Equatable, Hashable, CaseIterable {
         }
     }
 
-    /// Whether the tool may be a step of a batch: `act`, `select` and the six inputs.
+    /// Whether the tool is admitted as a batch child, including a menu operation.
+    public var maySitInBatch: Bool { isBatchStep || self == .menu }
+
+    /// Whether the tool carries a batch step's observed effect.
     public var isBatchStep: Bool {
         switch self {
             case .act, .select, .typeText, .insertText, .pressKey, .scroll, .drag, .contextMenu: true
@@ -311,6 +314,20 @@ public enum AgentCallResult: Sendable {
     }
 }
 
+/// BatchStopReason is the closed archive vocabulary for a policy stop.
+public enum BatchStopReason: String, Sendable, Equatable, CaseIterable {
+    case refused, ambiguous, targetMissing = "target_missing", unexpectedSurface = "unexpected_surface"
+    case expectedAbsent = "expected_absent", unknownWithoutNextTarget = "unknown_without_next_target"
+    case committingNotLast = "committing_not_last", committingAfterUnconfirmed = "committing_after_unconfirmed"
+    case personInControl = "person_in_control", timeCap = "time_cap", otherApp = "other_app", error
+}
+
+/// BatchConclusion identifies the step whose admission or outcome stopped a batch.
+public enum BatchConclusion: Sendable, Equatable {
+    case ranToEnd
+    case stopped(at: Int, reason: BatchStopReason)
+}
+
 /// AgentCallProgress is one state a call reaches, as its producer reports it: the status, the
 /// result a concluded call answered, the instant it started, the instant it ended and how long
 /// the tool ran. `planned` carries no instant; `started` carries the calendar instant the tool was
@@ -328,6 +345,7 @@ public struct AgentCallProgress: Sendable {
     public let endedAtMS: Int64?
     public let durationMS: Int64?
     public let observedEffect: ObservedEffect?
+    public let batchConclusion: BatchConclusion?
 
     public init(
         _ status      : AgentCallStatus,
@@ -335,7 +353,8 @@ public struct AgentCallProgress: Sendable {
         startedAtMS   : Int64? = nil,
         endedAtMS     : Int64? = nil,
         durationMS    : Int64? = nil,
-        observedEffect: ObservedEffect? = nil
+        observedEffect: ObservedEffect? = nil,
+        batchConclusion: BatchConclusion? = nil
     ) {
         self.status         = status
         self.result         = result
@@ -343,6 +362,7 @@ public struct AgentCallProgress: Sendable {
         self.endedAtMS      = endedAtMS
         self.durationMS     = durationMS
         self.observedEffect = observedEffect
+        self.batchConclusion = batchConclusion
     }
 
     public static let started = AgentCallProgress(.started)
@@ -370,6 +390,7 @@ public struct AgentCallProgress: Sendable {
             guard durationMS >= 0 else { throw refuse(.durationNegative) }
         }
         if observedEffect != nil, !(status == .completed && tool.isBatchStep) { throw refuse(.effectForbidden) }
+        if batchConclusion != nil, !(status == .completed && tool == .batch) { throw refuse(.conclusionForbidden) }
         let expected: ExpectedResult
         switch (status, tool) {
             case (.completed, .act), (.completed, .select), (.completed, .typeText), (.completed, .insertText),
@@ -412,7 +433,7 @@ public struct AgentCallProgress: Sendable {
     /// Whether the other progress reports this one exactly: status, result, instants, duration and effect.
     public func isExactly(_ other: AgentCallProgress) -> Bool {
         guard status == other.status, endedAtMS == other.endedAtMS, startedAtMS == other.startedAtMS,
-              durationMS == other.durationMS else { return false }
+              durationMS == other.durationMS, batchConclusion == other.batchConclusion else { return false }
         switch (observedEffect, other.observedEffect) {
             case (nil, nil)      : break
             case (let a?, let b?): guard a.isExactly(b) else { return false }
@@ -553,6 +574,7 @@ public enum AgentCallError: Error, Sendable, Equatable {
         case startForbidden
         case durationForbidden
         case durationNegative
+        case conclusionForbidden
         case effectForbidden
         /// An observed effect whose parts do not fit its family: a title without `windowTitleChanged`,
         /// states without `stateFlip`, labels under a scalar family, or a family the vocabulary lacks.

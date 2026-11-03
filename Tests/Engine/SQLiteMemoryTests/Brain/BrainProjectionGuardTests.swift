@@ -28,7 +28,8 @@ struct BrainProjectionGuardTests {
     /// A store with random identities, for two writers on one file.
     private func openRandom(at url: URL? = nil) async throws -> (store: SQLiteMemoryStore, brain: SQLiteBrainRepository, url: URL) {
         let url   = try url ?? temporaryDatabase()
-        let store = try await SQLiteMemoryStore.open(at: url)
+        let store = SQLiteMemoryStore(url: url, schema: .historical19)
+        try await store.open()
         return (store, SQLiteBrainRepository(store: store), url)
     }
 
@@ -95,7 +96,7 @@ struct BrainProjectionGuardTests {
         raw.close()
         let before = try Data(contentsOf: url)
 
-        let error = await storeError { _ = try await SQLiteMemoryStore.open(at: url) }
+        let error = await storeError { try await SQLiteMemoryStore(url: url, schema: .historical19).open() }
         #expect(error == .schema(.missingColumns(["brain_anchors.current_group_id"])))
         #expect(try Data(contentsOf: url) == before)
         let check = try SQLiteConnection(path: url.path)
@@ -104,7 +105,8 @@ struct BrainProjectionGuardTests {
         #expect(try check.query("SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'") { $0.integer(0) }.first == 48)
         check.close()
 
-        let fresh = try await SQLiteMemoryStore.open(at: try temporaryDatabase())
+        let fresh = SQLiteMemoryStore(url: try temporaryDatabase(), schema: .historical19)
+        try await fresh.open()
         let columns = try await fresh.read { try $0.query("PRAGMA table_info(brain_anchors)") { try $0.text(1) ?? "" } }
         #expect(columns.contains("current_group_id"))
         #expect(try await fresh.read { try SchemaShape($0) } == SchemaShape.current)
@@ -117,7 +119,8 @@ struct BrainProjectionGuardTests {
 
     @Test("the current group is a foreign key per application: the same application's group is accepted, a missing or another application's group is refused, a retired group stays referenceable")
     func currentGroupForeignKey() async throws {
-        let store = try await SQLiteMemoryStore.open(at: try temporaryDatabase())
+        let store = SQLiteMemoryStore(url: try temporaryDatabase(), schema: .historical19)
+        try await store.open()
         try await store.write { transaction in
             try transaction.execute("INSERT INTO brain_apps (app_id, bundle_id) VALUES (1, 'a'), (2, 'b')")
             try transaction.execute(

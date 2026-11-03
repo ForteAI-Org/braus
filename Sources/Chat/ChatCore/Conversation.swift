@@ -4,15 +4,18 @@ import Foundation
 public struct Conversation: Codable, Sendable, Identifiable {
     public let id: UUID
     public var provider: ChatProvider
+    /// The API or local provider for Braus's loop; nil preserves the command line route.
+    public var modelProvider: String?
     public var model: String?
     public var providerSessionID: String?
     public let createdAt: Date
     public var updatedAt: Date
     public var entries: [Entry]
 
-    public init(id: UUID = UUID(), provider: ChatProvider, model: String?, now: Date = Date()) {
+    public init(id: UUID = UUID(), provider: ChatProvider, model: String?, now: Date = Date(), modelProvider: String? = nil) {
         self.id = id
         self.provider = provider
+        self.modelProvider = modelProvider
         self.model = model
         self.createdAt = now
         self.updatedAt = now

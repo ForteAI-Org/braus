@@ -492,6 +492,93 @@ struct Schema22ResourceTests {
     }
 
     @Test
+    func noEncodedListColumns() throws {
+        let db = try database()
+        for table in try names(db) {
+            #expect(try !columns(db, table).contains("labels"), "\(table).labels")
+        }
+        for row in try rows("Table inventory") {
+            let description = row.joined(separator: " ").lowercased()
+            #expect(!description.contains("json"), "\(row[0]) documents encoded storage")
+            #expect(!description.contains("encoded list"), "\(row[0]) documents encoded storage")
+        }
+    }
+
+    private func insertPhaseFamily(_ db: SQLiteConnection) throws {
+        try db.execute(
+            """
+            INSERT INTO memory_phase_families (family_id,app_id,kind,method_text,method_digest,
+                masked_digest,has_parameter,length,label,members,procedures,first_member_seq,
+                first_attempt_id,recorded_at_ms)
+            VALUES (1,1,'step','click',zeroblob(16),zeroblob(16),0,1,'Save',4,2,0,1,0)
+            """
+        )
+    }
+
+    @Test
+    func phaseFamilyLabelsAreRows() throws {
+        let db = try historicalTables()
+        try insertPhaseFamily(db)
+        try db.execute(
+            """
+            INSERT INTO memory_phase_family_labels (family_id,position,label,count)
+            VALUES (1,1,'Store',1),(1,0,'Save',3)
+            """
+        )
+        let labels = try db.query(
+            "SELECT label,count FROM memory_phase_family_labels WHERE family_id = 1 ORDER BY position"
+        ) { (try $0.text(0), $0.integer(1)) }
+        #expect(labels.map { $0.0 } == ["Save", "Store"])
+        #expect(labels.map { $0.1 } == [3, 1])
+        for values in ["(1,2,'Save',1)", "(1,0,'Other',1)", "(1,-1,'Other',1)", "(1,2,'Other',0)"] {
+            rejects(db, "INSERT INTO memory_phase_family_labels VALUES \(values)")
+        }
+    }
+
+    @Test
+    func attemptLabelsFollowTheirAttempt() throws {
+        let db = try historicalTables()
+        try db.execute(section("indexes"))
+        try db.execute(section("triggers"))
+        try insertPhaseFamily(db)
+        try db.execute("INSERT INTO memory_phase_family_attempts VALUES (1,1,4,2)")
+        try db.execute(
+            """
+            INSERT INTO memory_phase_family_labels VALUES (1,0,'Save',3);
+            INSERT INTO memory_phase_family_attempt_labels VALUES (1,1,1,'Store',1),(1,1,0,'Save',3);
+            """
+        )
+        let labels = try db.query(
+            """
+            SELECT label,count FROM memory_phase_family_attempt_labels
+            WHERE family_id = 1 AND task_occurrence_id = 1 ORDER BY position
+            """
+        ) { (try $0.text(0), $0.integer(1)) }
+        #expect(labels.map { $0.0 } == ["Save", "Store"])
+        #expect(labels.map { $0.1 } == [3, 1])
+        for values in [
+            "(1,1,2,'Save',1)", "(1,1,0,'Other',1)", "(1,1,-1,'Other',1)",
+            "(1,1,2,'Other',0)", "(1,2,0,'Other',1)",
+        ] {
+            rejects(db, "INSERT INTO memory_phase_family_attempt_labels VALUES \(values)")
+        }
+        try db.execute("DELETE FROM memory_phase_family_attempts WHERE family_id = 1 AND task_occurrence_id = 1")
+        #expect(try scalar(db, "SELECT count(*) FROM memory_phase_family_attempt_labels") == 0)
+        #expect(try scalar(db, "SELECT count(*) FROM memory_phase_family_labels") == 1)
+        try db.execute(
+            """
+            INSERT INTO memory_phase_family_attempts VALUES (1,1,4,2);
+            INSERT INTO memory_phase_family_attempt_labels VALUES (1,1,0,'Save',3),(1,1,1,'Store',1);
+            DELETE FROM memory_phase_families WHERE family_id = 1;
+            """
+        )
+        for table in ["memory_phase_family_labels", "memory_phase_family_attempts", "memory_phase_family_attempt_labels"] {
+            #expect(try scalar(db, "SELECT count(*) FROM \(table)") == 0)
+        }
+        #expect(try db.query("PRAGMA foreign_key_check") { try $0.text(0) }.isEmpty)
+    }
+
+    @Test
     func requiredTablesAndColumns() throws {
         let db = try database()
         let required = try rows("Required columns")
@@ -505,8 +592,18 @@ struct Schema22ResourceTests {
                 "SELECT type FROM pragma_table_info('memory_recall_generations') WHERE name = 'cursor_route_id'"
             ) { try $0.text(0) } == ["INTEGER"])
         for table in try names(db) {
-            let foreignKeys = try db.query("PRAGMA foreign_key_list(\(table))") { $0.integer(1) }
-            #expect(foreignKeys.allSatisfy { $0 == 0 }, "Composite foreign key in \(table)")
+            let foreignKeys = try db.query("PRAGMA foreign_key_list(\(table))") {
+                [String($0.integer(1) ?? -1), try $0.text(2) ?? "", try $0.text(3) ?? "",
+                 try $0.text(4) ?? "", try $0.text(6) ?? ""]
+            }
+            if table == "memory_phase_family_attempt_labels" {
+                #expect(foreignKeys == [
+                    ["0", "memory_phase_family_attempts", "family_id", "family_id", "CASCADE"],
+                    ["1", "memory_phase_family_attempts", "task_occurrence_id", "task_occurrence_id", "CASCADE"],
+                ])
+            } else {
+                #expect(foreignKeys.allSatisfy { $0[0] == "0" }, "Composite foreign key in \(table)")
+            }
         }
     }
 
@@ -926,11 +1023,11 @@ struct Schema22ResourceTests {
         provide["derivation"] = "NULL"
         try insert(db, "memory_operation_argument_links", provide)
         let family =
-            "INSERT INTO memory_phase_families (family_id,app_id,kind,method_text,method_digest,masked_digest,has_parameter,length,label,labels,members,procedures,first_member_seq,first_attempt_id,recorded_at_ms) VALUES "
-        try db.execute(family + "(1,1,'step','click',zeroblob(16),zeroblob(16),0,1,'Save','[]',1,1,1,1,0)")
-        rejects(db, family + "(2,1,'step','click',zeroblob(16),zeroblob(16),0,1,'Save','[]',1,1,1,1,0)")
-        try db.execute(family + "(2,1,'procedure','click',zeroblob(16),zeroblob(16),0,1,'Save','[]',1,1,1,1,0)")
-        try db.execute("INSERT INTO memory_phase_family_attempts VALUES (1,1,1,1,'[]')")
+            "INSERT INTO memory_phase_families (family_id,app_id,kind,method_text,method_digest,masked_digest,has_parameter,length,label,members,procedures,first_member_seq,first_attempt_id,recorded_at_ms) VALUES "
+        try db.execute(family + "(1,1,'step','click',zeroblob(16),zeroblob(16),0,1,'Save',1,1,1,1,0)")
+        rejects(db, family + "(2,1,'step','click',zeroblob(16),zeroblob(16),0,1,'Save',1,1,1,1,0)")
+        try db.execute(family + "(2,1,'procedure','click',zeroblob(16),zeroblob(16),0,1,'Save',1,1,1,1,0)")
+        try db.execute("INSERT INTO memory_phase_family_attempts VALUES (1,1,1,1)")
         try db.execute("PRAGMA foreign_keys = ON")
         try db.execute("DELETE FROM memory_phase_families WHERE family_id = 1")
         #expect(try scalar(db, "SELECT count(*) FROM memory_phase_family_attempts") == 0)
@@ -1083,7 +1180,7 @@ struct Schema22ResourceTests {
             "memory_step_signatures": ["app_id": "1", "verb": "'click'", "arguments_shape": "'none'"],
             "memory_phase_families": [
                 "app_id": "1", "kind": "'step'", "method_text": "'click'", "has_parameter": "0",
-                "length": "1", "label": "'Save'", "labels": "'[]'", "members": "1",
+                "length": "1", "label": "'Save'", "members": "1",
                 "procedures": "1", "first_member_seq": "1", "first_attempt_id": "1", "recorded_at_ms": "0",
             ],
             "memory_recall_texts": ["format": "'test'", "text": "'Save'"],
@@ -1165,6 +1262,17 @@ struct Schema22ResourceTests {
             db,
             "INSERT INTO memory_todo_item_states (item_id,todo_revision_id,position,title,status) VALUES (1,4,0,'\(String(repeating: "x", count: 121))','pending')"
         )
+    }
+
+    @Test
+    func recallDocumentsShareTextAcrossFormats() throws {
+        let db = try database(foreignKeys: true)
+        try db.execute("INSERT INTO memory_recall_texts VALUES (1,zeroblob(16),'test','Save')")
+        try db.execute("INSERT INTO memory_recall_documents VALUES (1,1,'format-one',0)")
+        try db.execute("INSERT INTO memory_recall_documents VALUES (2,1,'format-two',0)")
+        #expect(try scalar(db, "SELECT count(*) FROM memory_recall_documents WHERE text_id = 1") == 2)
+        rejects(db, "INSERT INTO memory_recall_documents VALUES (3,1,'format-one',0)", code: 2067)
+        #expect(try scalar(db, "SELECT count(*) FROM memory_recall_documents WHERE text_id = 1") == 2)
     }
 
     @Test

@@ -48,7 +48,7 @@ struct SQLiteMemoryStoreTests {
         #expect(connection.limit(.length) == 2_147_483_645)
     }
 
-    @Test("an empty file is bootstrapped to schema 1 in WAL with full sync and foreign keys, and reopens as found")
+    @Test("an empty file is bootstrapped to schema 22 in WAL with full sync and foreign keys, and reopens as found")
     func bootstrap() async throws {
         let url   = try temporaryDatabase()
         let store = try await SQLiteMemoryStore.open(at: url)
@@ -61,7 +61,7 @@ struct SQLiteMemoryStoreTests {
         #expect(first.libraryVersion == SQLiteLibrary.version)
         #expect(first.commits == 0)
         let shape = try await store.read { snapshot in try SchemaShape(snapshot) }
-        #expect(shape == SchemaShape.current)
+        #expect(shape == SchemaShape.active)
         let foreignKeyCheck = try await store.read { snapshot in
             try snapshot.query("PRAGMA foreign_key_check") { try $0.text(0) ?? "" }
         }
@@ -84,10 +84,10 @@ struct SQLiteMemoryStoreTests {
     @Test("every table of the resource is named by its parser")
     func tableNames() throws {
         let names = SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text())
-        #expect(names.count == SchemaShape.current.tables)
+        #expect(names.count == SchemaShape.active.tables)
         #expect(names.first == "brain_apps")
-        #expect(names.last == "memory_call_reconciliations")
-        #expect(Set(names).count == SchemaShape.current.tables)
+        #expect(names.last == "memory_step_capabilities")
+        #expect(Set(names).count == SchemaShape.active.tables)
         let first = SQLiteMemorySchema.tableNames(in: try SQLiteMemorySchema.text(of: 1))
         #expect(first.count == 48 && first.last == "memory_experience_uses" && Array(names.prefix(48)) == first)
     }
@@ -150,7 +150,7 @@ struct SQLiteMemoryStoreTests {
         #expect(try check.query("PRAGMA user_version") { $0.integer(0) }.first == future)
         #expect(try check.query(
             "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-        ) { $0.integer(0) }.first == Int64(SchemaShape.current.tables))
+        ) { $0.integer(0) }.first == Int64(SchemaShape.active.tables))
     }
 
     @Test("a version 1 file of an earlier development form whose columns match but whose constraints differ is refused untouched")
@@ -176,7 +176,7 @@ struct SQLiteMemoryStoreTests {
     @Test("a version 1 file bootstrapped before the value change, without its columns, is refused by name and left untouched")
     func formBeforeTheValueChangeRefused() async throws {
         let url = try temporaryDatabase()
-        let ddl = try SQLiteMemorySchema.text()
+        let ddl = try SQLiteMemorySchema.historical19Text()
         let earlier = ddl
             .replacingOccurrences(of: "    effect_label TEXT,\n    effect_value TEXT,\n", with: "")
             .replacingOccurrences(of: "    observed_effect_label TEXT,\n    observed_effect_value TEXT,\n", with: "")
@@ -191,7 +191,7 @@ struct SQLiteMemoryStoreTests {
         raw.close()
         let before = try Data(contentsOf: url)
 
-        let error = await storeError { _ = try await SQLiteMemoryStore.open(at: url) }
+        let error = await storeError { try await SQLiteMemoryStore(url: url, schema: .historical19).open() }
         #expect(error == .schema(.missingColumns([
             "brain_transitions.effect_label",
             "memory_agent_actions.observed_effect_label",
@@ -238,7 +238,7 @@ struct SQLiteMemoryStoreTests {
         let db = try await b.diagnostics()
         #expect([da.bootstrappedNow, db.bootstrappedNow].filter { $0 }.count == 1)
         #expect(da.schemaVersion == SQLiteMemorySchema.version && db.schemaVersion == SQLiteMemorySchema.version)
-        #expect(try await a.read { snapshot in try SchemaShape(snapshot) } == SchemaShape.current)
+        #expect(try await a.read { snapshot in try SchemaShape(snapshot) } == SchemaShape.active)
         await a.close()
         await b.close()
     }
@@ -289,7 +289,7 @@ struct SQLiteMemoryStoreTests {
 
         let foreignKey = await storeError {
             _ = try await store.write { transaction in
-                try transaction.execute("INSERT INTO brain_scene_roles (scene_id, role) VALUES ('nowhere', 'AXButton')")
+                try transaction.execute("INSERT INTO brain_scene_roles (scene_id, role) VALUES (-1, 'AXButton')")
             }
         }
         guard case .contract(let foreignKeyFault)? = foreignKey else {
@@ -340,7 +340,7 @@ struct SQLiteMemoryStoreTests {
 
         #expect(try await record(EventRow(id: "e2", key: "k2"), in: store) == .committed)
         let rows = try await store.read { snapshot in
-            try snapshot.query("SELECT event_id, occurred_at_ms FROM memory_events ORDER BY local_order") { row in
+            try snapshot.query("SELECT event_uuid, occurred_at_ms FROM memory_events ORDER BY event_id") { row in
                 (try row.text(0) ?? "", row.integer(1) ?? 0)
             }
         }
@@ -561,7 +561,7 @@ private final class BodyRuns: Sendable {
         try transaction.execute(
             """
             INSERT INTO memory_events
-                (event_id, source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
+                (event_uuid, source, source_stream_id, source_key, event_kind, occurred_at_ms, capture_status)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [.text(event.id), .text(event.source), .text(event.stream), .text(event.key),

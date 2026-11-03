@@ -52,6 +52,50 @@ struct AgentCallBatchSummaryTests {
         AgentCallTransition("b", F.ended(.completed, .batch(stopped: stopped, attempted: attempted, verified: verified)))
     }
 
+    @Test("public call readers retain the outcome through both stored layouts", arguments: [false, true])
+    func outcomeReadback(integerKeys: Bool) async throws {
+        let memory = if integerKeys { try await F.open22() } else { try await F.open() }
+        for expected in ActOutcomeKind.allCases {
+            let id = "call-\(expected.rawValue)"
+            _ = try await memory.calls.record(F.call(id, Self.click))
+            _ = try await memory.calls.advance([
+                AgentCallTransition(id, .started), AgentCallTransition(id, F.outcome(expected))
+            ])
+            let call = try await memory.store.read { snapshot in
+                try SQLiteAgentCallRows.call(DB2CReadRows(snapshot), eventID: id)
+            }
+            #expect(call?.progress.result?.isExactly(.outcome(expected, message: "said")) == true)
+        }
+        await memory.store.close()
+    }
+
+    @Test("a missing oracle stays unknown without changing the producer's batch summary", arguments: [false, true])
+    func uncheckedProducerSummary(integerKeys: Bool) async throws {
+        let memory = if integerKeys { try await F.open22() } else { try await F.open() }
+        let facts = SQLiteOperationFactRepository(store: memory.store)
+        let (batch, steps) = try F.batch("b", [Self.click, Self.click])
+        _ = try await memory.calls.record(batch: batch, steps: steps)
+        _ = try await memory.calls.advance([AgentCallTransition("b", .started)])
+        for (position, kind) in [ActOutcomeKind.foundActed, .actedUnverified].enumerated() {
+            let id = "b.\(position)"
+            _ = try await memory.calls.advance([AgentCallTransition(id, .started)])
+            let check = OperationCheck.unchecked(performed: .uncertain)
+            var event = F.event(OperationVerification.eventID(call: id, condition: check.condition))
+            event.kind = .verification
+            let verification = try OperationVerification(event: event, callEventID: id, check: check, samples: [])
+            _ = try await facts.conclude(OperationConclusion(
+                end: AgentCallTransition(id, F.outcome(kind)), verifications: [verification]
+            ))
+            #expect(try await facts.verifications(of: id).first?.check.verdict == .unknown)
+            #expect(try await memory.calls.call(id)?.progress.result?.isExactly(.outcome(kind, message: "said")) == true)
+        }
+        #expect(try await memory.calls.advance([summary(true, 2, 1)]) == .committed)
+        if integerKeys {
+            #expect(try await memory.count("SELECT count(*) FROM memory_agent_actions WHERE learnable = 1") == 0)
+        }
+        await memory.store.close()
+    }
+
     @Test("the producer's own summaries are accepted: found_acted, a toggle's noop, a click's noop that stops, a stop on the last step, an executed prefix and a skipped suffix", arguments: [
         ("found", [click], [ActOutcomeKind.foundActed], false, 1, 1),
         ("toggle noop", [toggle], [.actedNoop], false, 1, 1),
@@ -62,7 +106,7 @@ struct AgentCallBatchSummaryTests {
     ] as [(String, [AgentCallRequest], [ActOutcomeKind], Bool, Int, Int)])
     func producerSummaries(_ name: String, _ requests: [AgentCallRequest], _ kinds: [ActOutcomeKind], _ stopped: Bool,
                            _ attempted: Int, _ verified: Int) async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         try await run(memory, requests, kinds)
         #expect(try await memory.calls.advance([summary(stopped, attempted, verified)]) == .committed, Comment(rawValue: name))
         #expect(try await memory.calls.advance([summary(stopped, attempted, verified)]) == .alreadyApplied, "the identical terminal retry")
@@ -83,7 +127,7 @@ struct AgentCallBatchSummaryTests {
     ] as [(String, [AgentCallRequest], [ActOutcomeKind?], Bool, Int, Int)])
     func contradictedSummaries(_ name: String, _ requests: [AgentCallRequest], _ ends: [ActOutcomeKind?], _ stopped: Bool,
                                _ attempted: Int, _ verified: Int) async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         try await run(memory, requests, ends)
         let error = await callError { _ = try await memory.calls.advance([summary(stopped, attempted, verified)]) }
         #expect(error == .batchNotSettled(eventID: "b"), Comment(rawValue: name))
@@ -94,7 +138,7 @@ struct AgentCallBatchSummaryTests {
 
     @Test("a composite advance that ends a step and then states a contradicted summary is rolled back whole")
     func compositeRollback() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         let (batch, steps) = try F.batch("b", [Self.click, Self.click])
         _ = try await memory.calls.record(batch: batch, steps: steps)
         _ = try await memory.calls.advance([AgentCallTransition("b", .started), AgentCallTransition("b.0", .started),
@@ -110,18 +154,18 @@ struct AgentCallBatchSummaryTests {
 
     @Test("a stored summary its steps contradict is refused by the reader, in a call, a trace and a batch's steps, and the store goes on")
     func storedContradiction() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         try await run(memory, [Self.click], [.honestMiss])
         #expect(try await memory.calls.advance([summary(true, 1, 0)]) == .committed)
         try await memory.store.write { transaction in
-            try transaction.execute("UPDATE memory_agent_actions SET verified_count = 1 WHERE event_id = 'b'")
+            try transaction.execute("UPDATE memory_agent_actions SET verified_count = 1 WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'b')")
         }
         let refusal = AgentCallError.malformedCall(eventID: "b", malformation: .resultShape("batch summary"))
         #expect(await callError { _ = try await memory.calls.call("b") } == refusal)
         #expect(await callError { _ = try await memory.calls.calls(inTrace: "trace-1", after: nil, limit: 10) } == refusal)
         #expect(try await memory.calls.steps(ofBatch: "b").count == 1, "the steps themselves are well formed")
         try await memory.store.write { transaction in
-            try transaction.execute("UPDATE memory_agent_actions SET verified_count = 0, result_kind = 'completed' WHERE event_id = 'b'")
+            try transaction.execute("UPDATE memory_agent_actions SET verified_count = 0, result_kind = 'completed' WHERE event_id = (SELECT event_id FROM memory_events WHERE event_uuid = 'b')")
         }
         #expect(await callError { _ = try await memory.calls.call("b") } == refusal)
         #expect(try await memory.calls.record(try F.call("after", .observe(full: false))) == .committed, "the store goes on")
@@ -130,7 +174,7 @@ struct AgentCallBatchSummaryTests {
 
     @Test("a step never attempted and its batch take no capture of their own: both read not applicable once concluded, while a step that ran keeps what its samples say")
     func capturesOfStepsNeverAttempted() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         try await run(memory, [Self.click, Self.click, Self.click], [.ambiguous])
         #expect(try await memory.calls.advance([summary(true, 1, 0)]) == .committed)
         #expect(try await memory.captures.event("b.1")?.captureStatus == .notApplicable, "a skipped step")
@@ -142,7 +186,7 @@ struct AgentCallBatchSummaryTests {
 
     @Test("P1-07: a tool that never perceives (an adapter's, a listing) reads not applicable once concluded, a started act that wrote no sample stays unknown")
     func capturesOfToolsThatNeverPerceive() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         let calls: [(String, AgentCallRequest, AgentCallProgress)] = [
             ("adapter", .appCall(app: "Mail", verb: "read_message", arguments: "{}"), F.outcome(.foundActed)),
             ("listing", .apps(query: nil), F.ended(.completed)),
@@ -163,7 +207,7 @@ struct AgentCallBatchSummaryTests {
 
     @Test("cancellation and interruption keep their states and carry no summary")
     func cancelledAndInterrupted() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         try await run(memory, [Self.click, Self.click], [.foundActed])
         #expect(try await memory.calls.advance([AgentCallTransition("b", F.ended(.cancelled))]) == .committed)
         #expect(try await memory.calls.call("b")?.progress.result == nil)

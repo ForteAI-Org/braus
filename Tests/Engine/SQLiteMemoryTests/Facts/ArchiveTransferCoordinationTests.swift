@@ -153,8 +153,10 @@ struct ArchiveTransferCoordinationTests {
         #expect(a.status == "completed" && b.status == "completed" && a.eventsAdded == 2)
         #expect(await gate.passes == 1, "only the first attempt copied the origin")
         #expect(try await count("SELECT count(*) FROM memory_events", in: destination) == 2)
-        #expect(try await count("SELECT count(*) FROM memory_origin_events WHERE origin_id = 'mcp-profile:A'",
-                                in: destination) == 2)
+        #expect(try await count("""
+            SELECT count(*) FROM memory_origin_events
+            WHERE origin_id = (SELECT origin_id FROM memory_archive_origins WHERE origin_uuid = 'mcp-profile:A')
+            """, in: destination) == 2)
         #expect(try await count("SELECT count(*) FROM memory_agent_actions WHERE execution_status = 'completed'",
                                 in: destination) == 1)
         #expect(try await destination.read { try $0.query("PRAGMA foreign_key_check") { _ in () } }.isEmpty)
@@ -278,7 +280,11 @@ struct ArchiveTransferCoordinationTests {
         #expect(reportA.status == "completed" && reportB.status == "completed")
         let mapped = try await destination.read { snapshot in
             try snapshot.query(
-                "SELECT origin_id || '>' || event_id FROM memory_origin_events ORDER BY 1"
+                """
+                SELECT o.origin_uuid || '>' || e.event_uuid FROM memory_origin_events r
+                JOIN memory_archive_origins o ON o.origin_id = r.origin_id
+                JOIN memory_events e ON e.event_id = r.event_id ORDER BY 1
+                """
             ) { try $0.text(0) ?? "" }
         }
         #expect(mapped == ["mcp-profile:A>a-a1", "mcp-profile:A>a-o1", "mcp-profile:B>b-a1", "mcp-profile:B>b-o1"])
@@ -296,7 +302,7 @@ struct ArchiveTransferCoordinationTests {
         _ = try await destination.write { transaction in
             try transaction.execute(
                 """
-                INSERT INTO memory_archive_origins (origin_id, origin_kind, location, status, first_seen_at_ms,
+                INSERT INTO memory_archive_origins (origin_uuid, origin_kind, location, status, first_seen_at_ms,
                                                     updated_at_ms, high_local_order)
                 VALUES (?, 'mcp_profile', 'A', 'completed', 1, 1, 2)
                 """,

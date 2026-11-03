@@ -36,6 +36,27 @@ extension SceneSnapshot {
         preferNativeControls: Bool = false,
         preferTextEntry: Bool = false
     ) -> Resolution {
+        let original = resolveWhole(
+            target: target, preferStateful: preferStateful, section: section,
+            preferNativeControls: preferNativeControls, preferTextEntry: preferTextEntry
+        )
+        guard original == .none else { return original }
+        let cleaned = Self.fallbackTarget(target)
+        guard cleaned != target else { return original }
+        return resolveWhole(
+            target: cleaned, preferStateful: preferStateful, section: section,
+            preferNativeControls: preferNativeControls, preferTextEntry: preferTextEntry
+        )
+    }
+
+    /// Keeps every original resolution tier ahead of copied-target cleanup.
+    private func resolveWhole(
+        target: String,
+        preferStateful: Bool = false,
+        section: String? = nil,
+        preferNativeControls: Bool = false,
+        preferTextEntry: Bool = false
+    ) -> Resolution {
         if let section, !section.isEmpty {
             let matches = sections.filter {
                 Self.inline($0.name).caseInsensitiveCompare(Self.inline(section)) == .orderedSame
@@ -124,6 +145,21 @@ extension SceneSnapshot {
         return byLabel.isEmpty ? .none : .ambiguous(byLabel.count)
     }
 
+    /// Removes surrounding quotes and the final reserved hint only after the whole target misses.
+    private static func fallbackTarget(_ target: String) -> String {
+        func unquoted(_ text: String) -> String {
+            let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let pairs: [(Character, Character)] = [("\"", "\""), ("'", "'"), ("“", "”"), ("‘", "’")]
+            guard text.count >= 2, pairs.contains(where: { text.first == $0.0 && text.last == $0.1 }) else {
+                return text
+            }
+            return String(text.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let text = unquoted(target)
+        guard let arrow = text.range(of: " ⇒ ", options: .backwards) else { return text }
+        return unquoted(String(text[..<arrow.lowerBound]))
+    }
+
     /// A label as compared: without bidi controls, and without the leading bullet a recognizer
     /// reads into a list row ("• carla_video_bn").
     private static func plain(_ label: String) -> String {
@@ -154,6 +190,14 @@ extension SceneSnapshot {
 
     /// The elements a target matches by label, for a disambiguation message that lists them.
     public func candidates(target: String) -> [SceneElement] {
+        let original = wholeCandidates(target: target)
+        guard original.isEmpty, resolveWhole(target: target) == .none else { return original }
+        let cleaned = Self.fallbackTarget(target)
+        guard cleaned != target else { return original }
+        return wholeCandidates(target: cleaned)
+    }
+
+    private func wholeCandidates(target: String) -> [SceneElement] {
         let identified = elements.filter { $0.id == target }
         if !identified.isEmpty { return identified }
         let exact = elements.filter { $0.label.caseInsensitiveCompare(target) == .orderedSame }

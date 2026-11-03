@@ -22,14 +22,19 @@ public struct SQLiteMenuCommandRepository: MenuCommandStoring {
     }
 
     public func record(_ command: MenuCommandRecord) async throws -> MemoryReceipt {
+        try await recordReturningID(command).receipt
+    }
+
+    /// Schema 22 assigns a command's integer identity. A retry offers the returned identity.
+    public func recordReturningID(_ command: MenuCommandRecord) async throws -> (receipt: MemoryReceipt, menuCommandID: String) {
         try await store.write { transaction in
             if let stored = try SQLiteMenuRows.read(transaction, menuCommandID: command.menuCommandID) {
                 guard stored.isExactly(command) else { throw SQLiteMenuRows.conflict(stored: stored, offered: command) }
-                return .alreadyApplied
+                return (.alreadyApplied, stored.menuCommandID)
             }
             let appID = try SQLiteIdentityRows.ensureApp(transaction, bundleID: command.bundleID)
-            try SQLiteMenuRows.insert(transaction, command, appID: appID)
-            return .committed
+            let id = try SQLiteMenuRows.insert(transaction, command, appID: appID)
+            return (.committed, id)
         }
     }
 
@@ -56,7 +61,7 @@ public struct SQLiteMenuCommandRepository: MenuCommandStoring {
                 """,
                 [.text(updated.topLevelTitle), updated.identifier.map(SQLiteValue.text) ?? .null, .integer(updated.hasSubmenu ? 1 : 0),
                  .integer(updated.enabled ? 1 : 0), updated.markChar.map(SQLiteValue.text) ?? .null,
-                 updated.cmdChar.map(SQLiteValue.text) ?? .null, .integer(updated.lastSeenMS), .text(id)]
+                 updated.cmdChar.map(SQLiteValue.text) ?? .null, .integer(updated.lastSeenMS), try SQLiteMenuRows.key(transaction, id)]
             )
             return .committed
         }
@@ -89,24 +94,33 @@ public struct SQLiteMenuCommandRepository: MenuCommandStoring {
 /// SQLiteMenuRows is the codec of a command and its path segments, inside the caller's handle.
 enum SQLiteMenuRows {
 
-    static func insert(_ transaction: SQLiteTransaction, _ command: MenuCommandRecord, appID: Int64) throws {
+    static func key(_ handle: some SQLiteQuerying, _ id: String) throws -> SQLiteValue {
+        guard try SQLiteRowIdentity(handle).usesIntegerKeys else { return .text(id) }
+        return Int64(id).map(SQLiteValue.integer) ?? .null
+    }
+
+    static func insert(_ transaction: SQLiteTransaction, _ command: MenuCommandRecord, appID: Int64) throws -> String {
+        let integerKeys = try SQLiteRowIdentity(transaction).usesIntegerKeys
         try transaction.execute(
             """
             INSERT INTO brain_menu_commands (menu_command_id, app_id, path_key, top_level_title, accessibility_identifier,
                 has_submenu, last_observed_enabled, mark_char, cmd_char, first_seen_ms, last_seen_ms)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [.text(command.menuCommandID), .integer(appID), .text(command.pathKey), .text(command.topLevelTitle),
+            [integerKeys ? .null : .text(command.menuCommandID), .integer(appID), .text(command.pathKey), .text(command.topLevelTitle),
              command.identifier.map(SQLiteValue.text) ?? .null, .integer(command.hasSubmenu ? 1 : 0),
              .integer(command.enabled ? 1 : 0), command.markChar.map(SQLiteValue.text) ?? .null,
              command.cmdChar.map(SQLiteValue.text) ?? .null, .integer(command.firstSeenMS), .integer(command.lastSeenMS)]
         )
+        let id = integerKeys ? try transaction.query("SELECT last_insert_rowid()") { String($0.integer(0) ?? 0) }.first ?? ""
+            : command.menuCommandID
         for (position, title) in command.path.enumerated() {
             try transaction.execute(
                 "INSERT INTO brain_menu_path_segments (menu_command_id, position, title) VALUES (?, ?, ?)",
-                [.text(command.menuCommandID), .integer(Int64(position)), .text(title)]
+                [try key(transaction, id), .integer(Int64(position)), .text(title)]
             )
         }
+        return id
     }
 
     /// The stored command, or nil, refusing a command with no segment, segments that are not the
@@ -120,7 +134,7 @@ enum SQLiteMenuRows {
             FROM brain_menu_commands m JOIN brain_apps a ON a.app_id = m.app_id
             WHERE m.menu_command_id = ?
             """,
-            [.text(menuCommandID)],
+            [try key(handle, menuCommandID)],
             { row in
                 (id: try row.text(0) ?? "", bundle: try row.text(1) ?? "", pathKey: try row.text(2) ?? "", title: try row.text(3) ?? "",
                  identifier: try row.text(4), submenu: row.integer(5) == 1, enabled: row.integer(6) == 1, mark: try row.text(7),
@@ -132,7 +146,7 @@ enum SQLiteMenuRows {
         }
         let segments = try handle.query(
             "SELECT position, title FROM brain_menu_path_segments WHERE menu_command_id = ? ORDER BY position",
-            [.text(menuCommandID)]
+            [try key(handle, menuCommandID)]
         ) { (position: $0.integer(0) ?? -1, title: try $0.text(1) ?? "") }
         guard !segments.isEmpty else { throw refuse(.noSegments) }
         guard segments.enumerated().allSatisfy({ Int64($0.offset) == $0.element.position }) else { throw refuse(.segmentsNotContiguous) }

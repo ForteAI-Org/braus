@@ -7,7 +7,9 @@ import FileConversations
 import Foundation
 import LocalMCP
 import Memory
+import ModelTransports
 import PrivateSymbols
+import Switches
 
 /// ChatCommand composes the terminal, provider adapter, transcript store and one ephemeral MCP host (`ChatSession`).
 /// Provider processes may exit between turns; the Seat belongs to this process until release or shutdown. With
@@ -16,6 +18,11 @@ enum ChatCommand {
     static func run(arguments: [String]) async throws {
         let options = try ChatOptions(arguments: arguments)
         if options.help { print(ChatOptions.usage); return }
+        if !options.sessionProfile.options.switches.isEmpty {
+            try SessionProfileFile.validateSwitches(options.sessionProfile.options.switches)
+            let values = SwitchBoard.current.values.merging(options.sessionProfile.options.switches) { _, value in value }
+            SwitchBoard.install(SwitchBoard(values: values))
+        }
         // The Braus support folder, `BRAUS_APP_SUPPORT_DIR` when set.
         let support = KnowledgeLocation.support()
         let history = options.historyDirectory.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
@@ -23,7 +30,7 @@ enum ChatCommand {
         let store = try ConversationStore(directory: history)
         let saved = try store.list()
         if options.list {
-            for item in saved { print("\(item.id.uuidString)  \(item.provider.rawValue)  \(item.model ?? "default")  \(item.title)") }
+            for item in saved { print("\(item.id.uuidString)  \(item.modelProvider ?? item.provider.rawValue)  \(item.model ?? "default")  \(item.title)") }
             if saved.isEmpty { print("No saved conversations.") }
             return
         }
@@ -45,24 +52,30 @@ enum ChatCommand {
             conversation = try await ChatMenu.choose(saved)
         }
         if let existing = conversation {
+            if let provider = options.modelProvider, provider.rawValue != existing.modelProvider {
+                throw ChatMenu.problem("Start a new chat to change model providers.")
+            }
+            if options.provider != nil && existing.modelProvider != nil {
+                throw ChatMenu.problem("Start a new chat to change providers.")
+            }
             if let provider = options.provider, provider != existing.provider {
                 throw ChatMenu.problem("A saved conversation belongs to \(existing.provider.rawValue). Start a new chat to change providers.")
             }
             if options.hasModelOption { conversation?.model = options.model }
         } else {
             let provider: ChatProvider
-            if let selected = options.provider { provider = selected }
+            if options.modelProvider != nil { provider = .claude }
+            else if let selected = options.provider { provider = selected }
             else if interactive { provider = try await ChatMenu.provider() }
             else { throw ChatMenu.problem("Use --provider claude|codex for noninteractive chat.") }
             let model: String?
             if options.hasModelOption { model = options.model }
-            else if interactive { model = try await ChatMenu.model(provider) }
+            else if interactive && options.modelProvider == nil { model = try await ChatMenu.model(provider) }
             else { model = nil }
-            conversation = Conversation(provider: provider, model: model)
+            conversation = Conversation(provider: provider, model: model, modelProvider: options.modelProvider?.rawValue)
         }
-        guard let selected = conversation, let executable = ChatMenu.executable(selected.provider.rawValue) else {
-            throw ChatMenu.problem("The selected provider CLI is not installed or is missing from PATH.")
-        }
+        guard let selected = conversation else { throw ChatMenu.problem("No conversation selected.") }
+        let executable = try executable(for: selected)
         let lease = try store.lease(selected.id)
         let hostLease = try hostLease(support)
         defer { withExtendedLifetime((lease, hostLease)) {} }
@@ -73,7 +86,7 @@ enum ChatCommand {
             session.adopt(transcript)
             try await session.start()
             defer { session.stop() }
-            print("\nBraus chat · \(selected.provider.displayName) · \(selected.model ?? "provider default")")
+            print("\nBraus chat · \(selected.modelProvider ?? selected.provider.displayName) · \(selected.model ?? "provider default")")
             print("Conversation: \(selected.id.uuidString)")
             if !selected.entries.isEmpty {
                 print("Resuming saved context; application state will be observed again.")
@@ -96,7 +109,9 @@ enum ChatCommand {
                     if message == "/quit" || message == "/exit" { break }
                     if message == "/help" { print(ChatOptions.usage); continue }
                     if message == "/model" {
-                        transcript.conversation.model = try await ChatMenu.model(selected.provider)
+                        if selected.modelProvider != nil {
+                            transcript.conversation.model = await ChatMenu.read("Model ID › ")
+                        } else { transcript.conversation.model = try await ChatMenu.model(selected.provider) }
                         try transcript.save()
                         continue
                     }
@@ -141,16 +156,19 @@ enum ChatCommand {
         }
     }
 
-    /// Runs the requests of a script file, one new conversation each, on one archive and one host: the Seat and the
-    /// application session are released between requests, so each starts from the applications as they are, with the
-    /// knowledge the earlier ones left in the memory. A failed request stops the script unless `--continue`; the
+    static func releaseSeatBetweenRequests(seatWarmSeconds: Int, release: () async -> Void) async {
+        if seatWarmSeconds == 0 { await release() }
+    }
+
+    /// Runs the requests of a script file, one new conversation each, on one archive and one host: the profile controls the
+    /// Seat lifetime between requests, releasing after each by default and retaining it when configured.
+    /// Each request uses the knowledge the earlier ones left in memory. A failed request stops the script unless `--continue`; the
     /// evidence folder, when asked, keeps every request's conversation, tasks and diagnoses.
     private static func runScript(at path: String, options: ChatOptions, support: URL, history: URL,
                                   store: ConversationStore) async throws {
-        guard let provider = options.provider else { throw ChatMenu.problem("--script needs --provider claude|codex.") }
-        guard let executable = ChatMenu.executable(provider.rawValue) else {
-            throw ChatMenu.problem("The \(provider.rawValue) CLI is not installed or is missing from PATH.")
-        }
+        let provider = options.provider ?? .claude
+        let executable = try executable(for: Conversation(provider: provider, model: options.model,
+                                                          modelProvider: options.modelProvider?.rawValue))
         let file = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let requests = ChatScript.requests(in: try String(contentsOf: file, encoding: .utf8))
         guard !requests.isEmpty else {
@@ -164,13 +182,14 @@ enum ChatCommand {
             defer { session.stop() }
             let evidence = try options.evidence.map { try ChatEvidence(directory: URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true)) }
             let archive = session.knowledge.appendingPathComponent("memory.sqlite")
-            print("\nBraus chat script · \(provider.displayName) · \(options.hasModelOption ? (options.model ?? "provider default") : "provider default")"
+            print("\nBraus chat script · \(options.modelProvider?.rawValue ?? provider.displayName) · \(options.hasModelOption ? (options.model ?? "provider default") : "provider default")"
                   + " · \(requests.count) requests · archive \(archive.path)"
                   + (evidence.map { " · evidence \($0.directory.path)" } ?? ""))
             try await preflight(options, session, evidence: evidence)
             // A stop by signal closes the task it cut and writes that request's evidence: no one is there to resume it.
             session.closesTaskOnStop = true
             var failed = 0
+            var processed = 0
             var providerFailed = false
             // The conversation of the request before, which a `>` request continues; its lease lives as long as it may.
             var previous: (transcript: ChatTranscript, lease: ConversationLease)?
@@ -181,7 +200,8 @@ enum ChatCommand {
                     transcript = earlier.transcript
                     print("\n[\(number)/\(requests.count)] continues conversation \(transcript.conversation.id.uuidString)")
                 } else {
-                    let conversation = Conversation(provider: provider, model: options.hasModelOption ? options.model : nil)
+                    let conversation = Conversation(provider: provider, model: options.hasModelOption ? options.model : nil,
+                                                    modelProvider: options.modelProvider?.rawValue)
                     let lease = try store.lease(conversation.id)
                     transcript = ChatTranscript(conversation: conversation, store: store)
                     try transcript.save()
@@ -218,7 +238,9 @@ enum ChatCommand {
                 }
                 let agentCalls = calls
                 let agentEntries = transcript.conversation.entries.count
-                await session.releaseSeat()
+                await releaseSeatBetweenRequests(seatWarmSeconds: options.sessionProfile.options.seatWarmSeconds) {
+                    await session.releaseSeat()
+                }
                 // A completed task the agent left uninterpreted, even after its reminder, is interpreted by Braus from its goal
                 // and the phases already known: unattended, it was lost (review I1, BUG-11).
                 var brausInterpreted: String?
@@ -259,12 +281,51 @@ enum ChatCommand {
                                          provider: failure is ProviderFailure)
                     }
                 }
+                processed += 1
+                if !(try await continueScript(
+                    hasNext: requests.indices.contains(index + 1),
+                    pause: options.pauseBetweenRequests,
+                    onEOF: {
+                        if let closed = await session.abandonOpenTask() {
+                            let line = ChatSession.line(for: closed)
+                            print(line)
+                            try transcript.append(.tool, line)
+                        }
+                    }
+                )) {
+                    break
+                }
             }
             withExtendedLifetime(previous) {}
             await session.finish()
-            print("\nscript done: \(requests.count) requests, \(failed) failed" + (evidence.map { "; evidence in \($0.directory.path)" } ?? ""))
-            if failed > 0 { throw ScriptStop(message: "\(failed) of \(requests.count) requests failed.", provider: providerFailed) }
+            print("\nscript done: \(processed) requests, \(failed) failed" + (evidence.map { "; evidence in \($0.directory.path)" } ?? ""))
+            if failed > 0 { throw ScriptStop(message: "\(failed) of \(processed) requests failed.", provider: providerFailed) }
         }
+    }
+
+    /// Waits at a script boundary only when another request exists and the option is enabled; EOF runs cleanup once.
+    static func continueScript(
+        hasNext: Bool,
+        pause: Bool,
+        output: (String) -> Void = { print($0); fflush(stdout) },
+        input: () async -> String? = { await ChatMenu.read("") },
+        onEOF: () async throws -> Void = {}
+    ) async rethrows -> Bool {
+        guard hasNext && pause else { return true }
+        output("ready for next request")
+        guard await input() != nil else {
+            try await onEOF()
+            return false
+        }
+        return true
+    }
+
+    private static func executable(for conversation: Conversation) throws -> URL {
+        if conversation.modelProvider != nil { return URL(filePath: ChatSession.executablePath) }
+        guard let executable = ChatMenu.executable(conversation.provider.rawValue) else {
+            throw ChatMenu.problem("The selected provider CLI is not installed or is missing from PATH.")
+        }
+        return executable
     }
 
     /// Runs `body` with `session`, then finishes the session however `body` ended, a throw included: its application

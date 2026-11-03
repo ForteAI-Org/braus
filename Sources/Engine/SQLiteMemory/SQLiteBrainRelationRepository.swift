@@ -40,8 +40,15 @@ public struct SQLiteBrainRelationRepository: BrainRelationReading {
     public func apply(callEventID: String, at nowMS: Int64,
                       cause: BrainRelationApplication.Cause = .acquisition) async throws -> BrainRelationApplication {
         try await store.write { transaction in
-            try SQLiteBrainRelationRows.evaluate(transaction, callEventID: callEventID, cause: cause, at: nowMS)
+            try apply(callEventID: callEventID, at: nowMS, cause: cause, in: transaction)
         }
+    }
+
+    /// Evaluates a call in the caller's transaction, using the same facts and instant as a direct write.
+    package func apply(callEventID: String, at nowMS: Int64,
+                       cause: BrainRelationApplication.Cause = .acquisition,
+                       in transaction: SQLiteTransaction) throws -> BrainRelationApplication {
+        return try SQLiteBrainRelationRows.evaluate(transaction, callEventID: callEventID, cause: cause, at: nowMS)
     }
 
     /// CatchUp is what one bounded pass of the recovery did.
@@ -109,12 +116,12 @@ public struct SQLiteBrainRelationRepository: BrainRelationReading {
 
     /// The latest evaluation of a call, or nil when it was never evaluated.
     public func application(of callEventID: String) async throws -> BrainRelationApplication? {
-        try await store.read { snapshot in try SQLiteBrainRelationRows.latest(snapshot, callEventID: callEventID) }
+        try await store.read { snapshot in try SQLiteBrainRelationRows.latest(try DB2CReadRows(snapshot), callEventID: callEventID) }
     }
 
     /// Every evaluation of a call, the first first.
     public func evaluations(of callEventID: String) async throws -> [BrainRelationApplication] {
-        try await store.read { snapshot in try SQLiteBrainRelationRows.evaluations(snapshot, callEventID: callEventID) }
+        try await store.read { snapshot in try SQLiteBrainRelationRows.evaluations(try DB2CReadRows(snapshot), callEventID: callEventID) }
     }
 
     // MARK: Reading
@@ -124,12 +131,14 @@ public struct SQLiteBrainRelationRepository: BrainRelationReading {
         return try await store.read { snapshot in
             guard let appID = try SQLiteIdentityRows.appID(snapshot, bundleID: bundleID) else { return nil }
             let known = try SQLiteSceneRows.scenes(snapshot, appID: appID, bundleID: bundleID, roleKey: skeleton.roleKey)
-            let same = known.filter {
-                SceneStructureMatcher.compare(observed: skeleton, isComplete: true, known: $0.skeleton) == .same
+            let same = try known.filter {
+                try BrainReadControl.current?.check()
+                return SceneStructureMatcher.compare(observed: skeleton, isComplete: true, known: $0.skeleton) == .same
             }
-            let uncertain = known.contains {
-                if case .uncertain = SceneStructureMatcher.compare(observed: skeleton, isComplete: true, known: $0.skeleton) { true }
-                else { false }
+            let uncertain = try known.contains {
+                try BrainReadControl.current?.check()
+                if case .uncertain = SceneStructureMatcher.compare(observed: skeleton, isComplete: true, known: $0.skeleton) { return true }
+                else { return false }
             }
             return same.count == 1 && !uncertain ? same.first?.id : nil
         }
@@ -145,7 +154,7 @@ public struct SQLiteBrainRelationRepository: BrainRelationReading {
                           includingContext: Bool) async throws -> [BrainRelation] {
         try await store.read { snapshot in
             guard let appID = try SQLiteIdentityRows.appID(snapshot, bundleID: bundleID) else { return [] }
-            return try SQLiteBrainRelationRows.relations(snapshot, appID: appID, bundleID: bundleID, from: sceneID,
+            return try SQLiteBrainRelationRows.relations(try DB2CReadRows(snapshot), appID: appID, bundleID: bundleID, from: sceneID,
                                                          elementKeys: elementKeys, includingContext: includingContext)
         }
     }
@@ -155,15 +164,16 @@ public struct SQLiteBrainRelationRepository: BrainRelationReading {
     public func relations(of bundleID: String) async throws -> [BrainRelation] {
         try await store.read { snapshot in
             guard let appID = try SQLiteIdentityRows.appID(snapshot, bundleID: bundleID) else { return [] }
-            return try SQLiteBrainRelationRows.relations(snapshot, appID: appID, bundleID: bundleID, from: nil, elementKeys: [],
+            return try SQLiteBrainRelationRows.relations(try DB2CReadRows(snapshot), appID: appID, bundleID: bundleID, from: nil, elementKeys: [],
                                                          includingContext: true)
         }
     }
 
     /// The calls whose latest evaluation supports or contradicts a relation, with how.
     public func proofs(of relationID: String) async throws -> [(callEventID: String, relation: EvidenceRelation, verificationEventID: String)] {
-        try await store.read { snapshot in
-            try snapshot.query(
+        try await store.read { handle in
+            let snapshot = try DB2CReadRows(handle)
+            return try snapshot.query(
                 """
                 SELECT e.call_event_id, e.relation, e.verification_event_id FROM brain_relation_evidence e
                 WHERE e.relation_id = ? AND e.sequence = (SELECT max(v.sequence) FROM brain_relation_evaluations v
@@ -195,6 +205,9 @@ enum SQLiteBrainRelationRows {
     /// evaluation: a new one when it decides otherwise than the latest, or the latest itself.
     static func evaluate(_ transaction: SQLiteTransaction, callEventID: String, cause requested: BrainRelationApplication.Cause,
                          at nowMS: Int64) throws -> BrainRelationApplication {
+        if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+            return try DB2CBrainRelationRows.evaluate(transaction, callEventID: callEventID, cause: requested, at: nowMS)
+        }
         let latest = try latest(transaction, callEventID: callEventID)
         if let latest, !latest.isRecoverable, latest.policyVersion == BrainRelationPolicy.version { return latest }
         let cause: BrainRelationApplication.Cause = switch latest {
@@ -285,7 +298,7 @@ enum SQLiteBrainRelationRows {
     }
 
     /// The calls whose latest evaluation waits for a relation of this one's group to contradict.
-    private static func waitingContradictions(_ handle: some SQLiteQuerying, of key: BrainRelationKey) throws -> [String] {
+    static func waitingContradictions(_ handle: some SQLiteQuerying, of key: BrainRelationKey) throws -> [String] {
         try handle.query(
             """
             SELECT v.call_event_id FROM brain_relation_evaluations v
@@ -303,23 +316,28 @@ enum SQLiteBrainRelationRows {
     /// samples still waiting to be placed in a state: an exclusion awaiting a state, and a call not
     /// concluded when it was evaluated that has concluded since.
     static func waiting(_ handle: some SQLiteQuerying, limit: Int) throws -> [(String, [CaptureSampleKey])] {
+        // Keep joins and latest-evaluation probes on indexed integer keys in schema 22.
+        let integer = try SQLiteRowIdentity(handle).usesIntegerKeys
+        let publicKey = integer ? "e.event_uuid" : "v.call_event_id"
+        let order = integer ? "e.event_id" : "e.local_order"
         let calls = try handle.query(
             """
-            SELECT v.call_event_id, v.reason FROM brain_relation_evaluations v
+            SELECT \(publicKey), v.reason FROM brain_relation_evaluations v
             JOIN memory_events e ON e.event_id = v.call_event_id JOIN memory_agent_actions a ON a.event_id = v.call_event_id
             WHERE v.recoverable = 1
               AND v.sequence = (SELECT max(w.sequence) FROM brain_relation_evaluations w WHERE w.call_event_id = v.call_event_id)
               AND (v.reason = 'awaiting_state'
                    OR (v.reason = 'not_concluded' AND a.execution_status IN ('completed', 'failed', 'cancelled', 'interrupted')))
-            ORDER BY e.local_order LIMIT ?
+            ORDER BY \(order) LIMIT ?
             """,
             [.integer(Int64(max(1, limit)))]
         ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }
+        let samples = try DB2CReadRows(handle)
         return try calls.map { call, reason in
             guard reason == "awaiting_state" else { return (call, []) }
             let unplaced = try [CapturePhase.before, .after].compactMap { phase -> CaptureSampleKey? in
                 let key = CaptureSampleKey(eventID: call, phase: phase)
-                return try awaitsState(handle, key) ? key : nil
+                return try awaitsState(samples, key) ? key : nil
             }
             return (call, unplaced)
         }
@@ -328,14 +346,17 @@ enum SQLiteBrainRelationRows {
     /// Operations concluded (or still started) that no evaluation reads, oldest first, and whether the
     /// first policy applied them (schema 3's register): those are evaluated again, the others recovered.
     static func unevaluated(_ handle: some SQLiteQuerying, limit: Int) throws -> [(String, Bool)] {
-        try handle.query(
+        let integer = try SQLiteRowIdentity(handle).usesIntegerKeys
+        let publicKey = integer ? "e.event_uuid" : "a.event_id"
+        let order = integer ? "e.event_id" : "e.local_order"
+        return try handle.query(
             """
-            SELECT a.event_id, EXISTS (SELECT 1 FROM brain_relation_applications r WHERE r.call_event_id = a.event_id)
+            SELECT \(publicKey), EXISTS (SELECT 1 FROM brain_relation_applications r WHERE r.call_event_id = a.event_id)
             FROM memory_agent_actions a JOIN memory_events e ON e.event_id = a.event_id
             WHERE a.tool_kind IN \(operations)
               AND a.execution_status IN ('started', 'completed', 'failed', 'cancelled', 'interrupted')
               AND NOT EXISTS (SELECT 1 FROM brain_relation_evaluations v WHERE v.call_event_id = a.event_id)
-            ORDER BY e.local_order LIMIT ?
+            ORDER BY \(order) LIMIT ?
             """,
             [.integer(Int64(max(1, limit)))]
         ) { (try $0.text(0) ?? "", ($0.integer(1) ?? 0) == 1) }
@@ -343,12 +364,15 @@ enum SQLiteBrainRelationRows {
 
     /// Calls whose latest evaluation was made under another policy, oldest first.
     static func stale(_ handle: some SQLiteQuerying, limit: Int) throws -> [String] {
-        try handle.query(
+        let integer = try SQLiteRowIdentity(handle).usesIntegerKeys
+        let publicKey = integer ? "e.event_uuid" : "v.call_event_id"
+        let order = integer ? "e.event_id" : "e.local_order"
+        return try handle.query(
             """
-            SELECT v.call_event_id FROM brain_relation_evaluations v JOIN memory_events e ON e.event_id = v.call_event_id
+            SELECT \(publicKey) FROM brain_relation_evaluations v JOIN memory_events e ON e.event_id = v.call_event_id
             WHERE v.policy_version <> ?
               AND v.sequence = (SELECT max(w.sequence) FROM brain_relation_evaluations w WHERE w.call_event_id = v.call_event_id)
-            ORDER BY e.local_order LIMIT ?
+            ORDER BY \(order) LIMIT ?
             """,
             [.text(BrainRelationPolicy.version), .integer(Int64(max(1, limit)))]
         ) { try $0.text(0) ?? "" }

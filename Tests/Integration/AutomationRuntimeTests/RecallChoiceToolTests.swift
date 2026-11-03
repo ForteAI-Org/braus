@@ -94,7 +94,7 @@ struct RecallChoiceToolTests {
             let (session, tools, id, routeID, key) = try await Self.proposed()
             let proposals = try Self.count("memory_recall_proposals", session), queries = try Self.count("memory_recall_queries", session)
             #expect(proposals == 1 && queries == 0, "a proposal is not a query")
-            let lines = try P.rows("SELECT count(*) FROM memory_recall_proposal_sources WHERE route_id = '\(routeID)'", in: session)
+            let lines = try P.rows("SELECT count(*) FROM memory_recall_proposal_sources WHERE route_id = (SELECT route_id FROM memory_routes WHERE route_uuid = '\(routeID)')", in: session)
             #expect(lines == ["1"])
             let chosen = try await P.task(tools, Self.choose(id, [(key, 4, 7)]))
             #expect(chosen["status"].string == "chosen", "\(chosen)")

@@ -32,6 +32,9 @@ public struct ActionTiming: Sendable, Equatable {
     /// After the Escape that dismisses a pop-up the target is not in.
     public var popupDismiss: Duration = .milliseconds(250)
 
+    /// Maximum verification budget after the last gesture; Mac composition uses two seconds.
+    public var secondLookCap: Duration = .seconds(1)
+
     public static let standard = ActionTiming()
 
     public init() {}

@@ -59,6 +59,8 @@ public struct SceneElement: Sendable, Equatable, Hashable {
     /// stops here, so a row's name, which is content, never enters one; `container` keeps the full
     /// path a model addresses the element by.
     public var collectionPath: String?
+    /// Ephemeral native identity, excluded from encoding, equality, hashing and scene tokens.
+    public var nativeIdentity: String?
 
     public init(
         id         : String,
@@ -77,7 +79,8 @@ public struct SceneElement: Sendable, Equatable, Hashable {
         does       : String? = nil,
         section    : String? = nil,
         labelOrigin   : LabelOrigin? = nil,
-        collectionPath: String? = nil
+        collectionPath: String? = nil,
+        nativeIdentity: String? = nil
     ) {
         self.id             = id
         self.kind           = kind
@@ -96,6 +99,7 @@ public struct SceneElement: Sendable, Equatable, Hashable {
         self.section        = section
         self.labelOrigin    = labelOrigin
         self.collectionPath = collectionPath
+        self.nativeIdentity = nativeIdentity
     }
 }
 

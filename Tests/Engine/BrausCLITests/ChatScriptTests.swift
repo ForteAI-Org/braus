@@ -5,6 +5,10 @@
 //  Created by Tommaso Mazzarini on 13/10/2026.
 //
 
+import AutomationRuntime
+@testable import ModelTransports
+import CLIProviders
+@testable import SeatBroker
 import ChatCore
 import FileConversations
 import Foundation
@@ -12,8 +16,7 @@ import LocalMCP
 import Testing
 @testable import braus
 
-/// The pure parts of `braus chat --script`: the requests a file holds, the tasks a conversation's tool lines name, and
-/// the differences a preflight reports. No provider, no process.
+/// Exercises script parsing, profile choices and offline provider processes without desktop actions.
 @Suite("Chat script: requests, task ids and the preflight's differences")
 struct ChatScriptTests {
 
@@ -72,17 +75,17 @@ struct ChatScriptTests {
         let expected = try JSONDecoder().decode(JSONValue.self, from: Data(#"""
             {"archive":"/root/AppSupport/Knowledge/memory.sqlite",
              "recall":{"channel":"hybrid","owns_index":true,"model":"ibm-granite/granite-embedding-107m-multilingual@d6cffd33"},
-             "measure_ablation":["recall"]}
+             "profile":{"memory":"learn"}, "switches":{"brain_enrichment":"off"}}
             """#.utf8))
         let found = try JSONDecoder().decode(JSONValue.self, from: Data(#"""
             {"status":"no open task","archive":"/root/AppSupport/Knowledge/memory.sqlite",
              "recall":{"channel":"lexical","owns_index":true,"format":"recall-document-1"}}
             """#.utf8))
         let differences = ChatScript.differences(expected: expected, found: found)
-        #expect(differences.map(\.path) == ["measure_ablation", "recall.channel", "recall.model"], "\(differences)")
+        #expect(differences.map(\.path) == ["profile", "recall.channel", "recall.model", "switches"], "\(differences)")
         #expect(differences.first { $0.path == "recall.channel" }?.found == "\"lexical\"")
         #expect(differences.first { $0.path == "recall.model" }?.found == "absent")
-        #expect(differences.first { $0.path == "measure_ablation" }?.found == "absent")
+        #expect(differences.first { $0.path == "profile" }?.found == "absent")
         #expect(ChatScript.differences(expected: expected, found: expected).isEmpty, "an answer equal to the expectation differs nowhere")
         #expect(ChatScript.differences(expected: .string("a"), found: .string("b")).map(\.description) == ["value: expected \"a\", found \"b\""])
     }
@@ -153,5 +156,159 @@ struct ChatScriptTests {
         #expect(ChatScript.payload(of: plain) == plain)
         let notJSON: JSONValue = .object(["content": .array([.object(["type": .string("text"), "text": .string("not json")])])])
         #expect(ChatScript.payload(of: notJSON) == notJSON)
+    }
+}
+
+extension ChatScriptTests {
+    @Test @MainActor func effortReachesTheChild() async throws {
+        for provider in ["claude", "codex"] {
+            let model = provider == "claude" ? "claude-opus-5-5" : "gpt-5.6-luna"
+            let result = try await ChatChildProcess.run(provider: provider, options: ["--model", model, "--effort", "high"])
+            #expect(result.status == 0, "\(result.output)")
+            let args = try #require(result.arguments.last)
+            #expect(args.contains("--model"))
+            if provider == "claude" {
+                let index = try #require(args.firstIndex(of: "--effort"))
+                #expect(args[index + 1] == "high")
+            } else { #expect(args.contains("model_reasoning_effort=\"high\"")) }
+        }
+        let unsupported = try await ChatChildProcess.run(provider: "claude",
+            options: ["--model", "claude-haiku-4-5", "--effort", "ultra"])
+        #expect(unsupported.status == 0, "\(unsupported.output)")
+        #expect(try #require(unsupported.arguments.last).contains("--effort") == false)
+    }
+
+    @Test @MainActor func webSearchFollowsTheProfile() async throws {
+        let file = URL.temporaryDirectory.appending(path: UUID().uuidString + ".json")
+        defer { do { try FileManager.default.removeItem(at: file) } catch { Issue.record(error) } }
+        for enabled in [false, true] {
+            try Data("{\"preset\":\"cli\",\"options\":{\"harnessWebSearch\":\(enabled)}}".utf8).write(to: file)
+            let result = try await ChatChildProcess.run(provider: "claude", options: ["--profile", file.path])
+            #expect(result.status == 0, "\(result.output)")
+            #expect(try #require(result.arguments.last).contains("WebSearch,WebFetch") == enabled)
+        }
+    }
+
+    @Test @MainActor func warmSeatIsKeptBetweenRequests() async throws {
+        let root = URL.temporaryDirectory.appending(path: "chat-seat-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let file = root.appending(path: "profile.json")
+        for seconds in [0, 7] {
+            try Data("{\"preset\":\"cli\",\"options\":{\"seatWarmSeconds\":\(seconds)}}".utf8).write(to: file)
+            let options = try ChatOptions(arguments: ["--profile", file.path, "--knowledge", root.appending(path: "knowledge").path])
+            let desktop = ChatTurnAuthorityTests.CountingSession()
+            let session = try ChatSession(options: options, history: root.appending(path: "history"),
+                executable: URL(filePath: "/unused"), session: { _ in desktop })
+            #expect(session.desktop.configuredIdleWindow == .seconds(seconds))
+            var releases = 0
+            for _ in 0..<2 {
+                _ = try await desktop.open(application: "Test", window: nil)
+                await ChatCommand.releaseSeatBetweenRequests(seatWarmSeconds: options.sessionProfile.options.seatWarmSeconds) {
+                    releases += 1
+                    await session.releaseSeat()
+                }
+                #expect((desktop.id != nil) == (seconds > 0))
+            }
+            #expect(releases == (seconds == 0 ? 2 : 0))
+            await session.finish()
+            #expect(desktop.id == nil)
+            session.stop()
+        }
+    }
+
+    @Test @MainActor func effortDefaultsByRoute() throws {
+        #expect(try ChatSession.resolvedEffort(provider: .claudeCode, model: nil, requested: nil).model == nil)
+        #expect(try ChatSession.resolvedEffort(provider: .claudeCode, model: nil, requested: nil).effort == nil)
+        #expect(try ChatSession.resolvedEffort(provider: .claudeCode, model: "claude-opus-5-5", requested: nil).effort == nil)
+        #expect(try ChatSession.resolvedEffort(provider: .anthropic, model: "claude-opus-5-5", requested: nil).effort == .medium)
+        #expect(try ChatSession.resolvedEffort(provider: .ollama, model: "local", requested: nil).effort == .low)
+        #expect(try ChatSession.resolvedEffort(provider: .anthropic, model: "claude-haiku-4-5", requested: .high).effort == nil)
+        #expect(try ChatSession.resolvedEffort(provider: .claudeCode, model: "claude-opus-5-5", requested: .ultra).effort == nil)
+        #expect(try ChatSession.resolvedEffort(provider: .gemini, model: "gemini-3-pro-preview", requested: .ultra).effort == .medium)
+        #expect(throws: (any Error).self) {
+            try ChatSession.resolvedEffort(provider: .claudeCode, model: nil, requested: .high)
+        }
+    }
+}
+
+extension ChatScriptTests {
+    @Test @MainActor func effortDefaultsByRouteResolvesTheModelOnce() async throws {
+        let root = URL.temporaryDirectory.appending(path: "chat-effort-" + UUID().uuidString)
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let options = try ChatOptions(arguments: ["--effort", "high", "--knowledge", root.appending(path: "knowledge").path])
+        var listings = 0
+        let session = try ChatSession(options: options, history: root.appending(path: "history"), executable: URL(filePath: "/unused"),
+            session: { _ in ChatTurnAuthorityTests.CountingSession() }, catalogue: { provider in
+                #expect(provider == .claudeCode)
+                listings += 1
+                return ["claude-sonnet-5-5"]
+            })
+        let first = try await session.selection(provider: .claudeCode, model: nil)
+        let second = try await session.selection(provider: .claudeCode, model: nil)
+        #expect(listings == 1)
+        #expect(first.model == "claude-sonnet-5-5" && second.model == first.model)
+        #expect(first.effort == .high && second.effort == first.effort)
+        let argv = try ProviderInvocation(ProviderTurn(provider: .claude, model: first.model, sessionID: nil,
+            prompt: "Hello", instructions: "", bridgeExecutable: "/unused", connectionFile: "/unused", workingDirectory: root.path,
+            effort: first.effort?.rawValue)).arguments
+        let modelIndex = try #require(argv.firstIndex(of: "--model"))
+        #expect(argv[modelIndex + 1] == first.model)
+        await session.finish()
+        session.stop()
+    }
+
+    @Test @MainActor func providerInvocationPreservesCatalogueArguments() throws {
+        let models: [(String, ReasoningEffort?)] = [
+            ("claude-opus-5-5", .high), ("claude-sonnet-5-5", .high), ("claude-haiku-4-5", nil)
+        ]
+        #expect(models.map { $0.0 } == ModelProvider.claudeCode.defaultModels)
+        func invocation(_ model: String, _ effort: ReasoningEffort?) throws -> [String] {
+            try ProviderInvocation(ProviderTurn(provider: .claude, model: model, sessionID: nil, prompt: "Hello",
+                instructions: "", bridgeExecutable: "/b", connectionFile: "/c", workingDirectory: "/tmp",
+                effort: effort?.rawValue)).arguments
+        }
+        for (model, expectedEffort) in models {
+            let resolved = try ChatSession.resolvedEffort(provider: .claudeCode, model: model, requested: .high)
+            let expected = try invocation(model, nil) + (expectedEffort.map { ["--effort", $0.rawValue] } ?? [])
+            #expect(try invocation(model, resolved.effort) == expected)
+        }
+    }
+
+    @Test @MainActor func effortDefaultsByRouteOmitsTheLoopPayloadParameter() throws {
+        let resolved = try ChatSession.resolvedEffort(provider: .anthropic, model: "claude-haiku-4-5", requested: .high)
+        let selection = ModelSelection(provider: .anthropic, model: try #require(resolved.model), effort: resolved.effort ?? .medium)
+        #expect(selection.effort == .medium)
+        let client = AnthropicClient(model: selection.model, effort: selection.effort, apiKey: "fake-test-key")
+        let body = try client.requestBody(messages: [TurnMessage(role: .user, text: "Hello")], tools: [])
+        #expect(body["output_config"] == nil)
+    }
+}
+
+extension ChatScriptTests {
+    @Test @MainActor func effortWithoutModelReportsTheChosenModel() async throws {
+        let result = try await ChatChildProcess.run(provider: "claude", options: ["--effort", "high"])
+        #expect(result.status == 0, "\(result.output)")
+        let args = try #require(result.arguments.last)
+        let index = try #require(args.firstIndex(of: "--model"))
+        #expect(result.output.contains("Model: " + args[index + 1]))
+    }
+}
+
+extension ChatScriptTests {
+    @Test @MainActor func omittedModelSelectionNotifiesThePersonOnce() async throws {
+        let root = URL.temporaryDirectory.appending(path: "chat-model-notice-" + UUID().uuidString)
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let options = try ChatOptions(arguments: ["--effort", "high", "--knowledge", root.appending(path: "knowledge").path])
+        var notices: [String] = []
+        let session = try ChatSession(options: options, history: root.appending(path: "history"), executable: URL(filePath: "/unused"),
+            session: { _ in ChatTurnAuthorityTests.CountingSession() }, catalogue: { _ in ["claude-sonnet-5-5"] },
+            selectionNotice: { notices.append($0) })
+        let first = try await session.selection(provider: .claudeCode, model: nil)
+        _ = try await session.selection(provider: .claudeCode, model: nil)
+        #expect(notices == ["Model: " + (first.model ?? "missing")])
+        await session.finish()
+        session.stop()
+        await MemoryService.shared(for: session.knowledge).close()
     }
 }

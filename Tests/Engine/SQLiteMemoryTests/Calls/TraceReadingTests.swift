@@ -20,7 +20,7 @@ struct TraceReadingTests {
 
     @Test("traces come most recent first, a page at a time, with counts of their events and calls and their first event's source")
     func tracesArePaged() async throws {
-        let memory = try await AgentCallFixtures.open()
+        let memory = try await AgentCallFixtures.open22()
         let traces = SQLiteTraceRepository(store: memory.store)
         #expect(try await traces.traces(before: nil, limit: 10).isEmpty, "a valid empty archive has no trace")
         // trace-1: a planned call and a batch of two steps; trace-2: an observation of its own, from the cli.
@@ -57,7 +57,7 @@ struct TraceReadingTests {
 
     @Test("a trace with an event at or above the cursor is left out whole: it belongs to a newer page, never cut in two")
     func aTraceAcrossTheCursorIsLeftOutWhole() async throws {
-        let memory = try await AgentCallFixtures.open()
+        let memory = try await AgentCallFixtures.open22()
         let traces = SQLiteTraceRepository(store: memory.store)
         // Local orders 1…5: A, B, A, C, A. A spans the whole range; B and C sit inside it.
         for (index, trace) in ["A", "B", "A", "C", "A"].enumerated() {
@@ -93,7 +93,7 @@ struct TraceReadingTests {
     @Test("pages match the grouped query they replaced, byte for byte, on interleaved traces, events with no trace or no call, two sources and a calendar that goes back, at every cursor",
           arguments: TraceNames.allCases)
     func pagesMatchTheGroupedQuery(names: TraceNames) async throws {
-        let memory = try await AgentCallFixtures.open()
+        let memory = try await AgentCallFixtures.open22()
         let traces = SQLiteTraceRepository(store: memory.store)
         #expect(try await traces.traces(before: 5, limit: 3).isEmpty, "an empty archive has no page")
         var state: UInt64 = 20_261_003
@@ -116,12 +116,12 @@ struct TraceReadingTests {
                            f.source, f.source_stream_id
                     FROM (SELECT e.trace_id AS trace_id, count(*) AS events,
                                  sum(CASE WHEN a.event_id IS NULL THEN 0 ELSE 1 END) AS calls,
-                                 min(e.local_order) AS first_order, max(e.local_order) AS last_order,
+                                 min(e.event_id) AS first_order, max(e.event_id) AS last_order,
                                  min(e.occurred_at_ms) AS first_ms, max(e.occurred_at_ms) AS last_ms
                           FROM memory_events e LEFT JOIN memory_agent_actions a ON a.event_id = e.event_id
                           WHERE e.trace_id IS NOT NULL
                           GROUP BY e.trace_id) g
-                    JOIN memory_events f ON f.trace_id = g.trace_id AND f.local_order = g.first_order
+                    JOIN memory_events f ON f.trace_id = g.trace_id AND f.event_id = g.first_order
                     WHERE g.last_order < ?
                     ORDER BY g.last_order DESC
                     LIMIT ?
@@ -139,7 +139,7 @@ struct TraceReadingTests {
                     + "\($0.firstOccurredAtMS) \($0.lastOccurredAtMS) \($0.source.rawValue) \($0.streamID)"
             }
         }
-        let last = try await memory.store.read { try $0.query("SELECT max(local_order) FROM memory_events", []) { $0.integer(0) ?? 0 } }[0]
+        let last = try await memory.store.read { try $0.query("SELECT max(event_id) FROM memory_events", []) { $0.integer(0) ?? 0 } }[0]
         var compared = 0
         for before in [nil] + (0...(last + 1)).map(Optional.some) {
             for limit in [1, 2, 5, 50] {
@@ -166,7 +166,7 @@ struct TraceReadingTests {
 
     @Test("a trace's entries are its events in local order, each with its call or none, and a call's own observations are found by origin")
     func entriesAndOrigins() async throws {
-        let memory = try await AgentCallFixtures.open()
+        let memory = try await AgentCallFixtures.open22()
         let traces = SQLiteTraceRepository(store: memory.store)
         _ = try await memory.calls.record(try AgentCallFixtures.call("open", .openSession(app: "Test", window: nil), session: nil))
         let own = MemoryEventRecord(eventID: "open.observation", source: .app, streamID: "worker-1", traceID: "trace-1",

@@ -117,11 +117,11 @@ public struct PartQualification: Sendable, Equatable {
 /// refused a parent for are no part of it.
 public enum QualificationPolicy {
 
-    /// The version of the rule, kept with every evaluation: `qualification-c-1` since adapter steps and
+    /// The version of the rule, kept with every evaluation: `qualification-c-2` adds row evidence; adapter steps and
     /// required reads are steps (P2-04). The evaluations of the earlier versions stay, under a policy the store marks
     /// superseded, so the catalogue offers only what the current rule admitted, after an explicit re-evaluation.
-    public static let version = "qualification-c-1"
-    public static let earlierVersions = ["qualification-b-1"]
+    public static let version = "qualification-c-2"
+    public static let earlierVersions = ["qualification-c-1", "qualification-b-1"]
 
     /// The conditions whose pass verifies the operation that was requested, within the method's scope:
     /// the state already present (no gesture), the state after the gesture, the value read back, a
@@ -140,9 +140,11 @@ public enum QualificationPolicy {
         public let verdict: OperationCheck.Verdict
         public let performed: OperationCheck.Performed
         public let limits: [OperationCheck.Limit]
+        public let hasExpectation: Bool
 
         public init(eventID: String, condition: OperationCheck.Condition, verdict: OperationCheck.Verdict,
-                    performed: OperationCheck.Performed, limits: [OperationCheck.Limit]) {
+                    performed: OperationCheck.Performed, limits: [OperationCheck.Limit], hasExpectation: Bool = false) {
+            self.hasExpectation = hasExpectation
             self.eventID   = eventID
             self.condition = condition
             self.verdict   = verdict
@@ -159,6 +161,19 @@ public enum QualificationPolicy {
                 case .none: return condition == .requestedStateAlreadyPresent
                 case .substitute, .uncertain: return false
             }
+        }
+    }
+
+    /// RowCheckFact is a row's verification of the predicate revision under which the call ran.
+    public struct RowCheckFact: Sendable, Equatable {
+        public let itemID: String
+        public let verdict: VerificationVerdict
+        public let expectationRevision: Int
+
+        public init(itemID: String, verdict: VerificationVerdict, expectationRevision: Int) {
+            self.itemID = itemID
+            self.verdict = verdict
+            self.expectationRevision = expectationRevision
         }
     }
 
@@ -181,13 +196,23 @@ public enum QualificationPolicy {
         /// For an adapter's step, whether a field holds a value two or more earlier results of the attempt
         /// held, so the method cannot say which result it refers to (P2-02).
         public let hasUnresolvedReference: Bool
+        public let rowCheck: RowCheckFact?
+        /// ES5 supplies the instance-value limit; false preserves facts recorded before that limit exists.
+        public let hasInstanceValue: Bool
+        public let hasVerifiedExpectation: Bool
 
         public init(position: Int, callEventID: String, status: AgentCallStatus, hasRecordingGap: Bool,
                     verifications: [VerificationFact], findings: [InterpretationFinding.Kind] = [],
                     keepsWithheldLiteral: Bool = false, missingInputs: [String] = [],
                     inherited: (callEventID: String, verificationEventID: String)? = nil,
                     kind: ProcedureSegmentation.StepKind = .operation,
-                    hasUnresolvedReference: Bool = false) {
+                    hasUnresolvedReference: Bool = false,
+                    rowCheck: RowCheckFact? = nil,
+                    hasInstanceValue: Bool = false,
+                    hasVerifiedExpectation: Bool = false) {
+            self.rowCheck = rowCheck
+            self.hasInstanceValue = hasInstanceValue
+            self.hasVerifiedExpectation = hasVerifiedExpectation || verifications.contains { $0.isPositive && $0.hasExpectation }
             self.kind        = kind
             self.hasUnresolvedReference = hasUnresolvedReference
             self.position             = position
@@ -209,6 +234,8 @@ public enum QualificationPolicy {
                 && lhs.inherited?.verificationEventID == rhs.inherited?.verificationEventID
                 && lhs.kind == rhs.kind
                 && lhs.hasUnresolvedReference == rhs.hasUnresolvedReference
+                && lhs.rowCheck == rhs.rowCheck && lhs.hasInstanceValue == rhs.hasInstanceValue
+                && lhs.hasVerifiedExpectation == rhs.hasVerifiedExpectation
         }
 
         /// Whether the step's own checks leave its operation unproven without contradicting it: unknown or
@@ -298,6 +325,10 @@ public enum QualificationPolicy {
         let resultProves = isMethod && facts.result == .passed
         if isMethod, facts.result == .failed { add(.verificationFailed) }
         for step in facts.steps {
+            if step.hasInstanceValue, !step.hasVerifiedExpectation, step.rowCheck?.verdict != .passed,
+               step.inherited == nil {
+                add(.verificationNotPositive, step)
+            }
             // A field that names a value several earlier results held refers to none of them: nothing chooses (P2-02).
             if step.hasUnresolvedReference { add(.referenceUnresolved, step) }
             // A step only unproven by its own check and proven by an identical earlier run counts as verified: a UI
@@ -311,7 +342,7 @@ public enum QualificationPolicy {
                                                           verificationEventID: inherited.verificationEventID, isInherited: true))
                 continue
             }
-            if resultProves, step.isOnlyUnproven {
+            if resultProves || step.rowCheck?.verdict == .passed, step.isOnlyUnproven {
                 for finding in step.findings { add(finding == .useMismatch ? .useMismatch : .unverifiableUse, step) }
                 if step.keepsWithheldLiteral { add(.withheldLiteral, step) }
                 if !step.missingInputs.isEmpty { add(.missingInput, step) }

@@ -1,0 +1,1190 @@
+{
+  "entries": [
+    {
+      "id": "scroll",
+      "group": "interaction",
+      "description": "Scroll a list, page or document to reveal content above or below the visible area, including its beginning or end.",
+      "examples": [
+        "Scroll down",
+        "Scorri verso il basso",
+        "Reach the end of a document by scrolling",
+        "Show later entries in a long list",
+        "Vai alla fine del documento scorrendo",
+        "Scorri per vedere altri elementi dell’elenco"
+      ]
+    },
+    {
+      "id": "click",
+      "group": "interaction",
+      "description": "Click or activate a visible interface control, including a button, checkbox, radio button or selectable item.",
+      "examples": [
+        "Click a button",
+        "Premi un pulsante",
+        "Turn on a checkbox",
+        "Select an interface control with a mouse click",
+        "Seleziona una casella di controllo",
+        "Attiva un bottone dell’interfaccia"
+      ]
+    },
+    {
+      "id": "type_text",
+      "group": "interaction",
+      "description": "Insert text into the focused input field.",
+      "examples": [
+        "Type this text",
+        "Scrivi questo testo"
+      ]
+    },
+    {
+      "id": "press_key",
+      "group": "interaction",
+      "description": "Send keyboard input: individual keys or modifier shortcuts, including Escape, Return, Tab, copy and select all.",
+      "examples": [
+        "Press Return",
+        "Premi Invio",
+        "Dismiss a dialog with Escape",
+        "Use a Command keyboard combination",
+        "Premi un tasto della tastiera",
+        "Invia una combinazione di tasti con Comando"
+      ]
+    },
+    {
+      "id": "menu",
+      "group": "interaction",
+      "description": "Open an application's menu bar or choose a software command from an application menu, such as File, Edit or View.",
+      "examples": [
+        "Choose a menu item",
+        "Scegli una voce di menu",
+        "Run a command from the application menu bar",
+        "Apri un menu dell’applicazione e scegli il comando"
+      ]
+    },
+    {
+      "id": "observe",
+      "group": "interaction",
+      "description": "Read the current window scene and its visible controls.",
+      "examples": [
+        "Show the current scene",
+        "Mostra la scena attuale"
+      ]
+    },
+    {
+      "id": "open_session",
+      "group": "interaction",
+      "description": "Launch an application, editor or browser, or open a web page, and start an automation session with it.",
+      "examples": [
+        "Open an application",
+        "Apri un’applicazione",
+        "Launch an editor application",
+        "Begin interacting with a website",
+        "Lancia un programma di scrittura",
+        "Avvia il browser per lavorare su un sito"
+      ]
+    },
+    {
+      "id": "windows",
+      "group": "interaction",
+      "description": "List open application windows and their titles.",
+      "examples": [
+        "List windows",
+        "Elenca le finestre"
+      ]
+    },
+    {
+      "id": "drag",
+      "group": "interaction",
+      "description": "Drag and drop a visible item onto a destination: move icons, reorder cards, or pull a slider handle while holding the mouse button.",
+      "examples": [
+        "Drag an item",
+        "Trascina un elemento",
+        "Drag and drop a card onto another column",
+        "Move a slider by dragging its handle",
+        "Sposta un’icona trascinandola e rilasciala sulla destinazione",
+        "Trascina la maniglia del cursore"
+      ]
+    },
+    {
+      "id": "screenshot",
+      "group": "interaction",
+      "description": "Capture a still picture of the current window and its visible interface as an image or screenshot.",
+      "examples": [
+        "Take a screenshot",
+        "Cattura una schermata",
+        "Save a picture of the visible interface",
+        "Capture the window as an image",
+        "Scatta una foto dell’interfaccia",
+        "Salva un’istantanea della finestra"
+      ]
+    },
+    {
+      "id": "plan",
+      "group": "task",
+      "description": "Declare or revise the task plan and its ordered steps.",
+      "examples": [
+        "Plan the task steps",
+        "Pianifica i passi del compito"
+      ]
+    },
+    {
+      "id": "end",
+      "group": "task",
+      "description": "Finish the current automation task and report its outcome.",
+      "examples": [
+        "Finish the task",
+        "Termina il compito"
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "scroll-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Show the next page of this long list",
+      "expected": "scroll"
+    },
+    {
+      "id": "scroll-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Move further down the document",
+      "expected": "scroll"
+    },
+    {
+      "id": "scroll-en-3",
+      "language": "en",
+      "split": "tuning",
+      "query": "Bring the bottom of the page into view",
+      "expected": "scroll"
+    },
+    {
+      "id": "scroll-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Go back up through the conversation",
+      "expected": "scroll"
+    },
+    {
+      "id": "scroll-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Reveal rows below the visible area",
+      "expected": "scroll"
+    },
+    {
+      "id": "scroll-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Fammi vedere il fondo della pagina",
+      "expected": "scroll"
+    },
+    {
+      "id": "scroll-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Vai più avanti in questo elenco lungo",
+      "expected": "scroll"
+    },
+    {
+      "id": "scroll-it-3",
+      "language": "it",
+      "split": "verification",
+      "query": "Risali nella conversazione",
+      "expected": "scroll"
+    },
+    {
+      "id": "scroll-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Mostra le righe sotto la parte visibile",
+      "expected": "scroll"
+    },
+    {
+      "id": "scroll-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Sposta la vista verso il basso",
+      "expected": "scroll"
+    },
+    {
+      "id": "click-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Activate the highlighted button",
+      "expected": "click"
+    },
+    {
+      "id": "click-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Choose that checkbox on screen",
+      "expected": "click"
+    },
+    {
+      "id": "click-en-3",
+      "language": "en",
+      "split": "verification",
+      "query": "Hit the submit control",
+      "expected": "click"
+    },
+    {
+      "id": "click-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Tap the visible link",
+      "expected": "click"
+    },
+    {
+      "id": "click-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Select this radio button",
+      "expected": "click"
+    },
+    {
+      "id": "click-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Attiva il bottone evidenziato",
+      "expected": "click"
+    },
+    {
+      "id": "click-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Seleziona quella casella sullo schermo",
+      "expected": "click"
+    },
+    {
+      "id": "click-it-3",
+      "language": "it",
+      "split": "tuning",
+      "query": "Premi il controllo di invio",
+      "expected": "click"
+    },
+    {
+      "id": "click-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Tocca il collegamento visibile",
+      "expected": "click"
+    },
+    {
+      "id": "click-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Scegli questo pulsante di opzione",
+      "expected": "click"
+    },
+    {
+      "id": "type_text-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Enter these words in the focused field",
+      "expected": "type_text"
+    },
+    {
+      "id": "type_text-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Fill the selected textbox with my sentence",
+      "expected": "type_text"
+    },
+    {
+      "id": "type_text-en-3",
+      "language": "en",
+      "split": "tuning",
+      "query": "Write the message into the editor",
+      "expected": "type_text"
+    },
+    {
+      "id": "type_text-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Put this address into the input",
+      "expected": "type_text"
+    },
+    {
+      "id": "type_text-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Insert my paragraph at the cursor",
+      "expected": "type_text"
+    },
+    {
+      "id": "type_text-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Inserisci queste parole nel campo attivo",
+      "expected": "type_text"
+    },
+    {
+      "id": "type_text-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Compila la casella selezionata con la mia frase",
+      "expected": "type_text"
+    },
+    {
+      "id": "type_text-it-3",
+      "language": "it",
+      "split": "verification",
+      "query": "Scrivi il messaggio nell’editor",
+      "expected": "type_text"
+    },
+    {
+      "id": "type_text-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Metti questo indirizzo nel campo",
+      "expected": "type_text"
+    },
+    {
+      "id": "type_text-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Aggiungi il paragrafo dove si trova il cursore",
+      "expected": "type_text"
+    },
+    {
+      "id": "press_key-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Use the Escape key",
+      "expected": "press_key"
+    },
+    {
+      "id": "press_key-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Send the copy keyboard shortcut",
+      "expected": "press_key"
+    },
+    {
+      "id": "press_key-en-3",
+      "language": "en",
+      "split": "verification",
+      "query": "Hold Command and press A",
+      "expected": "press_key"
+    },
+    {
+      "id": "press_key-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Move focus with Tab",
+      "expected": "press_key"
+    },
+    {
+      "id": "press_key-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Confirm by hitting Enter",
+      "expected": "press_key"
+    },
+    {
+      "id": "press_key-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Usa il tasto Escape",
+      "expected": "press_key"
+    },
+    {
+      "id": "press_key-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Esegui la scorciatoia da tastiera per copiare",
+      "expected": "press_key"
+    },
+    {
+      "id": "press_key-it-3",
+      "language": "it",
+      "split": "tuning",
+      "query": "Tieni premuto Comando e premi A",
+      "expected": "press_key"
+    },
+    {
+      "id": "press_key-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Sposta il focus con Tab",
+      "expected": "press_key"
+    },
+    {
+      "id": "press_key-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Conferma con il tasto Invio",
+      "expected": "press_key"
+    },
+    {
+      "id": "menu-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Choose Save from the File menu",
+      "expected": "menu"
+    },
+    {
+      "id": "menu-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Open the Edit menu at the top",
+      "expected": "menu"
+    },
+    {
+      "id": "menu-en-3",
+      "language": "en",
+      "split": "tuning",
+      "query": "Pick the export command in the menu bar",
+      "expected": "menu"
+    },
+    {
+      "id": "menu-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Select Preferences from the application menu",
+      "expected": "menu"
+    },
+    {
+      "id": "menu-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Expand the View submenu",
+      "expected": "menu"
+    },
+    {
+      "id": "menu-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Scegli Salva dal menu File",
+      "expected": "menu"
+    },
+    {
+      "id": "menu-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Apri il menu Modifica in alto",
+      "expected": "menu"
+    },
+    {
+      "id": "menu-it-3",
+      "language": "it",
+      "split": "verification",
+      "query": "Seleziona Esporta nella barra dei menu",
+      "expected": "menu"
+    },
+    {
+      "id": "menu-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Scegli Preferenze dal menu dell’applicazione",
+      "expected": "menu"
+    },
+    {
+      "id": "menu-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Espandi il sottomenu Vista",
+      "expected": "menu"
+    },
+    {
+      "id": "observe-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Tell me which controls are visible",
+      "expected": "observe"
+    },
+    {
+      "id": "observe-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Read what is currently on screen",
+      "expected": "observe"
+    },
+    {
+      "id": "observe-en-3",
+      "language": "en",
+      "split": "verification",
+      "query": "Inspect the active window content",
+      "expected": "observe"
+    },
+    {
+      "id": "observe-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "What does this dialog say",
+      "expected": "observe"
+    },
+    {
+      "id": "observe-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Describe the current interface",
+      "expected": "observe"
+    },
+    {
+      "id": "observe-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Dimmi quali controlli sono visibili",
+      "expected": "observe"
+    },
+    {
+      "id": "observe-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Leggi quello che c’è sullo schermo",
+      "expected": "observe"
+    },
+    {
+      "id": "observe-it-3",
+      "language": "it",
+      "split": "tuning",
+      "query": "Esamina il contenuto della finestra attiva",
+      "expected": "observe"
+    },
+    {
+      "id": "observe-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Cosa dice questa finestra di dialogo",
+      "expected": "observe"
+    },
+    {
+      "id": "observe-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Descrivi l’interfaccia attuale",
+      "expected": "observe"
+    },
+    {
+      "id": "open_session-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Start a session in the browser",
+      "expected": "open_session"
+    },
+    {
+      "id": "open_session-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Launch the text editor for me",
+      "expected": "open_session"
+    },
+    {
+      "id": "open_session-en-3",
+      "language": "en",
+      "split": "tuning",
+      "query": "Open this website for interaction",
+      "expected": "open_session"
+    },
+    {
+      "id": "open_session-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Connect to the application I named",
+      "expected": "open_session"
+    },
+    {
+      "id": "open_session-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Begin controlling the requested app",
+      "expected": "open_session"
+    },
+    {
+      "id": "open_session-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Avvia una sessione nel browser",
+      "expected": "open_session"
+    },
+    {
+      "id": "open_session-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Lancia l’editor di testo",
+      "expected": "open_session"
+    },
+    {
+      "id": "open_session-it-3",
+      "language": "it",
+      "split": "verification",
+      "query": "Apri questo sito per interagire",
+      "expected": "open_session"
+    },
+    {
+      "id": "open_session-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Collegati all’applicazione che ho nominato",
+      "expected": "open_session"
+    },
+    {
+      "id": "open_session-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Inizia a controllare l’app richiesta",
+      "expected": "open_session"
+    },
+    {
+      "id": "windows-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Which windows are open",
+      "expected": "windows"
+    },
+    {
+      "id": "windows-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Show all window titles",
+      "expected": "windows"
+    },
+    {
+      "id": "windows-en-3",
+      "language": "en",
+      "split": "verification",
+      "query": "Find the available application windows",
+      "expected": "windows"
+    },
+    {
+      "id": "windows-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Give me the list of open windows",
+      "expected": "windows"
+    },
+    {
+      "id": "windows-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "What other windows can I choose",
+      "expected": "windows"
+    },
+    {
+      "id": "windows-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Quali finestre sono aperte",
+      "expected": "windows"
+    },
+    {
+      "id": "windows-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Mostra tutti i titoli delle finestre",
+      "expected": "windows"
+    },
+    {
+      "id": "windows-it-3",
+      "language": "it",
+      "split": "tuning",
+      "query": "Trova le finestre delle applicazioni disponibili",
+      "expected": "windows"
+    },
+    {
+      "id": "windows-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Dammi l’elenco delle finestre aperte",
+      "expected": "windows"
+    },
+    {
+      "id": "windows-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Quali altre finestre posso scegliere",
+      "expected": "windows"
+    },
+    {
+      "id": "drag-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Move this icon into that folder by dragging",
+      "expected": "drag"
+    },
+    {
+      "id": "drag-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Pull the slider handle to the right",
+      "expected": "drag"
+    },
+    {
+      "id": "drag-en-3",
+      "language": "en",
+      "split": "tuning",
+      "query": "Drop the selected card into the next column",
+      "expected": "drag"
+    },
+    {
+      "id": "drag-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Reorder these rows with the mouse",
+      "expected": "drag"
+    },
+    {
+      "id": "drag-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Grab this file and drop it on the target",
+      "expected": "drag"
+    },
+    {
+      "id": "drag-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Sposta questa icona nella cartella trascinandola",
+      "expected": "drag"
+    },
+    {
+      "id": "drag-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Trascina il cursore del regolatore verso destra",
+      "expected": "drag"
+    },
+    {
+      "id": "drag-it-3",
+      "language": "it",
+      "split": "verification",
+      "query": "Lascia la scheda selezionata nella colonna successiva",
+      "expected": "drag"
+    },
+    {
+      "id": "drag-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Riordina queste righe con il mouse",
+      "expected": "drag"
+    },
+    {
+      "id": "drag-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Afferra il file e rilascialo sulla destinazione",
+      "expected": "drag"
+    },
+    {
+      "id": "screenshot-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Capture a picture of this window",
+      "expected": "screenshot"
+    },
+    {
+      "id": "screenshot-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Save an image of what is displayed",
+      "expected": "screenshot"
+    },
+    {
+      "id": "screenshot-en-3",
+      "language": "en",
+      "split": "verification",
+      "query": "Take a snapshot of the interface",
+      "expected": "screenshot"
+    },
+    {
+      "id": "screenshot-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Give me a screen capture",
+      "expected": "screenshot"
+    },
+    {
+      "id": "screenshot-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Photograph the current display contents",
+      "expected": "screenshot"
+    },
+    {
+      "id": "screenshot-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Cattura un’immagine di questa finestra",
+      "expected": "screenshot"
+    },
+    {
+      "id": "screenshot-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Salva una foto di ciò che viene mostrato",
+      "expected": "screenshot"
+    },
+    {
+      "id": "screenshot-it-3",
+      "language": "it",
+      "split": "tuning",
+      "query": "Fai un’istantanea dell’interfaccia",
+      "expected": "screenshot"
+    },
+    {
+      "id": "screenshot-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Dammi una cattura dello schermo",
+      "expected": "screenshot"
+    },
+    {
+      "id": "screenshot-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Fotografa il contenuto attuale del display",
+      "expected": "screenshot"
+    },
+    {
+      "id": "plan-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Record the steps needed for this task",
+      "expected": "plan"
+    },
+    {
+      "id": "plan-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Update my task checklist",
+      "expected": "plan"
+    },
+    {
+      "id": "plan-en-3",
+      "language": "en",
+      "split": "tuning",
+      "query": "Mark out the work before starting",
+      "expected": "plan"
+    },
+    {
+      "id": "plan-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Revise the sequence of planned actions",
+      "expected": "plan"
+    },
+    {
+      "id": "plan-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Organize the remaining task steps",
+      "expected": "plan"
+    },
+    {
+      "id": "plan-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Registra i passi necessari per questo compito",
+      "expected": "plan"
+    },
+    {
+      "id": "plan-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Aggiorna la lista delle cose da fare",
+      "expected": "plan"
+    },
+    {
+      "id": "plan-it-3",
+      "language": "it",
+      "split": "verification",
+      "query": "Definisci il lavoro prima di cominciare",
+      "expected": "plan"
+    },
+    {
+      "id": "plan-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Rivedi la sequenza delle azioni previste",
+      "expected": "plan"
+    },
+    {
+      "id": "plan-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Organizza i passi rimanenti del compito",
+      "expected": "plan"
+    },
+    {
+      "id": "end-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "Declare this task complete",
+      "expected": "end"
+    },
+    {
+      "id": "end-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Report the final outcome of the work",
+      "expected": "end"
+    },
+    {
+      "id": "end-en-3",
+      "language": "en",
+      "split": "verification",
+      "query": "Close out the current task",
+      "expected": "end"
+    },
+    {
+      "id": "end-en-4",
+      "language": "en",
+      "split": "verification",
+      "query": "Mark the automation work finished",
+      "expected": "end"
+    },
+    {
+      "id": "end-en-5",
+      "language": "en",
+      "split": "verification",
+      "query": "Conclude this task with its result",
+      "expected": "end"
+    },
+    {
+      "id": "end-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Dichiara completato questo compito",
+      "expected": "end"
+    },
+    {
+      "id": "end-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Riporta l’esito finale del lavoro",
+      "expected": "end"
+    },
+    {
+      "id": "end-it-3",
+      "language": "it",
+      "split": "tuning",
+      "query": "Chiudi il compito corrente",
+      "expected": "end"
+    },
+    {
+      "id": "end-it-4",
+      "language": "it",
+      "split": "verification",
+      "query": "Segna il lavoro di automazione come finito",
+      "expected": "end"
+    },
+    {
+      "id": "end-it-5",
+      "language": "it",
+      "split": "verification",
+      "query": "Concludi questo compito con il risultato",
+      "expected": "end"
+    },
+    {
+      "id": "none-en-1",
+      "language": "en",
+      "split": "tuning",
+      "query": "What is the capital of Peru",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-2",
+      "language": "en",
+      "split": "tuning",
+      "query": "Explain photosynthesis",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-3",
+      "language": "en",
+      "split": "tuning",
+      "query": "Write a poem about autumn",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-4",
+      "language": "en",
+      "split": "tuning",
+      "query": "How many moons does Mars have",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-5",
+      "language": "en",
+      "split": "tuning",
+      "query": "Translate good morning into Japanese",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-6",
+      "language": "en",
+      "split": "tuning",
+      "query": "Tell me a joke about penguins",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-7",
+      "language": "en",
+      "split": "tuning",
+      "query": "Solve this quadratic equation",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-8",
+      "language": "en",
+      "split": "tuning",
+      "query": "Suggest a recipe for lentil soup",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-9",
+      "language": "en",
+      "split": "verification",
+      "query": "Who painted the Mona Lisa",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-10",
+      "language": "en",
+      "split": "verification",
+      "query": "Explain quantum entanglement",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-11",
+      "language": "en",
+      "split": "verification",
+      "query": "What is the boiling point of water",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-12",
+      "language": "en",
+      "split": "verification",
+      "query": "Compose a melody in D minor",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-13",
+      "language": "en",
+      "split": "verification",
+      "query": "Summarize the history of ancient Rome",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-14",
+      "language": "en",
+      "split": "verification",
+      "query": "Calculate the area of a circle",
+      "expected": "none"
+    },
+    {
+      "id": "none-en-15",
+      "language": "en",
+      "split": "verification",
+      "query": "Predict the weather next month",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-1",
+      "language": "it",
+      "split": "tuning",
+      "query": "Qual è la capitale del Perù",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-2",
+      "language": "it",
+      "split": "tuning",
+      "query": "Spiega la fotosintesi",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-3",
+      "language": "it",
+      "split": "tuning",
+      "query": "Scrivi una poesia sull’autunno",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-4",
+      "language": "it",
+      "split": "tuning",
+      "query": "Quante lune ha Marte",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-5",
+      "language": "it",
+      "split": "tuning",
+      "query": "Traduci buongiorno in giapponese",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-6",
+      "language": "it",
+      "split": "tuning",
+      "query": "Raccontami una barzelletta sui pinguini",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-7",
+      "language": "it",
+      "split": "tuning",
+      "query": "Risolvi questa equazione di secondo grado",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-8",
+      "language": "it",
+      "split": "verification",
+      "query": "Suggerisci una ricetta per la zuppa di lenticchie",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-9",
+      "language": "it",
+      "split": "verification",
+      "query": "Chi ha dipinto la Gioconda",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-10",
+      "language": "it",
+      "split": "verification",
+      "query": "Spiega l’intreccio quantistico",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-11",
+      "language": "it",
+      "split": "verification",
+      "query": "Qual è il punto di ebollizione dell’acqua",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-12",
+      "language": "it",
+      "split": "verification",
+      "query": "Componi una melodia in re minore",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-13",
+      "language": "it",
+      "split": "verification",
+      "query": "Riassumi la storia dell’antica Roma",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-14",
+      "language": "it",
+      "split": "verification",
+      "query": "Calcola l’area di un cerchio",
+      "expected": "none"
+    },
+    {
+      "id": "none-it-15",
+      "language": "it",
+      "split": "verification",
+      "query": "Prevedi il tempo del prossimo mese",
+      "expected": "none"
+    }
+  ]
+}

@@ -68,115 +68,159 @@ public struct SQLiteBrainApplicationRepository: BrainApplicationStoring {
     }
 
     public func apply(_ command: BrainApplicationCommand) async throws -> BrainApplicationResult {
+        try await store.write { transaction in try apply(command, in: transaction) }
+    }
+
+    /// Applies derived work in the caller's transaction, without opening another write.
+    /// For record commands, the legacy noEffect outcome means no transition was written, even when an
+    /// effect exists and its anchor was updated. Stored outcome codes remain unchanged.
+    package func apply(_ command: BrainApplicationCommand, in transaction: SQLiteTransaction) throws -> BrainApplicationResult {
+        if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+            let outcome: BrainApplicationOutcome = switch command.input {
+            case .observe: .observed(created: 0, updated: 0, skippedAmbiguous: 0)
+            case .record: .noEffect
+            case .setName: .notNamed
+            }
+            return BrainApplicationResult(receipt: .alreadyApplied, applicationID: 0, outcome: outcome,
+                                          requestedAtMS: command.requestedAtMS, effectiveAtMS: command.requestedAtMS)
+        }
         let keys             = self.keys
         let makeTransitionID = self.makeTransitionID
         let makeSceneID      = self.makeSceneID
         let algorithmVersion = command.coverage == nil ? self.algorithmVersion
             : command.contractVersion == 2 ? "brain-updater-2" : coverageAlgorithmVersion
-        return try await store.write { transaction in
-            let appID = try SQLiteBrainApplicationRows.resolveApp(transaction, command: command)
-            if let stored = try SQLiteBrainApplicationRows.header(transaction, key: command.key) {
-                return try SQLiteBrainApplicationRows.retry(
-                    transaction, stored: stored, offered: command, algorithmVersion: algorithmVersion
-                )
+        let appID = try SQLiteBrainApplicationRows.resolveApp(transaction, command: command)
+        if let stored = try SQLiteBrainApplicationRows.header(transaction, key: command.key) {
+            return try SQLiteBrainApplicationRows.retry(
+                transaction, stored: stored, offered: command, algorithmVersion: algorithmVersion
+            )
+        }
+        var sampleObservationID: Int64?
+        if let sample = command.key.sample {
+            guard let id = try SQLiteBrainApplicationRows.captureRow(transaction, sample: sample) else {
+                throw BrainApplicationError.missingSample(sample)
             }
-            var sampleObservationID: Int64?
-            if let sample = command.key.sample {
-                guard let id = try SQLiteBrainApplicationRows.captureRow(transaction, sample: sample) else {
-                    throw BrainApplicationError.missingSample(sample)
+            sampleObservationID = id
+        }
+        let loaded      = try SQLiteBrainRows.load(transaction, appID: appID)
+        let effectiveMS = try SQLiteBrainApplicationRows.effectiveInstant(
+            transaction, appID: appID, requestedMS: command.requestedAtMS, projection: loaded.brain
+        )
+        let effective   = try SQLiteBrainRows.date(effectiveMS)
+        func mutate<T>(_ body: (inout UIBrain, Date) throws -> (T, DecayReport)) throws -> SQLiteBrainRows.Mutation<T> {
+            try SQLiteBrainRows.mutate(
+                transaction, appID: appID, loaded: loaded, now: effective, nowMS: effectiveMS,
+                makeTransitionID: makeTransitionID, makeSceneID: makeSceneID
+            ) { brain, now in
+                let groups = brain.groups
+                let transitions = brain.transitions
+                let groupIDs = Dictionary(uniqueKeysWithValues: brain.objects.map { ($0.anchorKey, $0.groupID) })
+                brain.groups += try matchingGroups(brain, in: transaction)
+                let result = try body(&brain, now)
+                brain.groups = groups
+                brain.transitions = transitions
+                for index in brain.objects.indices {
+                    brain.objects[index].groupID = groupIDs[brain.objects[index].anchorKey] ?? nil
                 }
-                sampleObservationID = id
+                return result
             }
-            let loaded      = try SQLiteBrainRows.load(transaction, appID: appID)
-            let effectiveMS = try SQLiteBrainApplicationRows.effectiveInstant(
-                transaction, appID: appID, requestedMS: command.requestedAtMS, projection: loaded.brain
-            )
-            let effective   = try SQLiteBrainRows.date(effectiveMS)
-            func mutate<T>(_ body: (inout UIBrain, Date) throws -> (T, DecayReport)) throws -> SQLiteBrainRows.Mutation<T> {
-                try SQLiteBrainRows.mutate(
-                    transaction, appID: appID, loaded: loaded, now: effective, nowMS: effectiveMS,
-                    makeTransitionID: makeTransitionID, makeSceneID: makeSceneID, body
+        }
+        let outcome: BrainApplicationOutcome
+        var supported = SQLiteBrainApplicationRows.Supported()
+        switch command.input {
+            case .observe(let window, let detections):
+                let mutation = try mutate { brain, now in
+                    var failure: (any Error)?
+                    let stats = BrainUpdater.ingest(
+                        detections, into: &brain, now: now, window: window, coverage: command.coverage, keys: keys
+                    ) { anchorKey in
+                        do {
+                            return try SQLiteBrainApplicationRows.provenance(transaction, anchorKey: anchorKey)
+                        } catch {
+                            failure = failure ?? error
+                            return []
+                        }
+                    }
+                    // A provenance that could not be read rolls the whole application back.
+                    if let failure { throw failure }
+                    return (stats, stats.decay ?? DecayReport())
+                }
+                outcome = .observed(created: mutation.result.created, updated: mutation.result.updated,
+                                    skippedAmbiguous: mutation.result.skippedAmbiguous)
+                supported = .observed(by: mutation)
+            case .record(_, let target, let effect):
+                guard let effect else { outcome = .noEffect; break }
+                let mutation = try mutate { brain, now -> (Bool, DecayReport) in
+                    var key: String?
+                    var retired = DecayReport()
+                    if case .found(let found) = BrainMatcher.match(target, in: brain) { key = found }
+                    if key == nil, effect.kind == "menuOpened" {
+                        retired = BrainUpdater.ingest([target], into: &brain, now: now, keys: keys).decay ?? DecayReport()
+                        if case .found(let found) = BrainMatcher.match(target, in: brain) { key = found }
+                    }
+                    return (key != nil, retired)
+                }
+                outcome = mutation.result ? .noEffect : .noAnchor
+                supported.anchors = mutation.after.objects.filter { anchor in
+                    mutation.before.brain.objects.first(where: { $0.anchorKey == anchor.anchorKey })?.seenCount != anchor.seenCount
+                }.map(\.anchorKey)
+            case .setName(let anchorKey, let name):
+                let mutation = try mutate { brain, now in
+                    (BrainUpdater.setName(name, anchorKey: anchorKey, into: &brain, now: now), DecayReport())
+                }
+                outcome = mutation.result ? .named(anchorKey: anchorKey) : .notNamed
+        }
+        try SQLiteBrainApplicationRows.writeEvidence(
+            transaction, appID: appID, eventID: command.key.eventID, supported: supported,
+            assessedBy: "brain.\(command.key.operation.rawValue)", version: algorithmVersion, atMS: effectiveMS
+        )
+        let applicationID = try SQLiteBrainApplicationRows.insert(
+            transaction, appID: appID, command: command, sampleObservationID: sampleObservationID,
+            algorithmVersion: algorithmVersion, effectiveMS: effectiveMS, outcome: outcome
+        )
+        return BrainApplicationResult(
+            receipt: .committed, applicationID: applicationID, outcome: outcome,
+            requestedAtMS: command.requestedAtMS, effectiveAtMS: effectiveMS
+        )
+    }
+
+    private struct MatchingScope: Hashable {
+        let window: String?
+        let representation: BrainObservationCoverage.Representation
+    }
+
+    /// Reconstructs ordinal matching candidates from anchors without changing historical group rows.
+    /// Window and representation stay separate, so positional evidence cannot cross either boundary.
+    private func matchingGroups(_ brain: UIBrain, in transaction: SQLiteTransaction) throws -> [SiblingGroup] {
+        var scopes: [MatchingScope: [ObjectAnchor]] = [:]
+        var order: [MatchingScope] = []
+        for anchor in brain.objects where anchor.groupID == nil {
+            let known = try SQLiteBrainApplicationRows.provenance(transaction, anchorKey: anchor.anchorKey)
+            let representations = known.isEmpty ? [.unknown] : known.sorted { $0.rawValue < $1.rawValue }
+            for representation in representations {
+                let scope = MatchingScope(window: anchor.window, representation: representation)
+                if scopes[scope] == nil { order.append(scope) }
+                scopes[scope, default: []].append(anchor)
+            }
+        }
+        return order.flatMap { scope in
+            let anchors = scopes[scope, default: []]
+            let detections = anchors.map { BrainDetection(kind: $0.kind, label: $0.label, bounds: $0.boundsTypical) }
+            return SiblingGroupDetector.detectGroups(interactive: detections, texts: []).map { candidate in
+                SiblingGroup(
+                    axis: candidate.axis,
+                    memberAnchors: candidate.memberIndices.map { anchors[$0].anchorKey },
+                    sharedKind: candidate.sharedKind,
+                    cellSize: candidate.cellSize,
+                    lastSeen: anchors.map(\.lastSeen).max() ?? .distantPast
                 )
             }
-            let outcome: BrainApplicationOutcome
-            var supported = SQLiteBrainApplicationRows.Supported()
-            switch command.input {
-                case .observe(let window, let detections):
-                    let mutation = try mutate { brain, now in
-                        var failure: (any Error)?
-                        let stats = BrainUpdater.ingest(
-                            detections, into: &brain, now: now, window: window, coverage: command.coverage, keys: keys
-                        ) { anchorKey in
-                            do {
-                                return try SQLiteBrainApplicationRows.provenance(transaction, anchorKey: anchorKey)
-                            } catch {
-                                failure = failure ?? error
-                                return []
-                            }
-                        }
-                        // A provenance that could not be read rolls the whole application back.
-                        if let failure { throw failure }
-                        return (stats, stats.decay ?? DecayReport())
-                    }
-                    outcome = .observed(created: mutation.result.created, updated: mutation.result.updated,
-                                        skippedAmbiguous: mutation.result.skippedAmbiguous)
-                    supported = .observed(by: mutation)
-                case .record(let verb, let target, let effect):
-                    guard let effect else {
-                        outcome = .noEffect
-                        break
-                    }
-                    let trigger = TransitionTrigger(verb)
-                    let mutation = try mutate { brain, now -> (BrainRecordOutcome, DecayReport) in
-                        // BrainMemory.record, unchanged: a unique anchor, or a menu reveal anchored first.
-                        var key: String?
-                        var retired = DecayReport()
-                        if case .found(let found) = BrainMatcher.match(target, in: brain) { key = found }
-                        if key == nil, effect.kind == "menuOpened" {
-                            retired = BrainUpdater.ingest([target], into: &brain, now: now, keys: keys).decay ?? DecayReport()
-                            if case .found(let found) = BrainMatcher.match(target, in: brain) { key = found }
-                        }
-                        guard let key else { return (.noAnchor, retired) }
-                        let evidence = BrainUpdater.recordTransition(
-                            anchorKey: key, trigger: trigger, effect: effect.effect, into: &brain, now: now
-                        )
-                        return (.recorded(anchorKey: key, evidence: evidence), retired)
-                    }
-                    switch mutation.result {
-                        case .recorded(let anchorKey, let evidence):
-                            let transitionKey = LearnedTransition.Key(anchorKey: anchorKey, trigger: trigger, effect: effect.effect)
-                            guard let transitionID = mutation.transitionIDs[transitionKey] else {
-                                throw BrainProjectionError.malformedRow(
-                                    table: "brain_transitions", id: anchorKey, malformation: .missingColumn("transition_id"))
-                            }
-                            outcome = .recorded(anchorKey: anchorKey, transitionID: transitionID, evidence: evidence)
-                        case .noAnchor, .noEffect:
-                            outcome = .noAnchor
-                    }
-                    supported = .recorded(by: mutation)
-                case .setName(let anchorKey, let name):
-                    let mutation = try mutate { brain, now in
-                        (BrainUpdater.setName(name, anchorKey: anchorKey, into: &brain, now: now), DecayReport())
-                    }
-                    outcome = mutation.result ? .named(anchorKey: anchorKey) : .notNamed
-            }
-            try SQLiteBrainApplicationRows.writeEvidence(
-                transaction, appID: appID, eventID: command.key.eventID, supported: supported,
-                assessedBy: "brain.\(command.key.operation.rawValue)", version: algorithmVersion, atMS: effectiveMS
-            )
-            let applicationID = try SQLiteBrainApplicationRows.insert(
-                transaction, appID: appID, command: command, sampleObservationID: sampleObservationID,
-                algorithmVersion: algorithmVersion, effectiveMS: effectiveMS, outcome: outcome
-            )
-            return BrainApplicationResult(
-                receipt: .committed, applicationID: applicationID, outcome: outcome,
-                requestedAtMS: command.requestedAtMS, effectiveAtMS: effectiveMS
-            )
         }
     }
 
     public func application(_ key: BrainApplicationKey) async throws -> BrainApplication? {
-        try await store.read { snapshot in
+        try await store.read { handle in
+            let snapshot = try DB2CReadRows(handle)
             guard let stored = try SQLiteBrainApplicationRows.header(snapshot, key: key) else { return nil }
             return try SQLiteBrainApplicationRows.application(snapshot, stored: stored)
         }

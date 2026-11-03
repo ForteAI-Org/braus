@@ -19,10 +19,11 @@ public enum ProviderError: LocalizedError {
 /// provider's own error message on a non-2xx status.
 enum HTTPTransport {
     static func postJSON(_ url: URL, headers: [String: String], body: [String: Any],
-                         timeout: TimeInterval) async throws -> (json: [String: Any], elapsed: Duration) {
+                         timeout: TimeInterval, delegate: (any URLSessionTaskDelegate)? = nil)
+        async throws -> (json: [String: Any], elapsed: Duration) {
         let started = ContinuousClock.now
         let (data, response) = try await URLSession.shared.data(for: request(url, headers: headers, body: body,
-                                                                            timeout: timeout))
+                                                                            timeout: timeout), delegate: delegate)
         let elapsed = started.duration(to: .now)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else { throw failure(status: status, body: data) }
@@ -59,21 +60,23 @@ enum HTTPTransport {
     /// terminated. A non-2xx status fails before any delta, carrying the
     /// provider's own message.
     static func stream(_ request: URLRequest,
-                       assembler: TurnAssembler) -> AsyncThrowingStream<TurnEvent, any Error> {
-        stream({ request }, assembler: assembler)
+                       assembler: TurnAssembler,
+                       delegate: (any URLSessionTaskDelegate)? = nil) -> AsyncThrowingStream<TurnEvent, any Error> {
+        stream({ request }, assembler: assembler, delegate: delegate)
     }
 
     /// The same turn over a request built when the stream starts, for a
     /// provider that must be asked something first. A failure building it
     /// ends the stream before any delta.
     static func stream(_ request: @escaping @Sendable () async throws -> URLRequest,
-                       assembler: TurnAssembler) -> AsyncThrowingStream<TurnEvent, any Error> {
+                       assembler: TurnAssembler,
+                       delegate: (any URLSessionTaskDelegate)? = nil) -> AsyncThrowingStream<TurnEvent, any Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 var assembler = assembler
                 do {
                     let started = ContinuousClock.now
-                    let (bytes, response) = try await URLSession.shared.bytes(for: try await request())
+                    let (bytes, response) = try await URLSession.shared.bytes(for: try await request(), delegate: delegate)
                     let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                     guard (200..<300).contains(status) else {
                         throw failure(status: status, body: await head(of: bytes))

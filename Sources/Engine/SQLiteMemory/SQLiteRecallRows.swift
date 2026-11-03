@@ -18,10 +18,13 @@ enum SQLiteRecallRows {
     // MARK: Generations
 
     static func generations(_ handle: some SQLiteQuerying, where condition: String) throws -> [SQLiteRecallRepository.Generation] {
-        try handle.query(
+        let integerKeys = try DB2CRecallIndexRows.usesIntegerKeys(handle)
+        let space = integerKeys ? "(SELECT space_id FROM memory_recall_spaces s WHERE s.space_int_id = g.space_int_id)" : "space_id"
+        let cursor = integerKeys ? "(SELECT route_uuid FROM memory_routes r WHERE r.route_id = g.cursor_route_id)" : "cursor_route_id"
+        return try handle.query(
             """
-            SELECT generation_id, document_format, space_id, status, cursor_route_id, enumerated, revision, started_at_ms, ready_at_ms, reason
-            FROM memory_recall_generations WHERE \(condition) ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END, generation_id
+            SELECT generation_id, document_format, \(space), status, \(cursor), enumerated, revision, started_at_ms, ready_at_ms, reason
+            FROM memory_recall_generations g WHERE \(condition) ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END, generation_id
             """,
             []
         ) { row in
@@ -40,6 +43,14 @@ enum SQLiteRecallRows {
     /// How many documents of a generation lack a vector in its space; zero for a lexical generation.
     static func vectorBacklog(_ handle: some SQLiteQuerying, _ generation: SQLiteRecallRepository.Generation) throws -> Int {
         guard let space = generation.spaceID else { return 0 }
+        if try DB2CRecallIndexRows.usesIntegerKeys(handle) {
+            return Int(try handle.query("""
+                SELECT count(DISTINCT d.text_id) FROM memory_recall_entries e
+                JOIN memory_recall_documents d ON d.document_id = e.document_id WHERE e.generation_id = ?
+                AND NOT EXISTS (SELECT 1 FROM memory_recall_vectors v
+                    WHERE v.space_int_id = (SELECT space_int_id FROM memory_recall_spaces WHERE space_id = ?) AND v.text_id = d.text_id)
+                """, [.integer(generation.generationID), .text(space)]) { $0.integer(0) ?? 0 }.first ?? 0)
+        }
         return Int(try handle.query(
             """
             SELECT count(DISTINCT e.document_digest) FROM memory_recall_entries e WHERE e.generation_id = ?
@@ -63,6 +74,12 @@ enum SQLiteRecallRows {
 
     /// The parts among `partIDs` the catalogue offers now, by its own predicate.
     static func offered(_ handle: some SQLiteQuerying, _ partIDs: [String]) throws -> Set<String> {
+        if try SQLiteRowIdentity(handle).usesIntegerKeys {
+            let wanted = Set(partIDs)
+            return Set(try handle.query("SELECT p.part_uuid FROM memory_procedure_parts p WHERE p.part_id IN (\(DB2CRecallIndexRows.offered))", []) {
+                try $0.text(0) ?? ""
+            }.filter { wanted.contains($0) })
+        }
         var offered: Set<String> = []
         for chunk in stride(from: 0, to: partIDs.count, by: 400).map({ Array(partIDs[$0..<min($0 + 400, partIDs.count)]) }) {
             let marks = Array(repeating: "?", count: chunk.count).joined(separator: ",")
@@ -75,7 +92,11 @@ enum SQLiteRecallRows {
 
     /// The parts of a version the catalogue offers now.
     static func offered(_ handle: some SQLiteQuerying, routeID: String) throws -> Set<String> {
-        Set(try handle.query(SQLiteProcedureRows.offered + " AND p.route_id = ?", [.text(routeID)]) { try $0.text(0) ?? "" })
+        if try SQLiteRowIdentity(handle).usesIntegerKeys {
+            return Set(try handle.query("SELECT p.part_uuid FROM memory_procedure_parts p WHERE p.part_id IN (\(DB2CRecallIndexRows.offered)) AND p.route_id = ?",
+                [try DB2CIdentity.key(handle, "memory_routes", routeID)]) { try $0.text(0) ?? "" })
+        }
+        return Set(try handle.query(SQLiteProcedureRows.offered + " AND p.route_id = ?", [.text(routeID)]) { try $0.text(0) ?? "" })
     }
 
     // MARK: Entries
@@ -83,6 +104,9 @@ enum SQLiteRecallRows {
     /// Brings one version's entries in each generation in line with the catalogue now (see `sync(routeID:)`).
     static func sync(_ transaction: SQLiteTransaction, routeID: String, generations: [SQLiteRecallRepository.Generation],
                      at nowMS: Int64) throws -> SQLiteRecallRepository.SyncReport {
+        if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+            return try DB2CRecallIndexRows.sync(transaction, routeID: routeID, generations: generations, at: nowMS)
+        }
         var report = SQLiteRecallRepository.SyncReport()
         let offered = try offered(transaction, routeID: routeID)
         let stored = offered.isEmpty ? nil : try SQLiteProcedureRows.stored(transaction, routeID: routeID)
@@ -166,24 +190,24 @@ enum SQLiteRecallRows {
         // The state each step's call left the window in: the structural scene its sample after acting was placed in.
         let exits = Dictionary(try handle.query(
             """
-            SELECT o.step_id, s.scene_id FROM memory_procedure_step_occurrences o
+            SELECT \(try DB2CIdentity.publicReference(handle, "memory_route_steps", "o.step_id")), \(try DB2CIdentity.publicReference(handle, "brain_scenes", "s.scene_id")) FROM memory_procedure_step_occurrences o
             JOIN memory_step_events m ON m.step_occurrence_id = o.step_occurrence_id AND m.role = 'action'
             JOIN memory_event_scenes s ON s.event_id = m.event_id AND s.phase = 'after' AND s.sample_ordinal = 0
                 AND s.match_status = 'confirmed'
             WHERE o.route_id = ?
             """,
-            [.text(routeID)]
+            [try DB2CIdentity.key(handle, "memory_routes", routeID)]
         ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }, uniquingKeysWith: { first, _ in first })
         // The functional identity of the element each step's call acted on, as the Brain's relations key it.
         let keys = Dictionary(try handle.query(
             """
-            SELECT o.step_id, r.element_key FROM memory_procedure_step_occurrences o
+            SELECT \(try DB2CIdentity.publicReference(handle, "memory_route_steps", "o.step_id")), \(try SQLiteRowIdentity(handle).usesIntegerKeys ? "(SELECT key_text FROM brain_element_keys k WHERE k.element_key_id=r.element_key_id)" : "r.element_key") FROM memory_procedure_step_occurrences o
             JOIN memory_step_events m ON m.step_occurrence_id = o.step_occurrence_id AND m.role = 'action'
             JOIN brain_relation_evidence v ON v.call_event_id = m.event_id AND v.relation = 'supports'
-            JOIN brain_relations r ON r.relation_id = v.relation_id AND r.element_key IS NOT NULL
+            JOIN brain_relations r ON r.relation_id = v.relation_id AND \(try SQLiteRowIdentity(handle).usesIntegerKeys ? "r.element_key_id" : "r.element_key") IS NOT NULL
             WHERE o.route_id = ? ORDER BY v.sequence DESC
             """,
-            [.text(routeID)]
+            [try DB2CIdentity.key(handle, "memory_routes", routeID)]
         ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }, uniquingKeysWith: { first, _ in first })
         // A step is offered on its own admission or as a step of an offered procedure or subprocedure: since qualification B
         // a method admitted on its verified result is reused whole, its steps whose own check stayed unknown included
@@ -196,11 +220,11 @@ enum SQLiteRecallRows {
         // P2-02, P2-05: the call each step's occurrence is, so a field's reference is read as a step of this version.
         let stepCalls = Dictionary(try handle.query(
             """
-            SELECT o.step_id, m.event_id FROM memory_procedure_step_occurrences o
+            SELECT \(try DB2CIdentity.publicReference(handle, "memory_route_steps", "o.step_id")), \(try DB2CIdentity.publicReference(handle, "memory_events", "m.event_id")) FROM memory_procedure_step_occurrences o
             JOIN memory_step_events m ON m.step_occurrence_id = o.step_occurrence_id AND m.role = 'action'
             WHERE o.route_id = ?
             """,
-            [.text(routeID)]
+            [try DB2CIdentity.key(handle, "memory_routes", routeID)]
         ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }, uniquingKeysWith: { first, _ in first })
         let positionOfCall = Dictionary(version.definition.steps.compactMap { step in stepCalls[step.stepID].map { ($0, step.position) } },
                                         uniquingKeysWith: { first, _ in first })
@@ -253,11 +277,11 @@ enum SQLiteRecallRows {
         // The task of each attempt that bound a parameter: what a reference to an output of that task names.
         let tasks = Dictionary(try handle.query(
             """
-            SELECT DISTINCT b.task_occurrence_id, a.task_id FROM memory_parameter_bindings b
+            SELECT DISTINCT \(try DB2CIdentity.publicReference(handle, "memory_task_occurrences", "b.task_occurrence_id")), \(try DB2CIdentity.publicReference(handle, "memory_tasks", "a.task_id")) FROM memory_parameter_bindings b
             JOIN memory_task_attempts a ON a.task_occurrence_id = b.task_occurrence_id
             WHERE b.route_id = ?
             """,
-            [.text(routeID)]
+            [try DB2CIdentity.key(handle, "memory_routes", routeID)]
         ) { (try $0.text(0) ?? "", try $0.text(1) ?? "") }, uniquingKeysWith: { first, _ in first })
         let parameters = version.definition.parameters.map { parameter -> RecallSource.Parameter in
             let detail = details[parameter.parameterID]
@@ -288,7 +312,7 @@ enum SQLiteRecallRows {
                                     AND c.need_position = s.need_position AND c.selection_position = s.position
                                     AND c.step_position = p.first_position AND c.confirmed = 1))
             """,
-            [.text(routeID)]
+            [try DB2CIdentity.key(handle, "memory_routes", routeID)]
         ) { Int($0.integer(0) ?? 0) }.first ?? 0
         var source = RecallSource(routeID: routeID, procedureLabel: version.definition.name, steps: steps, parts: parts, parameters: parameters,
                                   confirmedUses: uses)
@@ -318,7 +342,11 @@ enum SQLiteRecallRows {
 
     // MARK: Facts
 
-    static func record(_ transaction: SQLiteTransaction, _ query: SQLiteRecallRepository.RecordedQuery, at nowMS: Int64) throws {
+    static func record(_ transaction: SQLiteTransaction, _ query: SQLiteRecallRepository.RecordedQuery, at nowMS: Int64, assignedIdentity: Bool = false) throws {
+        if try SQLiteRowIdentity(transaction).usesIntegerKeys {
+            _ = try record22(transaction, query, at: nowMS, assignedIdentity: assignedIdentity)
+            return
+        }
         let request = query.request
         let remainingWork = RecallQueryMasking.masked(request.remainingWork, values: request.values)
         try transaction.execute(
@@ -399,14 +427,14 @@ enum SQLiteRecallRows {
         }
         let selections = try handle.query(
             """
-            SELECT need_position, position, role, route_id, first_position, last_position, whole_part_id, preparations
+            SELECT need_position, position, role, \(try DB2CIdentity.publicReference(handle, "memory_routes", "memory_recall_selections.route_id")), first_position, last_position, \(try DB2CIdentity.publicReference(handle, "memory_procedure_parts", "memory_recall_selections.whole_part_id")), preparations
             FROM memory_recall_selections WHERE query_id = ?
             """, id
         ) { selectionLine(Int($0.integer(0) ?? 0), Int($0.integer(1) ?? 0), try $0.text(2) ?? "", try $0.text(3) ?? "",
                           Int($0.integer(4) ?? 0), Int($0.integer(5) ?? 0), try $0.text(6), Int($0.integer(7) ?? 0)) }
         let requirements = try handle.query(
             """
-            SELECT need_position, selection_position, position, kind, step_position, parameter_id, scene_id, bundle_id, task_value_name,
+            SELECT need_position, selection_position, position, kind, step_position, \(try DB2CIdentity.publicReference(handle, "memory_route_parameters", "memory_recall_requirements.parameter_id")), \(try DB2CIdentity.publicReference(handle, "brain_scenes", "memory_recall_requirements.scene_id")), bundle_id, task_value_name,
                    binding_match, constraint_position
             FROM memory_recall_requirements WHERE query_id = ?
             """, id
@@ -434,20 +462,20 @@ enum SQLiteRecallRows {
     static func selections(_ handle: some SQLiteQuerying, attemptID: String) throws -> [SQLiteRecallRepository.StoredSelection] {
         let rows = try handle.query(
             """
-            SELECT s.query_id, s.need_position, q.recorded_at_ms, s.route_id, s.first_position, s.last_position, q.task_revision,
+            SELECT s.query_id, s.need_position, q.recorded_at_ms, \(try DB2CIdentity.publicReference(handle, "memory_routes", "s.route_id")), s.first_position, s.last_position, q.task_revision,
                    s.position, (SELECT count(*) FROM memory_recall_choices c WHERE c.query_id = s.query_id)
             FROM memory_recall_selections s JOIN memory_recall_queries q ON q.query_id = s.query_id
             WHERE q.task_occurrence_id = ? AND s.role = 'selected' AND q.delivery = 'delivered'
             ORDER BY q.recorded_at_ms, q.rowid, s.need_position, s.position
             """,
-            [.text(attemptID)]
+            [try DB2CIdentity.key(handle, "memory_task_occurrences", attemptID)]
         ) { (query: try $0.text(0) ?? "", need: Int($0.integer(1) ?? 0), at: $0.integer(2) ?? 0, route: try $0.text(3) ?? "",
              first: Int($0.integer(4) ?? 0), last: Int($0.integer(5) ?? 0), revision: Int($0.integer(6) ?? 1),
              position: Int($0.integer(7) ?? 0), choice: ($0.integer(8) ?? 0) > 0) }
         return try rows.map { row in
             let bindings = try handle.query(
                 """
-                SELECT parameter_id, task_value_name FROM memory_recall_requirements
+                SELECT \(try DB2CIdentity.publicReference(handle, "memory_route_parameters", "memory_recall_requirements.parameter_id")), task_value_name FROM memory_recall_requirements
                 WHERE query_id = ? AND need_position = ? AND selection_position = ? AND kind = 'parameter_bound'
                 """,
                 [.text(row.query), .integer(Int64(row.need)), .integer(Int64(row.position))]
@@ -465,11 +493,11 @@ enum SQLiteRecallRows {
     static func calls(_ handle: some SQLiteQuerying, attemptID: String, after afterMS: Int64) throws -> [RecallUseLinking.Call] {
         let ids = try handle.query(
             """
-            SELECT t.event_id FROM memory_task_events t JOIN memory_agent_actions a ON a.event_id = t.event_id
+            SELECT \(try DB2CIdentity.publicReference(handle, "memory_events", "t.event_id")) FROM memory_task_events t JOIN memory_agent_actions a ON a.event_id = t.event_id
             WHERE t.task_occurrence_id = ? AND t.role = 'action' AND ifnull(a.started_at_ms, 0) >= ?
             ORDER BY t.position
             """,
-            [.text(attemptID), .integer(afterMS)]
+            [try DB2CIdentity.key(handle, "memory_task_occurrences", attemptID), .integer(afterMS)]
         ) { try $0.text(0) ?? "" }
         return try ids.compactMap { id in
             // An operation, or an adapter's call, which a mixed procedure's step may be (P2-01).
@@ -480,7 +508,7 @@ enum SQLiteRecallRows {
                 SELECT count(*) FROM memory_operation_verifications v JOIN memory_verifications b ON b.event_id = v.event_id
                 WHERE v.call_event_id = ? AND b.verdict = 'passed'
                 """,
-                [.text(id)]
+                [try DB2CIdentity.key(handle, "memory_events", id)]
             ) { $0.integer(0) ?? 0 }.first ?? 0
             let entry = try SQLiteProcedureRows.confirmedScene(handle, eventID: id, phase: .before)
             return RecallUseLinking.Call(eventID: id, request: call.request, checkPassed: passed > 0 && call.progress.status == .completed,
@@ -493,26 +521,26 @@ enum SQLiteRecallRows {
                               since sinceMS: Int64) throws -> ObservedState? {
         let latest = try handle.query(
             """
-            SELECT e.event_id, b.bundle_id, e.occurred_at_ms FROM memory_events e JOIN brain_apps b ON b.app_id = e.app_id
+            SELECT \(try DB2CIdentity.publicReference(handle, "memory_events", "e.event_id")), b.bundle_id, e.occurred_at_ms FROM memory_events e JOIN brain_apps b ON b.app_id = e.app_id
             WHERE e.source = ? AND e.source_stream_id = ? AND e.event_kind IN ('action', 'observation')
-            ORDER BY e.local_order DESC LIMIT 1
+            ORDER BY \(try SQLiteRowIdentity(handle).usesIntegerKeys ? "e.event_id" : "e.local_order") DESC LIMIT 1
             """,
             [.text(source.rawValue), .text(stream)]
         ) { (event: try $0.text(0) ?? "", bundle: try $0.text(1) ?? "", at: $0.integer(2) ?? 0) }
         guard let (event, bundle, at) = latest.first, at >= sinceMS else { return nil }
         return try handle.query(
             """
-            SELECT scene_id FROM memory_event_scenes WHERE event_id = ? AND phase IN ('after', 'current') AND match_status = 'confirmed'
+            SELECT \(try DB2CIdentity.publicReference(handle, "brain_scenes", "memory_event_scenes.scene_id")) FROM memory_event_scenes WHERE event_id = ? AND phase IN ('after', 'current') AND match_status = 'confirmed'
             ORDER BY CASE phase WHEN 'current' THEN 0 ELSE 1 END, sample_ordinal DESC LIMIT 1
             """,
-            [.text(event)]
+            [try DB2CIdentity.key(handle, "memory_events", event)]
         ) { try $0.text(0) }.first?.map { ObservedState(bundleID: bundle, sceneID: $0) }
     }
 
     /// The application a call's event acted on.
     static func bundle(_ handle: some SQLiteQuerying, eventID: String) throws -> String? {
         try handle.query(
-            "SELECT b.bundle_id FROM memory_events e JOIN brain_apps b ON b.app_id = e.app_id WHERE e.event_id = ?", [.text(eventID)]
+            "SELECT b.bundle_id FROM memory_events e JOIN brain_apps b ON b.app_id = e.app_id WHERE e.event_id = ?", [try DB2CIdentity.key(handle, "memory_events", eventID)]
         ) { try $0.text(0) }.first ?? nil
     }
 
@@ -521,11 +549,11 @@ enum SQLiteRecallRows {
     static func elementKey(_ handle: some SQLiteQuerying, callEventID: String) throws -> String? {
         try handle.query(
             """
-            SELECT r.element_key FROM brain_relation_evidence v JOIN brain_relations r ON r.relation_id = v.relation_id
-            WHERE v.call_event_id = ? AND v.relation = 'supports' AND r.element_key IS NOT NULL
+            SELECT \(try SQLiteRowIdentity(handle).usesIntegerKeys ? "(SELECT key_text FROM brain_element_keys k WHERE k.element_key_id=r.element_key_id)" : "r.element_key") FROM brain_relation_evidence v JOIN brain_relations r ON r.relation_id = v.relation_id
+            WHERE v.call_event_id = ? AND v.relation = 'supports' AND \(try SQLiteRowIdentity(handle).usesIntegerKeys ? "r.element_key_id" : "r.element_key") IS NOT NULL
             ORDER BY v.sequence DESC LIMIT 1
             """,
-            [.text(callEventID)]
+            [try DB2CIdentity.key(handle, "memory_events", callEventID)]
         ) { try $0.text(0) }.first ?? nil
     }
 }

@@ -23,7 +23,7 @@ struct ObservedInputRepositoryTests {
 
     @Test("every kind is kept with its event and read back exactly after reopening; the stored columns are what was given, absent as NULL, never zero")
     func kindsRoundTrip() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         let inputs: [(String, MemoryEventRecord, ObservedInput)] = [
             ("i-click", F.watcherEvent("i-click", key: "seq-1", monotonicNS: 5_000), try F.click("Café\u{0}|")),
             ("i-scroll", F.watcherEvent("i-scroll", at: F.t0 + 1), try ObservedInput(kind: .scroll, sequenceNumber: 2, point: ScreenPoint(x: -0.0, y: 10),
@@ -39,9 +39,9 @@ struct ObservedInputRepositoryTests {
         let raw = try await memory.store.read { snapshot in
             try snapshot.query(
                 """
-                SELECT event_id, input_kind, typeof(sequence_number), point_x, window_title IS NULL, gap_last_sequence, lost_critical,
+                SELECT (SELECT event_uuid FROM memory_events e WHERE e.event_id=memory_input_events.event_id), input_kind, typeof(sequence_number), point_x, window_title IS NULL, gap_last_sequence, lost_critical,
                        typeof(lost_coalescible), typeof(delta_x), before_status
-                FROM memory_input_events ORDER BY event_id
+                FROM memory_input_events ORDER BY (SELECT event_uuid FROM memory_events e WHERE e.event_id=memory_input_events.event_id)
                 """, []) { row in
                 [try row.text(0) ?? "", try row.text(1) ?? "", try row.text(2) ?? "", row.real(3).map { "\($0)" } ?? "NULL",
                  "\(row.integer(4) ?? -1)", row.integer(5).map(String.init) ?? "NULL", row.integer(6).map(String.init) ?? "NULL",
@@ -56,7 +56,7 @@ struct ObservedInputRepositoryTests {
             "i-scroll scroll integer 0.0 1 NULL NULL null real NULL",
         ])
         await memory.store.close()
-        let reopened = try await F.open(at: memory.url)
+        let reopened = try await F.open22(at: memory.url)
         for (id, event, input) in inputs {
             let back = try #require(try await reopened.inputs.input(id))
             #expect(back.input.isExactly(input), Comment(rawValue: id))
@@ -69,7 +69,7 @@ struct ObservedInputRepositoryTests {
 
     @Test("the same input is already applied; other detail or other event content under its id is a conflict with nothing written, and a reused source key too")
     func idempotency() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         let record = try ObservedInputRecord(event: F.watcherEvent("i1", key: "seq-1"), input: try F.click("Café"))
         #expect(try await memory.inputs.record(record) == .committed)
         #expect(try await memory.inputs.record(record) == .alreadyApplied)
@@ -98,7 +98,7 @@ struct ObservedInputRepositoryTests {
 
     @Test("an input whose event a capture stored first is completed with its detail: the samples, their quality and the event's summary stay as they were")
     func besideCaptures() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         let event = F.watcherEvent("i1")
         #expect(try await memory.captures.record(event) == .committed)
         let before = CaptureSample(key: CaptureSampleKey(eventID: "i1", phase: .before), windowTitle: "Inbox", sessionRevision: 3,
@@ -116,16 +116,16 @@ struct ObservedInputRepositoryTests {
 
     @Test("rows the contract does not admit are refused by the reader with a typed error: an unknown kind or status, a click without its point, an infinite coordinate, half a frame, a reversed gap, a process id out of range; the store goes on")
     func malformedRows() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         let cases: [(String, String, EventFactError.Malformation)] = [
-            ("kind", "input_kind, point_x, point_y) VALUES (?, 'drag', 1, 1)", .unknownCode(column: "input_kind", code: "drag")),
-            ("pointless", "input_kind) VALUES (?, 'click')", .invalid(.shape(field: "point"))),
-            ("infinite", "input_kind, point_x, point_y) VALUES (?, 'hover', 9e999, 1)", .invalid(.notFinite)),
-            ("frame", "input_kind, window_x, window_y) VALUES (?, 'focus', 0, 0)", .invalid(.shape(field: "window_frame"))),
-            ("gap", "input_kind, gap_first_sequence, gap_last_sequence) VALUES (?, 'gap', 9, 3)", .invalid(.outOfOrder(field: "gap_last_sequence"))),
-            ("half-gap", "input_kind, gap_first_sequence) VALUES (?, 'gap', 9)", .invalid(.shape(field: "gap"))),
-            ("status", "input_kind, point_x, point_y, before_status) VALUES (?, 'hover', 1, 1, 'fine')", .unknownCode(column: "before_status", code: "fine")),
-            ("pid", "input_kind, target_pid) VALUES (?, 'focus', 0)", .invalid(.outOfRange(field: "target_pid"))),
+            ("kind", "input_kind, point_x, point_y) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 'drag', 1, 1)", .unknownCode(column: "input_kind", code: "drag")),
+            ("pointless", "input_kind) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 'click')", .invalid(.shape(field: "point"))),
+            ("infinite", "input_kind, point_x, point_y) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 'hover', 9e999, 1)", .invalid(.notFinite)),
+            ("frame", "input_kind, window_x, window_y) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 'focus', 0, 0)", .invalid(.shape(field: "window_frame"))),
+            ("gap", "input_kind, gap_first_sequence, gap_last_sequence) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 'gap', 9, 3)", .invalid(.outOfOrder(field: "gap_last_sequence"))),
+            ("half-gap", "input_kind, gap_first_sequence) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 'gap', 9)", .invalid(.shape(field: "gap"))),
+            ("status", "input_kind, point_x, point_y, before_status) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 'hover', 1, 1, 'fine')", .unknownCode(column: "before_status", code: "fine")),
+            ("pid", "input_kind, target_pid) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid=?), 'focus', 0)", .invalid(.outOfRange(field: "target_pid"))),
         ]
         for (id, columns, _) in cases {
             _ = try await memory.captures.record(F.watcherEvent(id, at: F.t0 + Int64(id.count)))
@@ -141,7 +141,7 @@ struct ObservedInputRepositoryTests {
 
     @Test("a correlation is stated once per Watcher input: retried it is already applied, another attribution is a conflict; roles, existence and applications are checked; it moves nothing in the brain")
     func correlations() async throws {
-        let memory = try await F.open()
+        let memory = try await F.open22()
         _ = try await memory.calls.record(try F.agentCall("a1"))
         _ = try await memory.calls.record(try F.agentCall("a2", at: F.t0 + 5))
         _ = try await memory.calls.record(try F.agentCall("a-elsewhere", app: AppContextIdentity(bundleID: "test.other")))
@@ -178,8 +178,8 @@ struct ObservedInputRepositoryTests {
 
         _ = try await memory.inputs.record(try ObservedInputRecord(event: F.watcherEvent("w4", at: F.t0 + 60), input: try F.click()))
         _ = try await memory.inputs.record(try ObservedInputRecord(event: F.watcherEvent("w5", at: F.t0 + 61), input: try F.click()))
-        try await memory.plant([("INSERT INTO memory_action_correlations (watcher_event_id, agent_event_id, basis_kind) VALUES ('w4', 'a2', 'proximity')", []),
-                                ("INSERT INTO memory_action_correlations (watcher_event_id, agent_event_id, basis_kind, time_offset_ms) VALUES ('w5', 'a2', 'assigned', 9e999)", [])])
+        try await memory.plant([("INSERT INTO memory_action_correlations (watcher_event_id, agent_event_id, basis_kind) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid='w4'), (SELECT event_id FROM memory_events WHERE event_uuid='a2'), 'proximity')", []),
+                                ("INSERT INTO memory_action_correlations (watcher_event_id, agent_event_id, basis_kind, time_offset_ms) VALUES ((SELECT event_id FROM memory_events WHERE event_uuid='w5'), (SELECT event_id FROM memory_events WHERE event_uuid='a2'), 'assigned', 9e999)", [])])
         #expect(await factError { _ = try await memory.inputs.correlation(ofWatcherEvent: "w4") }
                 == .malformedRow(table: "memory_action_correlations", id: "w4", malformation: .unknownCode(column: "basis_kind", code: "proximity")))
         #expect(await factError { _ = try await memory.inputs.correlation(ofWatcherEvent: "w5") }

@@ -141,11 +141,12 @@ struct RegisteredFamilyTests {
         #expect(result["memory"].string?.contains("Do not repeat") == true)
     }
 
-    @Test func beginningFailurePreventsExecution() async throws {
+    @Test func readBeginningFailureContinuesWithNotice() async throws {
         let spy = RecordingSpy(failAtBegin: true)
         let tools = AutomationTools(session: DemoSession(), capabilities: [DemoProvider(spy: spy)], recording: spy)
-        await #expect(throws: DemoFailure.recording) { try await tools.call("demo.read", .object([:])) }
-        #expect(await spy.events == ["began:demo.read"])
+        let result = try decodedCapabilityResult(await tools.call("demo.read", .object([:])))
+        #expect(result["memory"].string?.contains("not recorded") == true)
+        #expect(await spy.events == ["began:demo.read", "called:demo.read"])
     }
 
     @Test func registeredCallsReceiveTheirOwnScope() async throws {

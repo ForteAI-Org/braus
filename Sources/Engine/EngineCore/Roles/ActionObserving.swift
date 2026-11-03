@@ -25,6 +25,9 @@ public struct ActionRecord: Sendable, Equatable {
     public let element: SceneElement
     public let verb: ActionVerb
     public let effect: SceneEffect?
+    public let evidence: GestureEvidence?
+    /// The final bound predicate check, with no expectation operands.
+    public let check: OperationCheck?
     public let windowTitleAfter: String?
     public let before: PerceivedWindow?
     public let after: PerceivedWindow?
@@ -38,7 +41,9 @@ public struct ActionRecord: Sendable, Equatable {
         windowTitleAfter: String?,
         before          : PerceivedWindow? = nil,
         after           : PerceivedWindow? = nil,
-        attempt         : ActionAttempt = .delivered
+        attempt         : ActionAttempt = .delivered,
+        evidence        : GestureEvidence? = nil,
+        check           : OperationCheck? = nil
     ) {
         self.bundleID         = bundleID
         self.element          = element
@@ -48,6 +53,8 @@ public struct ActionRecord: Sendable, Equatable {
         self.before           = before
         self.after            = after
         self.attempt          = attempt
+        self.evidence         = evidence
+        self.check            = check
     }
 }
 
@@ -65,6 +72,9 @@ public struct InputRecord: Sendable, Equatable {
     public let menu: PerceivedWindow?
     public let after: PerceivedWindow?
     public let effect: SceneEffect?
+    public let evidence: GestureEvidence?
+    /// The final bound predicate check, with no expectation operands.
+    public let check: OperationCheck?
     public let attempt: ActionAttempt
 
     public init(
@@ -75,7 +85,9 @@ public struct InputRecord: Sendable, Equatable {
         menu    : PerceivedWindow? = nil,
         after   : PerceivedWindow? = nil,
         effect  : SceneEffect? = nil,
-        attempt : ActionAttempt = .delivered
+        attempt : ActionAttempt = .delivered,
+        evidence: GestureEvidence? = nil,
+        check: OperationCheck? = nil
     ) {
         self.bundleID = bundleID
         self.input    = input
@@ -85,6 +97,8 @@ public struct InputRecord: Sendable, Equatable {
         self.after    = after
         self.effect   = effect
         self.attempt  = attempt
+        self.evidence = evidence
+        self.check = check
     }
 }
 

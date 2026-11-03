@@ -156,7 +156,9 @@ struct OperationCheckTests {
         let failing = Actuator()
         failing.failure = ActionEngineTests.Unavailable()
         let undelivered = await engine(Scenes([scene([save])]), actuator: failing).act(request("Save"))
-        #expect(undelivered.check?.performed == .uncertain && undelivered.check?.limits == [.deliveryUncertain])
+        #expect(undelivered.check?.performed == .uncertain)
+        #expect(undelivered.check?.limits.contains(.deliveryUncertain) == true)
+        if undelivered.scene == nil { #expect(undelivered.check?.limits == [.deliveryUncertain]) }
     }
 
     @Test("a double, triple or right click is judged as a click is: by the scene difference, window-wide, the gesture requested",
@@ -225,7 +227,7 @@ struct OperationCheckTests {
             processID: pid, bundleID: "com.x", appName: "X", input: .insertText("hello", expecting: nil)
         ))
         #expect(inserted.check?.condition == OperationCheck.Condition.none && inserted.check?.verdict == .unknown)
-        #expect(inserted.check?.limits == [.noExpectedValue])
+        #expect(inserted.check?.limits == [.noExpectedValue, .valueWithheld])
     }
 
     @Test("a field named by what it holds, with no focus to read, is read back from the scene at its own place (PhotoCraft's save panel)")
