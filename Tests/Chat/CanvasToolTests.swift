@@ -54,8 +54,9 @@ struct CanvasToolTests {
         var records: [String] = []
         tools.record = { records.append($0) }
         let router = MCPRouter(
-            tools: tools.toolDefinitions,
-            call: tools.call
+            tools       : tools.toolDefinitions,
+            instructions: nil,
+            call        : tools.call
         )
         #expect(tools.toolDefinitions.contains { $0["name"].string == "canvas" })
         #expect(AutomationTools.interruptionPolicy(for: "canvas") == .readOnly)
@@ -146,8 +147,9 @@ struct CanvasToolTests {
         if scenario == "no history" { session.canvasHistory = CanvasHistory() }
         let tools = AutomationTools(session: session)
         let router = MCPRouter(
-            tools: tools.toolDefinitions,
-            call: tools.call
+            tools       : tools.toolDefinitions,
+            instructions: nil,
+            call        : tools.call
         )
         let response = try #require(await router.handle(request(id: scenario == "unknown id" ? "canvas9" : "canvas2")))
         #expect(response["result"]["isError"] == .bool(true))
