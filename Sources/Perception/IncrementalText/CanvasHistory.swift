@@ -18,6 +18,10 @@ import PerceptionCore
 /// pixels per point, so the value holds at most twice that; only a zoomed crop of such a canvas
 /// loses detail.
 ///
+/// A crop shows only the changed region of the action between the two observations (see
+/// `CanvasCrop`): `noteAction` hands over the window points a Command used, kept for the next
+/// observation's crop. The regions left out are neither shown nor taught as noise.
+///
 /// Noise is learned only from frames with no Command between them: `learnIdle` hands such a frame
 /// over between two observations, and an observation teaches only when no Command came since the
 /// frame before it. Every time is an uptime in nanoseconds; an unknown time counts as input.
@@ -55,6 +59,9 @@ public struct CanvasHistory: Sendable {
     private var changed : [String: [CGRect]] = [:]
     /// When the last frame the noise saw was displayed.
     private var lastFrameAt: UInt64?
+    /// The window points of the Commands since `latest`, and of those from `previous` to `latest`.
+    private var pendingPoints: [CGPoint] = []
+    private var actionPoints : [CGPoint] = []
 
     public init() {}
 
@@ -110,6 +117,12 @@ public struct CanvasHistory: Sendable {
         }
     }
 
+    /// Records the window points (top-left origin) a Command acted at, such as a click's or both ends
+    /// of a drag, so the next observation's crop keeps the region they changed.
+    public mutating func noteAction(at points: [CGPoint]) {
+        pendingPoints += points
+    }
+
     /// The noise learned for the canvas `id`, as `CanvasTiles.mark` applies it.
     public func mask(of id: String) -> Set<Int> { noises[id]?.mask ?? [] }
 
@@ -154,17 +167,19 @@ public struct CanvasHistory: Sendable {
             learned[id] = noise
         }
         let scale = CGFloat(image.width) / windowSize.width
-        noises      = learned
-        changed     = next.changedTiles.mapValues { $0.map { Self.points($0, scale: scale) } }
-        previous    = latest
-        latest      = Generation(
+        noises        = learned
+        changed       = next.changedTiles.mapValues { $0.map { Self.points($0, scale: scale) } }
+        previous      = latest
+        latest        = Generation(
             scene     : scene,
             windowSize: windowSize,
             imageSize : CGSize(width: image.width, height: image.height),
             pictures  : Self.pictures(of: next, in: image, scale: scale)
         )
-        tiles       = next
-        lastFrameAt = displayedAt
+        tiles         = next
+        lastFrameAt   = displayedAt
+        actionPoints  = pendingPoints
+        pendingPoints = []
     }
 
     /// Teaches each canvas's noise from `image`, a later frame of window `window` displayed at
@@ -214,6 +229,7 @@ public struct CanvasHistory: Sendable {
         guard let layout = CanvasCrop.layout(
             canvas : after.frame,
             changed: changed,
+            near   : actionPoints,
             zoom   : zoom
         ) else { return .unchanged }
         var blanking: [CGRect] = []

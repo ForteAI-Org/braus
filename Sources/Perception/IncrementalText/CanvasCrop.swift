@@ -13,13 +13,16 @@ import ImageIO
 /// rectangle of the window cut from two frames and encoded as PNG, the format every model provider
 /// accepts.
 ///
-/// The rectangle is the union of the changed tiles inside the canvas, grown by `margin` and clipped
-/// to the canvas, so only canvas pixels leave. It is drawn at `zoom` pixels per window point, 1 by
-/// default, so a Retina frame is reduced 2:1. When the changed tiles span more than
-/// `wholeCanvasShare` of the canvas, the crop is the whole canvas, reduced so its long edge is at most
-/// `maxWholeCanvasEdge` pixels. These defaults come from a measured comparison across three models:
-/// 1x crops with a margin kept full accuracy at about a thirtieth of the tokens of whole-canvas 2x
-/// pairs, while an after picture alone of the whole window failed.
+/// The changed tiles inside the canvas are grouped into regions, tiles less than `margin` apart in
+/// one, and the crop shows only the action's: the region at or nearest each point the action used on
+/// the canvas, or the largest when it used none there, so a meter or a playhead that moved with it, not
+/// yet learned as noise, stays out. The rectangle is that region grown by `margin` and clipped to the canvas, so only
+/// canvas pixels leave. It is drawn at `zoom` pixels per window point, 1 by default, so a Retina frame
+/// is reduced 2:1. When the action's region spans more than `wholeCanvasShare` of the canvas, the crop
+/// is the whole canvas, reduced so its long edge is at most `maxWholeCanvasEdge` pixels. These
+/// defaults come from a measured comparison across three models: 1x crops with a margin kept full
+/// accuracy at about a thirtieth of the tokens of whole-canvas 2x pairs, while an after picture alone
+/// of the whole window failed.
 ///
 /// Building is pure: no capture, no clock, no state. `layout` decides the rectangle, so a caller can
 /// apply its privacy rule to it before `make` renders any pixel.
@@ -96,19 +99,21 @@ public struct CanvasCrop: Sendable, Equatable {
         return Int((Double(patches) * 1.2).rounded(.up))
     }
 
-    /// The crop of `canvas` that shows `changed`, both in window points, at `zoom` pixels per point;
-    /// nil when no changed rectangle falls inside the canvas, so nothing is to be shown. Zoom 2 is for
-    /// an explicit request only.
+    /// The crop of `canvas` that shows the action's region of `changed`, chosen by `points`, all in
+    /// window points, at `zoom` pixels per point; nil when no changed rectangle falls inside the canvas,
+    /// so nothing is to be shown. Zoom 2 is for an explicit request only.
     public static func layout(
-        canvas : CGRect,
-        changed: [CGRect],
-        zoom   : Int = 1
+        canvas     : CGRect,
+        changed    : [CGRect],
+        near points: [CGPoint] = [],
+        zoom       : Int = 1
     ) -> Layout? {
         let inner = inward(canvas)
         guard zoom >= 1, !inner.isEmpty else { return nil }
         let touched = changed.map { $0.intersection(inner) }.filter { !$0.isNull && !$0.isEmpty }
-        guard let first = touched.first else { return nil }
-        let span = touched.dropFirst().reduce(first) { $0.union($1) }
+        // A point off the canvas, such as a toolbar button's, says nothing about which region it changed.
+        let near = points.filter { canvas.insetBy(dx: -margin, dy: -margin).contains($0) }
+        guard let span = region(of: touched, near: near) else { return nil }
         var scale = CGFloat(zoom)
         let isWholeCanvas = span.width * span.height > inner.width * inner.height * wholeCanvasShare
         let rect: CGRect
@@ -150,6 +155,30 @@ public struct CanvasCrop: Sendable, Equatable {
             before : beforeData,
             after  : afterData
         )
+    }
+
+    /// The bounds of the regions of `changed` at or nearest `points`, or of the largest region when
+    /// there is no point; nil for no rectangle. A region is the changed rectangles less than `margin`
+    /// apart, whose crops would overlap anyway.
+    static func region(
+        of changed : [CGRect],
+        near points: [CGPoint]
+    ) -> CGRect? {
+        let reach  = margin / 2
+        let groups = TileDiff.coalesce(changed.map { $0.insetBy(dx: -reach, dy: -reach) })
+        let regions = groups.compactMap { group in
+            changed.filter { group.intersects($0) }.reduce(CGRect?.none) { $0?.union($1) ?? $1 }
+        }
+        func distance(_ point: CGPoint, _ rect: CGRect) -> CGFloat {
+            hypot(
+                max(rect.minX - point.x, 0, point.x - rect.maxX),
+                max(rect.minY - point.y, 0, point.y - rect.maxY)
+            )
+        }
+        let chosen = points.isEmpty
+            ? regions.max { $0.width * $0.height < $1.width * $1.height }.map { [$0] } ?? []
+            : points.compactMap { point in regions.min { distance(point, $0) < distance(point, $1) } }
+        return chosen.reduce(CGRect?.none) { $0?.union($1) ?? $1 }
     }
 
     /// The largest rectangle of whole points inside `rect`, so a 1x crop copies pixels without

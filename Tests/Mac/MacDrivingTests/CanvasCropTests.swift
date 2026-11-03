@@ -28,10 +28,11 @@ struct CanvasCropTests {
         height: 44
     )
 
-    /// The history after observing `first` and then `second`, with a Command between them.
+    /// The history after observing `first` and then `second`, with a Command at `points` between them.
     static func history(
         _ first : (scene: SceneSnapshot, image: CGImage),
-        _ second: (scene: SceneSnapshot, image: CGImage)
+        _ second: (scene: SceneSnapshot, image: CGImage),
+        points  : [CGPoint] = []
     ) -> (history: CanvasHistory, scene: SceneSnapshot) {
         var history = CanvasHistory()
         var one = first.scene
@@ -44,6 +45,7 @@ struct CanvasCropTests {
             displayedAt  : 10,
             lastCommandAt: nil
         )
+        history.noteAction(at: points)
         history.observe(
             &two,
             in           : second.image,
@@ -221,6 +223,76 @@ struct CanvasCropTests {
         history.observe(&moved.scene, in: moved.image, window: 1, windowSize: Self.window, displayedAt: 50, lastCommandAt: 40)
         let crop = try Self.crop(try history.crop(Self.timeline, isWithheld: { _ in false })).crop
         #expect(crop.layout.rect == CGRect(x: 200, y: 244, width: 400, height: 112))
+    }
+
+    /// The clip-moved recording with the meter of `meter-phases/3` and the playhead drawn at window x 700: an
+    /// action's change with two unrelated ones, as right after a session opens, before any noise is learned.
+    static func busyClipMove() async throws -> (scene: SceneSnapshot, image: CGImage) {
+        let moved = try await CanvasDetectionTests.scene("clip-moved")
+        let meter = try CanvasFixtures.load("meter-phases/3").image
+        let image = moved.image
+        let context = try #require(CGContext(
+            data            : nil,
+            width           : image.width,
+            height          : image.height,
+            bitsPerComponent: 8,
+            bytesPerRow     : 0,
+            space           : CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo      : CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        let height = CGFloat(image.height)
+        context.draw(
+            image,
+            in: CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        )
+        // Window points (top-left origin) are pixels here; the context's origin is bottom-left.
+        let box = CGRect(x: 976, y: 176, width: 80, height: 56)
+        let part = try #require(meter.cropping(to: box))
+        context.draw(
+            part,
+            in: CGRect(x: box.minX, y: height - box.maxY, width: box.width, height: box.height)
+        )
+        context.setFillColor(gray: 1, alpha: 1)
+        context.fill(CGRect(x: 698, y: height - 492, width: 4, height: 320))
+        return (moved.scene, try #require(context.makeImage()))
+    }
+
+    @Test("Before noise is learned, a moved clip is cropped apart from the meter and playhead that also moved")
+    func actionRegionBeforeNoise() async throws {
+        let still = try await CanvasDetectionTests.scene("still")
+        let busy  = try await Self.busyClipMove()
+        // The drag from the clip's old middle to its new one, then no point at all: the clip's region.
+        for points in [[CGPoint(x: 347, y: 294), CGPoint(x: 467, y: 294)], []] {
+            let (history, scene) = Self.history(
+                still,
+                busy,
+                points: points
+            )
+            #expect(scene.elements.first { $0.id == Self.timeline }?.hasChangedPixels == true)
+            let crop = try Self.crop(try history.crop(Self.timeline, isWithheld: { _ in false })).crop
+            print("CANVAS_CROP busy clip move, \(points.count) points: \(crop.layout.rect) "
+                + "whole \(crop.layout.isWholeCanvas), Claude \(crop.claudeTokens) tokens per pair")
+            #expect(!crop.layout.isWholeCanvas)
+            #expect(crop.layout.rect == CGRect(x: 200, y: 244, width: 400, height: 112))
+            #expect(crop.claudeTokens == 2 * 15 * 4)
+        }
+        // A click beside the meter keeps the meter's region, nearest to it, and nothing of the clip.
+        let (meter, _) = Self.history(
+            still,
+            busy,
+            points: [CGPoint(x: 940, y: 200)]
+        )
+        let rect = try Self.crop(try meter.crop(Self.timeline, isWithheld: { _ in false })).crop.layout.rect
+        #expect(rect.contains(CGPoint(x: 1016, y: 204)) && rect.minX > 700)
+        // Only the action's region counts toward the whole-canvas share.
+        let canvas = CGRect(x: 0, y: 0, width: 1000, height: 400)
+        let wide   = CGRect(x: 0, y: 0, width: 900, height: 300)
+        let dot    = CGRect(x: 960, y: 360, width: 32, height: 32)
+        #expect(CanvasCrop.layout(canvas: canvas, changed: [wide, dot], near: [CGPoint(x: 970, y: 370)])?.isWholeCanvas == false)
+        #expect(CanvasCrop.layout(canvas: canvas, changed: [wide, dot], near: [CGPoint(x: 10, y: 10)])?.isWholeCanvas == true)
+        // A click off the canvas, a toolbar's Play, chooses no region: the largest is kept.
+        #expect(CanvasCrop.layout(canvas: canvas, changed: [wide, dot], near: [CGPoint(x: 1500, y: 370)])?.isWholeCanvas == true)
+        #expect(CanvasCrop.layout(canvas: canvas, changed: [dot], near: [CGPoint(x: 1500, y: 370)])?.isWholeCanvas == false)
     }
 
     @Test("Frames with a Command between them teach no noise")
