@@ -717,6 +717,7 @@ extension AgentSeat {
 
         guard let selected = selectionKit.selected else { return }
         guard session.currentTargetNumber != selected.surface.windowNumber else {
+            holdOperatedTarget(selected)
             alignedSelectionGeneration = selectionKit.selectionGeneration
             return
         }
@@ -738,6 +739,7 @@ extension AgentSeat {
         let displaced = session.currentTargetNumber
         alignedSelectionGeneration = generation
         session.makeCurrent(selected.surface.windowNumber)
+        holdOperatedTarget(selected)
         if record.isStaged { stagedWindowNumber = selected.surface.windowNumber }
         // The window this follows may have taken the guard with it: Resolve's
         // Project Manager, withdrawn when a project opens, left nothing before
@@ -763,6 +765,23 @@ extension AgentSeat {
             _ = dropDestroyedRecord(displaced)
         }
         publishCoherentState()
+    }
+
+    /// Makes the seat's own target a standing choice in the nucleus when the
+    /// nucleus selected it only because it was the one candidate left.
+    ///
+    /// Such a selection carries no order, so the next eligible window that
+    /// appears without a qualified recency leaves two unordered candidates and
+    /// suspends the seat, although the seat never stopped operating its target
+    /// and a detected window never takes it. The application's own front-order
+    /// claim for the target can be missing: the reader reports a focus change
+    /// once, and one that lands while the seat places that window is not taken
+    /// as recency (TextEdit's new document after its open panel closes, for
+    /// example, then an untitled non-modal AXDialog beside it). A later
+    /// qualified event still replaces the choice, as for any explicit one.
+    private func holdOperatedTarget(_ selected: SelectedTarget) {
+        guard selected.reason == .onlyCandidate else { return }
+        selectionKit.selectExplicitly(selected.surface)
     }
 
     /// Whether the window the seat is operating stopped being one the nucleus
