@@ -11,8 +11,10 @@ import AppKit
 /// grows from the small pictures and shrinks back into: side by side on the tool card's surface,
 /// in the order the tool gave them (a canvas's before, then its after).
 ///
-/// It draws at its resting size, and its layer's contents are placed proportionally while the
-/// host's springs change its size, so the pictures scale without being drawn again per frame.
+/// It renders the card once at its resting size into its layer's contents, which the layer scales
+/// proportionally while the host's springs change its size: the shrink into the transcript sets the
+/// small frame at once, and a card drawn again at that size would sit in the corner of the layer
+/// still animating. Only a frame larger than the rendering renders it again.
 final class ToolPicturesScreenView: NSView {
 
     private static let padding: CGFloat = 16
@@ -24,6 +26,9 @@ final class ToolPicturesScreenView: NSView {
     private let images: [NSImage]
     private let sizes : [CGSize]
 
+    /// The size the card was last rendered at.
+    private var renderedSize = CGSize.zero
+
     /// The size the pictures ask for, which the host fits in the window and never exceeds.
     var nativeSize: CGSize { Self.layout(sizes, in: nil).size }
 
@@ -33,9 +38,8 @@ final class ToolPicturesScreenView: NSView {
             CGSize(width: max(1, $0.width) * Self.enlargement, height: max(1, $0.height) * Self.enlargement)
         }
         super.init(frame: .zero)
-        wantsLayer                 = true
-        layerContentsRedrawPolicy  = .onSetNeedsDisplay
-        layerContentsPlacement     = .scaleProportionallyToFit
+        wantsLayer                = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         setAccessibilityElement(false)
     }
 
@@ -44,15 +48,40 @@ final class ToolPicturesScreenView: NSView {
 
     override var isFlipped: Bool { true }
 
+    override var wantsUpdateLayer: Bool { true }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        needsDisplay = true
+        if newSize.width > renderedSize.width || newSize.height > renderedSize.height { needsDisplay = true }
     }
 
+    override func updateLayer() {
+        guard let layer, bounds.width > 0, bounds.height > 0 else { return }
+
+        let size  = bounds.size
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let card  = NSImage(
+            size   : size,
+            flipped: true
+        ) { [self] _ in
+            drawCard(in: size)
+            return true
+        }
+        layer.contents        = card.layerContents(forContentsScale: scale)
+        layer.contentsScale   = scale
+        layer.contentsGravity = .resizeAspect
+        renderedSize          = size
+    }
+
+    /// An offscreen drawing of the view (`cacheDisplay`) takes the card from here.
     override func draw(_ dirtyRect: NSRect) {
+        drawCard(in: bounds.size)
+    }
+
+    private func drawCard(in size: CGSize) {
         TranscriptColors.cardSurface.setFill()
-        bounds.fill()
-        for (image, frame) in zip(images, Self.layout(sizes, in: bounds.size).frames) {
+        CGRect(origin: .zero, size: size).fill()
+        for (image, frame) in zip(images, Self.layout(sizes, in: size).frames) {
             let path = NSBezierPath(roundedRect: frame, xRadius: 8, yRadius: 8)
             NSGraphicsContext.saveGraphicsState()
             path.addClip()

@@ -170,4 +170,29 @@ struct ToolPicturesRowTests {
         #expect(view.pictureView(block: 1) === strip)
         #expect(view.pictureView(block: 0) == nil, "the summary shows no pictures")
     }
+
+    @Test("Enlarged, the card keeps its rendering when its frame shrinks, so the shrink scales it whole")
+    @MainActor
+    func enlargedCardScales() throws {
+        let screen  = ToolPicturesScreenView([NSImage(size: NSSize(width: 100, height: 40))],
+                                             pixelSizes: [CGSize(width: 100, height: 40)])
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        content.addSubview(screen)
+        let window  = TranscriptFixture.offscreenWindow(for: content, size: content.frame.size)
+        defer { window.close() }
+
+        screen.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+        screen.displayIfNeeded()
+        let rendered = try #require(screen.layer?.contents as AnyObject?)
+        #expect(screen.layer?.contentsGravity == .resizeAspect)
+
+        // The shrink into the transcript sets the small frame at once: the card is not drawn again small.
+        screen.frame = NSRect(x: 0, y: 0, width: 100, height: 50)
+        screen.displayIfNeeded()
+        #expect(screen.layer?.contents as AnyObject? === rendered)
+
+        screen.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+        screen.displayIfNeeded()
+        #expect(screen.layer?.contents as AnyObject? !== rendered, "a larger window renders it again")
+    }
 }
