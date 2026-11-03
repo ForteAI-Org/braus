@@ -250,7 +250,7 @@ struct EnlargedScreenHostTests {
         #expect(backdrop.animation(forKey: "opacity") is CABasicAnimation)
     }
 
-    @Test("Closing shrinks into the small view without passing it, hands it the last frame, gives the keyboard back and reports it landed")
+    @Test("Closing shrinks into the small view with a short ease, hands it the last frame, gives the keyboard back and reports it landed")
     func closingLands() async throws {
         let rig     = Rig(reducesMotion: false)
         let layer   = try #require(rig.screen.layer)
@@ -262,13 +262,12 @@ struct EnlargedScreenHostTests {
         layer.contents = picture
 
         rig.host.close(into: rig.small) { landing.isLanded = true }
-        #expect(layer.animation(forKey: "size") is CASpringAnimation)
-        let position = try #require(layer.animation(forKey: "position") as? CASpringAnimation)
+        let position = try #require(layer.animation(forKey: "position") as? CABasicAnimation)
         #expect(position.toValue as? CGPoint == layer.position)
-        // Critically damped, so the shrink stops on the small view without passing it.
+        // A short ease, no spring: the shrink stops on the small view without passing it or settling.
         for key in ["position", "size", "radius"] {
-            let spring = try #require(layer.animation(forKey: key) as? CASpringAnimation)
-            #expect(spring.damping >= 2 * (spring.stiffness * spring.mass).squareRoot() - 0.001, "\(key) does not overshoot")
+            let motion = try #require(layer.animation(forKey: key) as? CABasicAnimation)
+            #expect(!(motion is CASpringAnimation) && motion.duration == EnlargedScreenHostView.landingDuration, "\(key)")
         }
         #expect(abs(rig.screen.frame.midX - rig.small.frame.midX) < 0.5)
         #expect(abs(rig.screen.frame.width - rig.small.frame.width) < 0.5)

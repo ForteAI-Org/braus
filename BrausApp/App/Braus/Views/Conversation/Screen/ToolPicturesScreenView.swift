@@ -32,6 +32,19 @@ final class ToolPicturesScreenView: NSView {
     /// The size the pictures ask for, which the host fits in the window and never exceeds.
     var nativeSize: CGSize { Self.layout(sizes, in: nil).size }
 
+    /// The frame that puts the pictures on `small`, the small pictures' frame, with the card's margin
+    /// around it at the same scale: the shrink lands the pictures, not the card, on the small ones.
+    func frame(showingPicturesOn small: CGRect) -> CGRect {
+        let pictures = nativeSize.width - 2 * Self.padding
+        guard pictures > 0, small.width > 0 else { return small }
+
+        let margin = Self.padding * small.width / pictures
+        return small.insetBy(
+            dx: -margin,
+            dy: -margin
+        )
+    }
+
     init(_ images: [NSImage], pixelSizes: [CGSize]) {
         self.images = images
         self.sizes  = pixelSizes.map {

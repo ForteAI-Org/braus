@@ -32,6 +32,7 @@ struct ConversationEnlargedPictures: NSViewRepresentable {
             reducesMotion : reducesMotion,
             label         : enlargement.label,
             copiesFrames  : false,
+            landingFrame  : { [weak screen] in screen?.frame(showingPicturesOn: $0) ?? $0 },
             onRequestClose: { [team] in team.closeEnlargedPictures() }
         )
     }

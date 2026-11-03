@@ -195,4 +195,18 @@ struct ToolPicturesRowTests {
         screen.displayIfNeeded()
         #expect(screen.layer?.contents as AnyObject? !== rendered, "a larger window renders it again")
     }
+
+    @Test("The enlarged card lands its picture, not its margin, on the small picture")
+    @MainActor
+    func cardLandsItsPicture() {
+        let screen = ToolPicturesScreenView([NSImage(size: NSSize(width: 100, height: 40))],
+                                            pixelSizes: [CGSize(width: 100, height: 40)])
+        let small  = CGRect(x: 50, y: 80, width: 150, height: 60)
+        let frame  = screen.frame(showingPicturesOn: small)
+        // The card is the picture three times its pixel size inside a 16 point margin; at the small
+        // picture's scale, a tenth of that margin.
+        let margin = 16 * small.width / (100 * ToolPicturesScreenView.enlargement)
+        #expect(frame == small.insetBy(dx: -margin, dy: -margin))
+        #expect(abs(frame.width / frame.height - screen.nativeSize.width / screen.nativeSize.height) < 0.01)
+    }
 }

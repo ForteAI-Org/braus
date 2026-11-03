@@ -43,23 +43,33 @@ final class EnlargedScreenHostView: NSView {
     /// The backdrop's black: light enough to keep the window behind readable.
     private static let backdropAlpha: CGFloat = 0.45
 
-    /// A spring that settles with a little overshoot, or, `landing` in a small view, critically damped so
-    /// it stops on it without passing it; its duration the time it takes to rest.
-    private static func spring(
+    /// The grow: a spring that settles with a little overshoot, its duration the time it takes to rest.
+    /// The shrink: a short ease out that stops on the small view, with no spring's tail to settle into it.
+    private static func motion(
         _ keyPath: String,
         from     : Any,
         to       : Any,
         landing  : Bool
-    ) -> CASpringAnimation {
+    ) -> CABasicAnimation {
+        guard !landing else {
+            let ease = CABasicAnimation(keyPath: keyPath)
+            ease.fromValue      = from
+            ease.toValue        = to
+            ease.duration       = landingDuration
+            ease.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+            return ease
+        }
         let spring = CASpringAnimation(keyPath: keyPath)
         spring.fromValue = from
         spring.toValue   = to
         spring.mass      = 1
         spring.stiffness = 320
-        spring.damping   = landing ? 2 * (spring.stiffness * spring.mass).squareRoot() : 30
+        spring.damping   = 30
         spring.duration  = spring.settlingDuration
         return spring
     }
+
+    static let landingDuration: CFTimeInterval = 0.24
 
     private let screen        : NSView
     private let backdrop      = CALayer()
@@ -87,6 +97,11 @@ final class EnlargedScreenHostView: NSView {
     /// The width of the small view it grows from, which the enlarged screen never goes below.
     private let minimumWidth: CGFloat
 
+    /// The screen's frame that shows its content on a small view's frame: a screen with a margin of its
+    /// own reaches past the small view, so what it shows lands on it. The small view's frame itself
+    /// without it.
+    private let landingFrame: (CGRect) -> CGRect
+
     /// The top edge the screen keeps clear: how far the title bar and toolbar reach into this view.
     private(set) var topInset: CGFloat = 0
 
@@ -97,9 +112,11 @@ final class EnlargedScreenHostView: NSView {
         reducesMotion : Bool,
         label         : String,
         copiesFrames  : Bool = true,
+        landingFrame  : @escaping (CGRect) -> CGRect = { $0 },
         onRequestClose: @escaping () -> Void
     ) {
         self.copiesFrames   = copiesFrames
+        self.landingFrame   = landingFrame
         self.screen         = screen
         self.nativeSize     = nativeSize
         self.opener         = opener
@@ -224,7 +241,7 @@ final class EnlargedScreenHostView: NSView {
         hasOpened = true
         let target = restFrame
         screen.frame = target
-        let origin = convertedFrame(of: opener) ?? target
+        let origin = convertedFrame(of: opener).map(landingFrame) ?? target
         if copiesFrames {
             Self.copyFrame(
                 from: opener,
@@ -274,7 +291,7 @@ final class EnlargedScreenHostView: NSView {
             finished()
         }
 
-        guard !reducesMotion, let landing = convertedFrame(of: small) else {
+        guard !reducesMotion, let landing = convertedFrame(of: small).map(landingFrame) else {
             fade(
                 from    : 1,
                 to      : 0,
@@ -331,8 +348,8 @@ final class EnlargedScreenHostView: NSView {
 
     // MARK: Animation
 
-    /// Moves the screen's layer between two frames, without passing the end when `landing` in a small
-    /// view; the model values are already the end.
+    /// Moves the screen's layer between two frames, with the shrink's ease when `landing` in a small
+    /// view and the grow's spring otherwise; the model values are already the end.
     private func travel(
         from      : CGRect,
         to        : CGRect,
@@ -350,7 +367,7 @@ final class EnlargedScreenHostView: NSView {
             )
         }
         layer.add(
-            Self.spring(
+            Self.motion(
                 "position",
                 from   : position(of: from),
                 to     : position(of: to),
@@ -359,7 +376,7 @@ final class EnlargedScreenHostView: NSView {
             forKey: "position"
         )
         layer.add(
-            Self.spring(
+            Self.motion(
                 "bounds.size",
                 from   : from.size,
                 to     : to.size,
@@ -368,7 +385,7 @@ final class EnlargedScreenHostView: NSView {
             forKey: "size"
         )
         layer.add(
-            Self.spring(
+            Self.motion(
                 "cornerRadius",
                 from   : radiusFrom,
                 to     : radiusTo,
