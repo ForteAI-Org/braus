@@ -43,18 +43,20 @@ final class EnlargedScreenHostView: NSView {
     /// The backdrop's black: light enough to keep the window behind readable.
     private static let backdropAlpha: CGFloat = 0.45
 
-    /// A spring that settles with a little overshoot, its duration the time it takes to rest.
+    /// A spring that settles with a little overshoot, or, `landing` in a small view, critically damped so
+    /// it stops on it without passing it; its duration the time it takes to rest.
     private static func spring(
         _ keyPath: String,
         from     : Any,
-        to       : Any
+        to       : Any,
+        landing  : Bool
     ) -> CASpringAnimation {
         let spring = CASpringAnimation(keyPath: keyPath)
         spring.fromValue = from
         spring.toValue   = to
         spring.mass      = 1
         spring.stiffness = 320
-        spring.damping   = 30
+        spring.damping   = landing ? 2 * (spring.stiffness * spring.mass).squareRoot() : 30
         spring.duration  = spring.settlingDuration
         return spring
     }
@@ -241,7 +243,8 @@ final class EnlargedScreenHostView: NSView {
             from      : origin,
             to        : target,
             radiusFrom: Self.smallRadius,
-            radiusTo  : Self.largeRadius
+            radiusTo  : Self.largeRadius,
+            landing   : false
         )
         animateBackdrop(
             from: 0,
@@ -291,7 +294,8 @@ final class EnlargedScreenHostView: NSView {
             from      : from,
             to        : landing,
             radiusFrom: Self.largeRadius,
-            radiusTo  : Self.smallRadius
+            radiusTo  : Self.smallRadius,
+            landing   : true
         )
         animateBackdrop(
             from: backdrop.presentation()?.opacity ?? 1,
@@ -327,12 +331,14 @@ final class EnlargedScreenHostView: NSView {
 
     // MARK: Animation
 
-    /// Moves the screen's layer between two frames; the model values are already the end.
+    /// Moves the screen's layer between two frames, without passing the end when `landing` in a small
+    /// view; the model values are already the end.
     private func travel(
         from      : CGRect,
         to        : CGRect,
         radiusFrom: CGFloat,
-        radiusTo  : CGFloat
+        radiusTo  : CGFloat,
+        landing   : Bool
     ) {
         guard let layer = screen.layer else { return }
 
@@ -346,24 +352,27 @@ final class EnlargedScreenHostView: NSView {
         layer.add(
             Self.spring(
                 "position",
-                from: position(of: from),
-                to  : position(of: to)
+                from   : position(of: from),
+                to     : position(of: to),
+                landing: landing
             ),
             forKey: "position"
         )
         layer.add(
             Self.spring(
                 "bounds.size",
-                from: from.size,
-                to  : to.size
+                from   : from.size,
+                to     : to.size,
+                landing: landing
             ),
             forKey: "size"
         )
         layer.add(
             Self.spring(
                 "cornerRadius",
-                from: radiusFrom,
-                to  : radiusTo
+                from   : radiusFrom,
+                to     : radiusTo,
+                landing: landing
             ),
             forKey: "radius"
         )

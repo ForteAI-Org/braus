@@ -191,6 +191,7 @@ struct EnlargedScreenHostTests {
         #expect(abs(from.y - (small.minY + layer.anchorPoint.y * small.height)) < 0.5)
         #expect(toValue == layer.position)
         #expect(layer.animation(forKey: "size") is CASpringAnimation)
+        #expect(position.damping < 2 * (position.stiffness * position.mass).squareRoot(), "the grow settles with a little overshoot")
         #expect(rig.host.layer?.animation(forKey: "fade") == nil)
 
         let calm      = Rig(reducesMotion: true)
@@ -249,7 +250,7 @@ struct EnlargedScreenHostTests {
         #expect(backdrop.animation(forKey: "opacity") is CABasicAnimation)
     }
 
-    @Test("Closing shrinks into the small view, hands it the last frame, gives the keyboard back and reports it landed")
+    @Test("Closing shrinks into the small view without passing it, hands it the last frame, gives the keyboard back and reports it landed")
     func closingLands() async throws {
         let rig     = Rig(reducesMotion: false)
         let layer   = try #require(rig.screen.layer)
@@ -264,6 +265,11 @@ struct EnlargedScreenHostTests {
         #expect(layer.animation(forKey: "size") is CASpringAnimation)
         let position = try #require(layer.animation(forKey: "position") as? CASpringAnimation)
         #expect(position.toValue as? CGPoint == layer.position)
+        // Critically damped, so the shrink stops on the small view without passing it.
+        for key in ["position", "size", "radius"] {
+            let spring = try #require(layer.animation(forKey: key) as? CASpringAnimation)
+            #expect(spring.damping >= 2 * (spring.stiffness * spring.mass).squareRoot() - 0.001, "\(key) does not overshoot")
+        }
         #expect(abs(rig.screen.frame.midX - rig.small.frame.midX) < 0.5)
         #expect(abs(rig.screen.frame.width - rig.small.frame.width) < 0.5)
         try await landing.wait()
