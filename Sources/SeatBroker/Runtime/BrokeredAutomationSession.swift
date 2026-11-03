@@ -37,7 +37,8 @@ import VisionText
 /// follow-up reuses the open session and the window comes back soon after. A new turn cancels
 /// that pending close. Inside a turn, the same window starts when the last call ends: a call in
 /// flight keeps the seat however long it runs. An entry that starts waiting between turns makes
-/// the session close at once; one arriving during a turn waits for its end or an inactivity release.
+/// the session close at once, or when its last call in flight ends; one arriving during a turn waits for
+/// its end or an inactivity release.
 /// A call after release finds no live session and must open one again through the queue.
 ///
 /// Calls are serialized by the owner, as `AutomationSessionOperating` requires. Cancelling an
@@ -453,9 +454,11 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     /// Ends one call and restarts the full idle window once the last call ends. Repeated or foreign
     /// tokens do nothing. Human intervention and a closing session keep precedence over the timer.
+    /// Between turns with an entry waiting, the last call ends the session at once, as a turn's end would.
     public func endActivity(_ token: UUID) {
         guard inFlightCalls.remove(token) != nil, inFlightCalls.isEmpty else { return }
         releaseWhenIdle()
+        if !isInTurn, isSomeoneWaiting { Task { await releaseIfSomeoneWaits() } }
     }
 
     /// Borrows the front only for this session's current application, keeping activity through handback.
@@ -1521,10 +1524,13 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         }
     }
 
-    /// Closes when an open session is idle between turns and an entry is waiting for the seat.
+    private var isSomeoneWaiting: Bool { broker.queue.entries.contains { $0.state == .waiting } }
+
+    /// Closes when an open session is idle between turns and an entry is waiting for the seat. A call
+    /// in flight keeps the session, and `endActivity` asks again when the last one ends.
     private func releaseIfSomeoneWaits() async {
-        guard !isInTurn, humanIntervention == nil, id != nil, closing == nil,
-              broker.queue.entries.contains(where: { $0.state == .waiting })
+        guard !isInTurn, humanIntervention == nil, id != nil, closing == nil, inFlightCalls.isEmpty,
+              isSomeoneWaiting
         else { return }
         await close()
     }

@@ -1591,6 +1591,32 @@ struct BrokeredAutomationSessionTests {
         lease.giveBack()
     }
 
+    @Test("a call in flight keeps the seat from a waiting entry between turns, and its end gives the seat back",
+          .timeLimit(.minutes(1)))
+    func aCallInFlightKeepsTheSeatFromAWaiterUntilItEnds() async throws {
+        let broker  = SeatBroker()
+        let desktop = try Self.seated(broker)
+        var activity: UUID?
+        try await desktop.turn {
+            _ = try await desktop.open(application: "Test", window: nil)
+            activity = desktop.beginActivity()
+        }
+        let token = try #require(activity)
+
+        let waiter = Task { try await broker.queue.acquire("Braus") }
+        await Self.letTheWaitBegin()
+        #expect(broker.queue.entries.map(\.state) == [.acting, .waiting])
+        #expect(desktop.holdsComputer)
+
+        desktop.endActivity(token)
+        let lease = try await waiter.value
+
+        #expect(!desktop.holdsComputer)
+        #expect(desktop.id == nil)
+        #expect(broker.queue.entries.map(\.label) == ["Braus"])
+        lease.giveBack()
+    }
+
     @Test("an inactive application is released inside its turn and the next call finds no session",
           .timeLimit(.minutes(1)))
     func anInactiveHolderReleasesInsideItsTurn() async throws {
