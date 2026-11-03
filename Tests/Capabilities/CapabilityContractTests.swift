@@ -17,7 +17,7 @@ struct CapabilityContractTests {
         let definitions = AutomationTools.definitions(for: [.native, .web, .adapters])
         let contracts = ToolCatalogue.contracts(for: [.native, .web, .adapters])
         let core = contracts.filter { $0.origin == .core }
-        #expect(core.count == 22)
+        #expect(core.count == 23)
         #expect(core.map(\.id.rawValue) == definitions.compactMap { $0["name"].string })
         for definition in definitions {
             let contract = try #require(core.first { $0.id.rawValue == definition["name"].string })
@@ -36,16 +36,16 @@ struct CoreEffectClassTests {
         let contracts = ToolCatalogue.contracts(for: [.native, .web, .adapters])
         let registry = try CapabilityRegistry(core: contracts, registered: [])
         let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "human_step",
-                                  "collect_posts", "memory_task"]
+                                  "collect_posts", "memory_task", "canvas"]
         let noSession: Set<String> = ["status", "windows", "apps", "open_session", "app_capabilities",
-                                      "app_call", "memory_task", "human_step"]
+                                      "app_call", "memory_task", "human_step", "canvas"]
         for contract in contracts where contract.origin == .core {
             let name = contract.id.rawValue
             let channel: Channel = ["status", "windows", "apps", "human_step", "memory_task"].contains(name)
                 ? .braus : (["app_call", "app_capabilities"].contains(name) ? .adapter
                     : (name == "collect_posts" ? .web : .seat))
             #expect(contract.channel == channel)
-            if ["memory_task", "human_step"].contains(name) {
+            if ["memory_task", "human_step", "canvas"].contains(name) {
                 guard case .notRecorded = contract.memory else {
                     Issue.record("The interaction cycle owns its own record")
                     continue
