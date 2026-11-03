@@ -77,6 +77,17 @@ struct CanvasNoiseTests {
         }
     }
 
+    @Test("A capture's colour jitter of a level teaches no noise")
+    func colourJitterTeachesNothing() throws {
+        var noise = CanvasNoise()
+        let level = 1.0 / 255
+        try observe(
+            &noise,
+            shades: [0.5, 0.5 + level, 0.5, 0.5 + level, 0.5]
+        )
+        #expect(noise.mask.isEmpty && !noise.isAlwaysChanging)
+    }
+
     @Test
     func oneIdleComparisonIsNotEnough() throws {
         var noise = CanvasNoise()

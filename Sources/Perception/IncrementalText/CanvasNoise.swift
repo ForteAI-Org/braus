@@ -19,8 +19,9 @@ import CoreGraphics
 /// `maxCoverage` of the region's tiles the region is always changing (a video, say): `mask` is empty and
 /// `isAlwaysChanging` tells that state apart from a region without noise.
 ///
-/// The value retains tile hashes and counters, never pixels. One update is O(tiles) with no allocation
-/// once the region's size is stable. Keep one value per region and pass `noises.map(\.mask)`.
+/// A tile changes as `RegionTileDiff.changes` says, beyond its colour tolerance, so a capture's jitter of
+/// a level teaches nothing. The value retains the region's last grid, its hashes and reduced pixels, and
+/// counters. One update is O(tiles) once the region's size is stable. Keep one value per region and pass `noises.map(\.mask)`.
 public struct CanvasNoise: Sendable, Equatable {
 
     /// Idle comparisons with a change that make a tile noise.
@@ -38,7 +39,9 @@ public struct CanvasNoise: Sendable, Equatable {
     }
 
     private var key   : Key?
-    private var hashes: [UInt64] = []
+    /// The region's grid in the frame before, which each tile is compared with.
+    private var grid  : RegionTileDiff.Grid?
+    private var hashes: [UInt64] { grid?.hashes ?? [] }
     /// Idle comparisons in which each tile changed, capped at `learnAfter`.
     private var hits  : [Int]    = []
     /// Idle comparisons since each tile with hits last changed.
@@ -75,10 +78,10 @@ public struct CanvasNoise: Sendable, Equatable {
             downscale: frame.downscale,
             tile     : frame.tile
         )
-        guard next == key, grid.hashes.count == hashes.count else {
+        guard next == key, let previous = self.grid, grid.hashes.count == previous.hashes.count else {
             self = CanvasNoise()
-            key    = next
-            hashes = grid.hashes
+            key       = next
+            self.grid = grid
             hits   = Array(
                 repeating: 0,
                 count    : grid.hashes.count
@@ -86,10 +89,10 @@ public struct CanvasNoise: Sendable, Equatable {
             quiet  = hits
             return
         }
-        defer { hashes = grid.hashes }
+        defer { self.grid = grid }
         guard !hadInput else { return }
-        for index in hashes.indices {
-            if grid.hashes[index] != hashes[index] {
+        for index in grid.hashes.indices {
+            if grid.differs(from: previous, at: index, tolerance: RegionTileDiff.tolerance) {
                 quiet[index] = 0
                 guard hits[index] < Self.learnAfter else { continue }
                 hits[index] += 1
