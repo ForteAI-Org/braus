@@ -8,16 +8,23 @@
 import AppKit
 
 /// CanvasFixture supplies opaque drawing surfaces surrounded by readable native controls.
-/// Lane numbers are one-based; still captures freeze both the meter and the playhead caret.
+/// Lane numbers are one-based; still captures freeze both the meter and the playhead caret. With
+/// `--meter-two-levels` the meter and the caret change only on `stepNotification`, between the meter's two
+/// extremes, so a test's captures each see the other one: a timer's period would alias with their cadence.
 @main
 @MainActor
 final class CanvasFixture: NSObject, NSApplicationDelegate {
 
+    /// The distributed notification that moves a `--meter-two-levels` meter to its other extreme.
+    static let stepNotification = Notification.Name("dev.forte.CanvasFixture.step")
+
     private var window: NSWindow?
     private var timer: Timer?
+    private var stepObserver: NSObjectProtocol?
 
     struct Options {
         var still = false
+        var meterTwoLevels = false
         var meterPhase = 0.0
         var offsets = [Int: CGFloat]()
 
@@ -28,6 +35,10 @@ final class CanvasFixture: NSObject, NSApplicationDelegate {
                 index += 1
                 if flag == "--still" {
                     still = true
+                    continue
+                }
+                if flag == "--meter-two-levels" {
+                    meterTwoLevels = true
                     continue
                 }
                 guard index < arguments.count else { throw Failure.argument(flag) }
@@ -222,7 +233,20 @@ final class CanvasFixture: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
-        if !options.still {
+        if options.meterTwoLevels {
+            stepObserver = DistributedNotificationCenter.default().addObserver(
+                forName: Self.stepNotification,
+                object : nil,
+                queue  : .main
+            ) { [weak timeline] _ in
+                MainActor.assumeIsolated {
+                    guard let timeline else { return }
+                    timeline.phase = timeline.phase < 0.5 ? 1 : 0
+                    timeline.caretVisible.toggle()
+                    timeline.needsDisplay = true
+                }
+            }
+        } else if !options.still {
             timer = Timer.scheduledTimer(
                 withTimeInterval: 0.15,
                 repeats         : true
