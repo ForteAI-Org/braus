@@ -117,19 +117,21 @@ struct CanvasCropTests {
         print("CANVAS_CROP lane 2: \(rect) \(crop.layout.pixelWidth)x\(crop.layout.pixelHeight) px, "
             + "Claude \(crop.claudeTokens), GPT \(crop.gptTokens) tokens per pair, "
             + "PNG \(crop.before.count)+\(crop.after.count) bytes\n\(caption)")
-        // The change grown by the margin, rounded out to the 32-point tiles it was found in.
-        let grown = Self.laneTwoChange.insetBy(dx: -CanvasCrop.margin, dy: -CanvasCrop.margin)
+        // The change grown by the margin, rounded out to the 32-point tiles it was found in. Sampling
+        // one pixel in four can leave up to three columns of a change to the next tile, as here: the
+        // clip's edge at x 255 is seen in the tile from 256, so the margin left of it is 3 points less.
+        let grown = Self.laneTwoChange.insetBy(dx: -(CanvasCrop.margin - 3), dy: -CanvasCrop.margin)
         #expect(rect.contains(grown))
         #expect(grown.insetBy(dx: -32, dy: -32).contains(rect))
-        #expect(rect == CGRect(x: 200, y: 244, width: 400, height: 112))
+        #expect(rect == CGRect(x: 232, y: 244, width: 368, height: 112))
         #expect(!crop.layout.isWholeCanvas)
         #expect(crop.layout.pixelsPerPoint == 1)
-        #expect(crop.layout.pixelWidth == 400 && crop.layout.pixelHeight == 112)
-        #expect(crop.claudeTokens == 2 * 15 * 4)
-        #expect(crop.gptTokens == 125)
+        #expect(crop.layout.pixelWidth == 368 && crop.layout.pixelHeight == 112)
+        #expect(crop.claudeTokens == 2 * 14 * 4)
+        #expect(crop.gptTokens == 116)
         let before = try Self.image(crop.before)
         let after  = try Self.image(crop.after)
-        #expect(before.width == 400 && after.height == 112)
+        #expect(before.width == 368 && after.height == 112)
         // At 1x the crop is the window's own pixels: the moved clip and the lanes around it.
         let recording = try CanvasFixtures.load("clip-moved")
         for (x, y) in [(500, 300), (260, 300), (210, 250)] {
@@ -150,7 +152,7 @@ struct CanvasCropTests {
         #expect(two.layout.rect == one.layout.rect)
         #expect(two.layout.pixelWidth == 2 * one.layout.pixelWidth)
         #expect(two.layout.pixelHeight == 2 * one.layout.pixelHeight)
-        #expect(try Self.image(two.after).width == 800)
+        #expect(try Self.image(two.after).width == 736)
         print("CANVAS_CROP lane 2 zoom 2: Claude \(two.claudeTokens), GPT \(two.gptTokens) tokens per pair")
         try Self.write(two, named: "lane2-2x")
     }
@@ -222,7 +224,7 @@ struct CanvasCropTests {
         var moved = try await CanvasDetectionTests.scene("clip-moved")
         history.observe(&moved.scene, in: moved.image, window: 1, windowSize: Self.window, displayedAt: 50, lastCommandAt: 40)
         let crop = try Self.crop(try history.crop(Self.timeline, isWithheld: { _ in false })).crop
-        #expect(crop.layout.rect == CGRect(x: 200, y: 244, width: 400, height: 112))
+        #expect(crop.layout.rect == CGRect(x: 232, y: 244, width: 368, height: 112))
     }
 
     /// The clip-moved recording with the meter of `meter-phases/3` and the playhead drawn at window x 700: an
@@ -273,8 +275,8 @@ struct CanvasCropTests {
             print("CANVAS_CROP busy clip move, \(points.count) points: \(crop.layout.rect) "
                 + "whole \(crop.layout.isWholeCanvas), Claude \(crop.claudeTokens) tokens per pair")
             #expect(!crop.layout.isWholeCanvas)
-            #expect(crop.layout.rect == CGRect(x: 200, y: 244, width: 400, height: 112))
-            #expect(crop.claudeTokens == 2 * 15 * 4)
+            #expect(crop.layout.rect == CGRect(x: 232, y: 244, width: 368, height: 112))
+            #expect(crop.claudeTokens == 2 * 14 * 4)
         }
         // A click beside the meter keeps the meter's region, nearest to it, and nothing of the clip.
         let (meter, _) = Self.history(
@@ -330,7 +332,7 @@ struct CanvasCropTests {
         let caption = try Self.crop(try history.crop(Self.timeline, isWithheld: { _ in false })).caption
         let lines = caption.components(separatedBy: "\n")
         #expect(lines.count == 3)
-        #expect(lines.first?.hasPrefix("canvas 1: crop 400x112 px of window points 200,244 400x112, 1 px per point") == true)
+        #expect(lines.first?.hasPrefix("canvas 1: crop 368x112 px of window points 232,244 368x112, 1 px per point") == true)
         let rows = try #require(lines.first { $0.hasPrefix("rows (y px): ") })
         for lane in 1...4 { #expect(rows.contains("\"Track \(lane)\" ")) }
         // Track 2's label (window y 278 to 302, within a point of rounding) is inside the crop's height.
@@ -339,8 +341,8 @@ struct CanvasCropTests {
         for seconds in stride(from: 0, through: 30, by: 5) {
             #expect(ruler.contains(String(format: "\"00:%02d\" ", seconds)))
         }
-        // 00:05 sits near window x 295, about 96 pixels into a crop that starts at 200.
-        #expect(ruler.contains("\"00:05\" 96..164"))
+        // 00:05 sits near window x 295, about 64 pixels into a crop that starts at 232.
+        #expect(ruler.contains("\"00:05\" 64..132"))
     }
 
     @Test("A field over the crop is blanked; a secure field refuses it")

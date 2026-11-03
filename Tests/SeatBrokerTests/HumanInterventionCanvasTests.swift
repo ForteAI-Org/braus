@@ -54,8 +54,8 @@ struct HumanInterventionCanvasTests {
         #expect(!picture.isError)
         #expect(picture.images.map(\.mimeType) == ["image/png", "image/png"])
         let sizes = try picture.images.map { try Self.size(of: $0.data) }
-        #expect(sizes == [CGSize(width: 400, height: 112), CGSize(width: 400, height: 112)])
-        #expect(picture.text.contains("canvas 1: crop 400x112 px of window points 200,244 400x112"))
+        #expect(sizes == [CGSize(width: 368, height: 112), CGSize(width: 368, height: 112)])
+        #expect(picture.text.contains("canvas 1: crop 368x112 px of window points 232,244 368x112"))
         #expect(picture.text.contains("\"Track 2\""))
         #expect(!picture.text.contains("privacy unverified"))
         print("CANVAS_REPORT drag\n\(episode.text)\nCANVAS_PICTURE\n\(picture.text)")

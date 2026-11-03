@@ -15,7 +15,8 @@ import CoreGraphics
 /// use a downscale of 1 when every source pixel must contribute.
 public enum RegionTileDiff {
 
-    /// Frame retains region hashes, not images, and can be reused for the next comparison.
+    /// Frame retains each region's hashes and its reduced pixels, not the images, and can be reused for
+    /// the next comparison.
     public struct Frame: Sendable, Equatable {
         public let width    : Int
         public let height   : Int
@@ -32,17 +33,52 @@ public enum RegionTileDiff {
         public let rows  : Int
         public let hashes: [UInt64]
         private let span : Int
+        /// The region reduced by the frame's downscale, RGBA rows of `width` pixels, and the tile size in them.
+        private let rgba : [UInt8]
+        private let width: Int
+        private let tile : Int
 
         fileprivate init(
             region: CGRect,
             grid  : TileGrid,
-            span  : Int
+            span  : Int,
+            rgba  : [UInt8],
+            width : Int,
+            tile  : Int
         ) {
             self.region = region
             self.cols   = grid.cols
             self.rows   = grid.rows
             self.hashes = grid.hashes
             self.span   = span
+            self.rgba   = rgba
+            self.width  = width
+            self.tile   = tile
+        }
+
+        /// Whether tile `index` differs from the same tile of `other` by more than `tolerance` in some
+        /// channel of some pixel. Equal hashes answer at once; a capture's colour jitter of a level or
+        /// two over the whole window then changes nothing.
+        func differs(
+            from other: Grid,
+            at index  : Int,
+            tolerance : Int
+        ) -> Bool {
+            guard hashes[index] != other.hashes[index] else { return false }
+            guard rgba.count == other.rgba.count, width == other.width else { return true }
+
+            let height = rgba.count / (4 * max(width, 1))
+            let x0 = (index % cols) * tile, x1 = min(width, x0 + tile)
+            let y0 = (index / cols) * tile, y1 = min(height, y0 + tile)
+            for y in y0..<y1 {
+                var offset = (y * width + x0) * 4
+                let end    = (y * width + x1) * 4
+                while offset < end {
+                    if abs(Int(rgba[offset]) - Int(other.rgba[offset])) > tolerance { return true }
+                    offset += 1
+                }
+            }
+            return false
         }
 
         /// Maps a row-major index to image pixels, clipping the final row and column.
@@ -118,7 +154,10 @@ public enum RegionTileDiff {
             grids.append(Grid(
                 region: region,
                 grid  : grid,
-                span  : span
+                span  : span,
+                rgba  : rgba,
+                width : width,
+                tile  : tile
             ))
         }
         return Frame(
@@ -130,7 +169,12 @@ public enum RegionTileDiff {
         )
     }
 
-    /// Compares corresponding regions and applies row-major masks independently per region.
+    /// How far a channel may move before its tile counts as changed: a capture can shift every pixel by
+    /// a level or two between frames of an unchanged window, which an exact hash takes for a change.
+    public static let tolerance = 6
+
+    /// Compares corresponding regions and applies row-major masks independently per region. A tile
+    /// changes when a channel of one of its pixels moves by more than `tolerance`.
     /// An empty mask array means no masks; otherwise its count must match the region count.
     /// Out-of-range mask indices do nothing. Masks must be reset after size/configuration changes.
     /// Returns nil for image, region-size, region-count or configuration mismatch. A moved region
@@ -157,7 +201,7 @@ public enum RegionTileDiff {
             var indices: [Int] = []
             var rects  : [CGRect] = []
             for index in current.hashes.indices where
-                current.hashes[index] != previous.hashes[index] && !mask.contains(index) {
+                !mask.contains(index) && current.differs(from: previous, at: index, tolerance: tolerance) {
                 guard let rect = current.rect(at: index) else { return nil }
                 indices.append(index)
                 rects.append(rect)

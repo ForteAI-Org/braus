@@ -7,6 +7,7 @@
 
 import CoreGraphics
 import Darwin
+import Foundation
 import Testing
 @testable import IncrementalText
 
@@ -551,6 +552,47 @@ struct RegionTileDiffTests {
             width : 8,
             height: 8
         )])
+    }
+
+    @Test("A capture's colour jitter of a level over the whole frame changes no tile; a real change does")
+    func toleratesColourJitter() throws {
+        let region = CGRect(x: 0, y: 0, width: 128, height: 128)
+        let before = try pixels { x, y in UInt8(60 + (x * 3 + y) % 120) }
+        // Every channel of every other pixel one level up, as two captures of an unchanged window can differ.
+        let jitter = try pixels { x, y in UInt8(60 + (x * 3 + y) % 120 + (x + y) % 2) }
+        let still  = try #require(RegionTileDiff.changes(from: before, to: jitter, regions: [region]))
+        #expect(still[0].indices.isEmpty)
+
+        let moved = try pixels { x, y in (40..<48).contains(x) && (40..<48).contains(y) ? 250 : UInt8(60 + (x * 3 + y) % 120) }
+        let changed = try #require(RegionTileDiff.changes(from: before, to: moved, regions: [region]))
+        #expect(!changed[0].indices.isEmpty)
+    }
+
+    /// A 128 by 128 opaque grey image whose level at each pixel is `level(x, y)`.
+    private func pixels(_ level: (Int, Int) -> UInt8) throws -> CGImage {
+        let side  = 128
+        var bytes = [UInt8](repeating: 255, count: side * side * 4)
+        for y in 0..<side {
+            for x in 0..<side {
+                let value = level(x, y)
+                for channel in 0..<3 { bytes[(y * side + x) * 4 + channel] = value }
+            }
+        }
+        let space    = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let provider = try #require(CGDataProvider(data: Data(bytes) as CFData))
+        return try #require(CGImage(
+            width            : side,
+            height           : side,
+            bitsPerComponent : 8,
+            bitsPerPixel     : 32,
+            bytesPerRow      : side * 4,
+            space            : space,
+            bitmapInfo       : CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+            provider         : provider,
+            decode           : nil,
+            shouldInterpolate: false,
+            intent           : .defaultIntent
+        ))
     }
 
     private func image(
