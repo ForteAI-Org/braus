@@ -240,4 +240,54 @@ struct SmallAuxiliarySurfaceTests {
         #expect(snapshot.claims.roles.map(\.role) == [.decoration])
         #expect(snapshot.claims.modals.isEmpty, "a focused indicator at the modal panel level is still no modal")
     }
+
+    @Test("when the child read fails, the size decides: a 66 by 20 non-modal dialog is a decoration, a 300 by 200 one a dialog")
+    func theSizeDecidesWhenTheChildDoesNotRead() {
+
+        func identity(_ number: Int) -> WindowIdentity {
+            WindowIdentity(
+                process          : ProcessIdentity(processID: 77, serialNumberHigh: 0, serialNumberLow: 9),
+                windowNumber     : number,
+                ownerConnectionID: 5
+            )
+        }
+        func surface(_ number: Int, _ frame: CGRect) -> WindowSurface {
+            WindowSurface(
+                reference: WindowReference(identity: identity(number), frame: frame),
+                level    : 0,
+                isVisible: true
+            )
+        }
+        func dialog(_ number: Int, title: String, childUnread: Bool) -> AccessibilitySurfaceRecord {
+            AccessibilitySurfaceRecord(
+                processID   : 77,
+                windowNumber: number,
+                role        : .dialog,
+                isMinimised : false,
+                isModal     : false,
+                appIsHidden : false,
+                presentation: WindowPresentationMetadata(role: "AXWindow", subrole: "AXDialog", title: title),
+                indicatorChildUnread: childUnread
+            )
+        }
+
+        let snapshot = CrossCheckedSurfaceReader.assemble(
+            windowServer : [
+                surface(21, Self.indicatorFrame),
+                surface(22, CGRect(x: 100, y: 100, width: 300, height: 200)),
+                surface(23, Self.indicatorFrame)
+            ],
+            accessibility: [
+                dialog(21, title: "Window", childUnread: true),
+                dialog(22, title: "Export Settings", childUnread: true),
+                dialog(23, title: "Window", childUnread: false)
+            ]
+        )
+        let roles = Dictionary(
+            uniqueKeysWithValues: snapshot.claims.roles.map { ($0.surface.windowNumber, $0.role) }
+        )
+        #expect(roles[21] == .decoration, "a failed child read at the indicator's size is still no target")
+        #expect(roles[22] == .dialog, "a titled dialog of a real size stays a dialog")
+        #expect(roles[23] == .dialog, "a child that read and is no sharing button leaves a dialog, whatever the size")
+    }
 }

@@ -27,6 +27,10 @@ nonisolated package struct AccessibilitySurfaceRecord: Sendable, Equatable {
     package let appIsHidden : Bool
     package let presentation: WindowPresentationMetadata
 
+    /// Whether the child that tells the window sharing indicator from a dialog
+    /// was asked for and could not be read, so the predicate could not decide.
+    package let indicatorChildUnread: Bool
+
     package init(
         processID   : Int32,
         windowNumber: Int,
@@ -37,7 +41,8 @@ nonisolated package struct AccessibilitySurfaceRecord: Sendable, Equatable {
         isFocused   : Bool? = nil,
         parentWindowNumber: Int? = nil,
         appIsHidden : Bool,
-        presentation: WindowPresentationMetadata = .init()
+        presentation: WindowPresentationMetadata = .init(),
+        indicatorChildUnread: Bool = false
     ) {
         self.processID    = processID
         self.windowNumber = windowNumber
@@ -49,6 +54,7 @@ nonisolated package struct AccessibilitySurfaceRecord: Sendable, Equatable {
         self.parentWindowNumber = parentWindowNumber
         self.appIsHidden  = appIsHidden
         self.presentation = presentation
+        self.indicatorChildUnread = indicatorChildUnread
     }
 }
 
@@ -446,7 +452,7 @@ nonisolated package enum CrossCheckedSurfaceReader {
                 claims.roles.append(
                     SurfaceRoleClaim(
                         surface   : identity,
-                        role      : role,
+                        role      : Self.role(of: record, readAs: role, frame: surface.reference.frame),
                         provenance: .qualifiedRoleAttestation
                     )
                 )
@@ -677,7 +683,8 @@ nonisolated package enum CrossCheckedSurfaceReader {
                             windowNumbers: windowNumbers
                         ) : nil,
                         appIsHidden : running.isHidden,
-                        presentation: facts.presentation
+                        presentation: facts.presentation,
+                        indicatorChildUnread: facts.indicatorChildUnread
                     )
                 )
             }
@@ -731,6 +738,7 @@ nonisolated package enum CrossCheckedSurfaceReader {
         let role        : SurfaceRole?
         let isMinimised : Bool?
         let isModal     : Bool?
+        let indicatorChildUnread: Bool
     }
 
     /// Which reading took one `AXWindows` entry out of the application's
@@ -981,6 +989,7 @@ nonisolated package enum CrossCheckedSurfaceReader {
             case .failure:                        children = nil
         }
 
+        var indicatorChildUnread = false
         func facts(_ role: SurfaceRole?) -> Result<WindowFacts?, CrossCheckedSurfaceReadFailure> {
             .success(WindowFacts(
                 presentation: WindowPresentationMetadata(
@@ -990,7 +999,8 @@ nonisolated package enum CrossCheckedSurfaceReader {
                 windowNumber: windowNumber,
                 role        : role,
                 isMinimised : isMinimised,
-                isModal     : isModal
+                isModal     : isModal,
+                indicatorChildUnread: indicatorChildUnread
             ))
         }
 
@@ -1024,11 +1034,14 @@ nonisolated package enum CrossCheckedSurfaceReader {
             childCount: children,
             isModal: isModal,
             children: {
-                children == 1 ? onlyChild(
+                guard children == 1 else { return [] }
+                let read = onlyChild(
                     of: window,
                     processID: processID,
                     deadlineNanoseconds: deadlineNanoseconds
-                ) : []
+                )
+                indicatorChildUnread = read.isEmpty
+                return read
             }
         )
         if let knownRole { return facts(knownRole) }
@@ -1082,7 +1095,8 @@ nonisolated package enum CrossCheckedSurfaceReader {
     /// twice, so a fold a moment later reads it with children. That one child,
     /// an `AXButton` titled `WindowSharingSessionButton` on a window that is
     /// not modal, is what separates it from a dialog: `children` is read for
-    /// such a window alone, and it answers a decoration. The seat still never
+    /// such a window alone, and it answers a decoration (a child that does not
+    /// read leaves the size fallback of `role(of:readAs:frame:)`). The seat still never
     /// moves its operating target for a window it detected: this reader
     /// narrows what may be selected, and deciding what is driven is not its job.
     ///
@@ -1215,8 +1229,8 @@ nonisolated package enum CrossCheckedSurfaceReader {
     }
 
     /// The role and title of a window's one child, read only for a window that
-    /// may be the window sharing indicator. A read that fails answers nothing,
-    /// which leaves the window the dialog it reads as.
+    /// may be the window sharing indicator. A read that fails or finds no single
+    /// child answers nothing, and the size rule of `role(of:readAs:frame:)` decides.
     private static func onlyChild(
         of window          : AXUIElement,
         processID          : Int32,
@@ -1524,6 +1538,26 @@ nonisolated package enum CrossCheckedSurfaceReader {
                 }
             }
         return try? number.get()
+    }
+
+    /// The role a record is claimed with: the one it read, except for a window
+    /// the window sharing indicator predicate could not decide because its one
+    /// child did not read, which is claimed a decoration at the indicator's size.
+    ///
+    /// A held application can answer nothing for seconds (Pro Tools during a
+    /// bounce), and a claimed role is never withdrawn, so a failed child read
+    /// must not leave the indicator a dialog for good. A modal answers for itself.
+    package static func role(
+        of record   : AccessibilitySurfaceRecord,
+        readAs role : SurfaceRole,
+        frame       : CGRect
+    ) -> SurfaceRole {
+        // ponytail: the predicate's button is the native trait; this measured 66x20 size class is
+        // only the fallback for a failed child read. Drop it if AX reads stop timing out.
+        guard role == .dialog, record.indicatorChildUnread, record.isModal != true,
+              frame.width <= 80, frame.height <= 24
+        else { return role }
+        return .decoration
     }
 
     private static func visibility(
