@@ -400,11 +400,19 @@ final class WorkerScreenWindowController: NSWindowController, NSWindowDelegate {
         showPresence()
     }
 
-    /// Shows the window in front, as the key window or, without `makingKey`, leaving the keyboard and
-    /// the active app as they are: Braus is not activated.
+    /// Shows the window in front as the key window or, without `makingKey`, just behind Braus's
+    /// frontmost window, the conversation, so it never covers the chat it opened beside, leaving the
+    /// keyboard and the active app as they are: Braus is not activated.
     func show(makingKey: Bool) {
         guard !makingKey else { return showWindow(nil) }
-        window?.orderFront(nil)
+        if let front = NSApp.orderedWindows.first(where: { !($0 is NSPanel) && $0.isVisible && $0.level == .normal }) {
+            window?.order(
+                .below,
+                relativeTo: front.windowNumber
+            )
+        } else {
+            window?.orderFront(nil)
+        }
         showPresence()
     }
 

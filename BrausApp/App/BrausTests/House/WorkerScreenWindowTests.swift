@@ -478,8 +478,8 @@ struct WorkerScreenWindowTests {
         #expect(team.screenHeld(worker.id, true), "the next hold opens it again")
     }
 
-    @Test("Shown for a hold, the window comes in front without the keyboard and without activating Braus")
-    func showsWithoutFocus() throws {
+    @Test("Shown for a hold, the window comes behind the conversation, without the keyboard and without activating Braus")
+    func showsWithoutFocus() async throws {
         let worker     = try busyWorker
         let directory  = TemporaryStore.directory()
         defer { TemporaryStore.discard(directory) }
@@ -495,11 +495,29 @@ struct WorkerScreenWindowTests {
         // Nearly clear, so the test hardly shows over the person's work.
         for each in [window, controller.presencePanel] { each.alphaValue = 0.02 }
         defer { controller.close() }
+        let conversation = NSWindow(contentRect: NSRect(x: 300, y: 300, width: 400, height: 300),
+                                    styleMask: [.titled], backing: .buffered, defer: false)
+        conversation.isReleasedWhenClosed = false
+        conversation.alphaValue           = 0.02
+        defer { conversation.close() }
+        // Braus active with the conversation in front, as when a person watches the chat.
+        for _ in 0..<100 where !conversation.isKeyWindow {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            conversation.makeKeyAndOrderFront(nil)
+            try await Task.sleep(for: .milliseconds(20))
+        }
         let wasActive = NSApp.isActive
         let key       = NSApp.keyWindow
 
         controller.show(makingKey: false)
         #expect(window.isVisible)
+        // The window server's list, front to back, once it has the windows: a panel has no place in
+        // the app's own order.
+        try await Task.sleep(for: .milliseconds(200))
+        let order = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+            .compactMap { $0[kCGWindowNumber as String] as? Int }
+        #expect((order.firstIndex(of: conversation.windowNumber) ?? .max) < (order.firstIndex(of: window.windowNumber) ?? -1),
+                "the window opens behind the conversation, not over it")
         #expect(!window.isKeyWindow)
         #expect(NSApp.keyWindow === key, "the keyboard stays where it was")
         #expect(NSApp.isActive == wasActive, "Braus is not activated")
