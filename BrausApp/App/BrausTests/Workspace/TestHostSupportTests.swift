@@ -5,6 +5,7 @@
 
 import AutomationRuntime
 import Foundation
+import SeatBroker
 import Testing
 @testable import Braus
 
@@ -36,6 +37,20 @@ struct TestHostSupportTests {
         try #require(resolved(support) == resolved(override), "the host's support folder is not the override")
         try #require(resolved(isolation) == resolved(override), "the isolation keeps another folder")
         try #require(resolved(support) != resolved(personal), "the host's support folder is the person's")
+
+        // Inspect the broker the app really constructs, not an unused configuration value. RunRecorder
+        // creates Runs during broker initialization, before a seat or an application is opened.
+        let model = AppModel()
+        let configuration = model.broker.configuration
+        let runs = support.appending(path: "Runs", directoryHint: .isDirectory)
+        let perception = support.appending(path: "Perception", directoryHint: .isDirectory)
+        try #require(resolved(configuration.recordingDirectory) == resolved(runs),
+                     "the broker's recorder is outside the isolated support folder")
+        try #require(resolved(configuration.perceptionStoreDirectory) == resolved(perception),
+                     "the broker's perception path is outside the isolated support folder")
+        var isDirectory: ObjCBool = false
+        try #require(FileManager.default.fileExists(atPath: runs.path, isDirectory: &isDirectory) && isDirectory.boolValue,
+                     "the broker did not create its recorder directory under the isolated support folder")
 
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         try "pid \(getpid())\nsupport \(resolved(support))\n".write(

@@ -142,6 +142,12 @@ thread that touched it.
 | `Router` (`Sources/Integration`) | `RoutingAutomationSession`, the one router before the drivers, knowing none of them: addresses to the web session it is handed, native apps to the native session (the MacDriver), and what that gives back (`RouteHandoff`) to the desktop session ([Web engine](WebDriver.md#the-router-before-the-drivers)) |
 | `braus` (tool, `Tools/Engine/braus`) | the command line: `windows`, `scene`, `act`, `select`, `batch`, `memory` (an application's Brain, `--status`, `--import-json <dir>` to copy earlier JSON Brains into the archive by hand, `--task <id> [--graph]` to read one task's procedures and relations, the non-destructive `--part`, `--requalify`, `--quarantine-policy` and `--apply-relations`, and the Recall's `--recall-status`, `--recall-rebuild` and `--recall-explain <text>`); the composition root that wires the foreground adapters, or with `--seat` a worker's brokered session as the app composes it |
 
+Composition hosts can read the fixed additional schemas through
+`AutomationTools.capabilityDefinitions`. The snapshot uses the same permitted
+contracts as discovery, without running a search or changing the initial tool
+list. Publishing metadata grants no new authority: delegated execution still
+uses `call`, with the original validation, task attribution and recorder.
+
 Before the first SeatDriving observation reaches the Engine, `SeatTarget`
 requires the full attested identity of the adopted window, including its process
 lifetime and owner connection. A different selection refuses before exposing a

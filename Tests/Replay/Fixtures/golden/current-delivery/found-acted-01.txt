@@ -1,0 +1,1 @@
+{"content":[{"text":"<outcome>\nsent · confirmed · continue\nThe requested state is present.\n<\/outcome>","type":"text"}],"isError":false,"structuredContent":{"effect":"confirmed","gesture":"sent","message":"The requested state is present.","recovery":"continue","session":null}}

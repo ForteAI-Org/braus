@@ -17,12 +17,11 @@ import WebSession
 /// headless Chrome with a new temporary profile and archive per mode: the app worker's mode (its loop calls the tools
 /// directly) and the external MCP client's (JSON-RPC to an `MCPRouter` over the tools), each with its own producer and
 /// channels `[.web]`. It compares two rebuilt modes, not the real entries (`WorkerAgentHost`, `ExternalMCPSession`).
-/// `braus chat` is not a mode here: it refuses the web channel before any turn (`ChatSession`), a coherent outcome
-/// but not the same effect.
+/// `braus chat` is outside this test: this compares rebuilt worker and external-client boundaries only.
 ///
 /// The effect is what the page asked of the local shop server (`ShopFixtureServer`, 127.0.0.1): read without the
-/// browser, Braus's perception or its answers. The oracles: one search for `lamps` from each mode and none from a stale
-/// session ID; the same answers once identifiers are set aside; the same calls in each archive with the mode's own
+/// browser, Braus's perception or its answers. The oracles: one search for `lamps` from each mode and none from an invalid
+/// explicit session field; the same answers once identifiers are set aside; the same calls in each archive with the mode's own
 /// producer; the same web identity; a declared secret in no answer and no file of the archive.
 ///
 /// Opt in with `BRAUS_WEB_LIVE_TESTS=1`; needs Google Chrome in `/Applications`. No network beyond 127.0.0.1, no
@@ -113,8 +112,8 @@ struct WebEntryModesLiveTests {
         await server.targets.dropFirst(start).filter { $0.hasPrefix("/search") }
     }
 
-    /// The task in `mode` on the shop `server` serves: open the shop, begin with a declared secret (required begun),
-    /// type the query, press Go, a call with a stale session ID, end (required ended, completed).
+    /// The task in `mode` on the shop `server` serves: open the shop, plan with a declared secret,
+    /// type the query, press Go, refuse an explicit session field, then end completed.
     static func run(_ mode: Mode, on server: ShopFixtureServer) async throws -> Run {
         let temporary = URL.temporaryDirectory.appending(path: "braus-i01-web-\(mode.rawValue)-\(UUID().uuidString)",
                                                          directoryHint: .isDirectory)
@@ -175,32 +174,35 @@ struct WebEntryModesLiveTests {
         // removed with nothing open in it.
         do {
             // The page first: the routing session's memory is the web route's, there once the route is open
-            // (`DesktopProbe` has none). A task begun before it answers no_memory (Codex's run of `6a198ad9`).
+            // (`DesktopProbe` has none). The plan therefore follows the successful open.
             func answered(_ what: String) {
                 if case .refused(let words)? = run.outcomes.last { Issue.record("\(mode): \(what) refused: \(words)") }
             }
             _ = await call("open_session", #"{"app":"\#(server.url.absoluteString)"}"#)
             answered("open_session")
-            let id = try #require(web.id, "\(mode): \(run.outcomes)").uuidString
-            let begun = await call("memory_task", #"""
-                {"operation":"begin","goal":"Search lamps on the shop","recall":false,
-                 "inputs":[{"name":"query","value":"lamps"},{"name":"access_code","value":"\#(secret)","secret":true}]}
+            _ = try #require(web.id, "\(mode): \(run.outcomes)")
+            let planned = await call("plan", #"""
+                {"request":"Search lamps on the shop",
+                 "inputs":[{"name":"query","value":"lamps"},{"name":"access_code","value":"\#(secret)","secret":true}],
+                 "rows":[{"title":"Enter the query"},{"title":"Submit the search"}]}
                 """#)
-            try #require(begun["status"].string == "begun", "\(mode): the task did not begin: \(begun)")
-            _ = await call("type_text", #"{"session":"\#(id)","target":"Search","text":"lamps"}"#)
+            try #require(planned["status"].string == "planned" && planned["task"].string != nil,
+                         "\(mode): the task was not planned: \(planned)")
+            #expect(planned["rows"].array?.map { $0["id"].string } == ["r1", "r2"])
+            _ = await call("type_text", #"{"target":"Search","text":"lamps","step":"r1"}"#)
             answered("type_text")
-            _ = await call("act", #"{"session":"\#(id)","target":"Go"}"#)
+            _ = await call("act", #"{"target":"Go","step":"r2"}"#)
             answered("act")
             try #require(try await eventually { await !searches(server, since: start).isEmpty },
                          "\(mode): the shop received no search: \(run.outcomes)")
             let searched = await searches(server, since: start)
-            _ = await call("act", #"{"session":"\#(UUID().uuidString)","target":"Go"}"#)
+            _ = await call("act", #"{"session":"\#(UUID().uuidString)","target":"Go","step":"r2"}"#)
             if case .answer(let answered)? = run.outcomes.last {
-                Issue.record("\(mode): a stale session ID was answered: \(answered)")
+                Issue.record("\(mode): an unsupported session field was answered: \(answered)")
             }
             try await Task.sleep(for: .milliseconds(500))
-            #expect(await searches(server, since: start) == searched, "\(mode): a search after the stale call")
-            let ended = await call("memory_task", #"{"operation":"end","outcome":"completed"}"#)
+            #expect(await searches(server, since: start) == searched, "\(mode): a search after the invalid session field")
+            let ended = await call("end", #"{"outcome":"completed"}"#)
             try #require(ended["status"].string == "ended" && ended["outcome"].string == "completed",
                          "\(mode): the task did not end completed: \(ended)")
         } catch {
@@ -238,7 +240,7 @@ struct WebEntryModesLiveTests {
         return run
     }
 
-    @Test("I01-W: the same web task from the worker's mode and the MCP client's: one search each on the local shop, none from a stale ID, the same answers and calls, each call its mode's own")
+    @Test("I01-W: the same web task from the worker's mode and the MCP client's: one search each on the local shop, none from an invalid session field, the same answers and calls, each call its mode's own")
     func sameWebTaskFromTwoModes() async throws {
         let server = try await ShopFixtureServer.start()
         var runs: [Mode: Run] = [:]

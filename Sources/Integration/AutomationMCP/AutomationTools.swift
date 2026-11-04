@@ -254,6 +254,12 @@ public final class AutomationTools {
         dispatcher.toolDefinitions
     }
 
+    /// The additional schemas permitted by this composition, independent of search ranking.
+    /// Hosts may publish this frozen metadata through their protocol; execution still uses `call`.
+    public var capabilityDefinitions: [JSONValue] {
+        dispatcher.capabilityDefinitions
+    }
+
     /// This instance's instructions: those of the channels it serves, as `toolDefinitions`.
     public var instructions: String { Self.instructions(for: channels) }
 

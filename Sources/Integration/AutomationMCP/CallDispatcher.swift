@@ -134,6 +134,12 @@ final class CallDispatcher {
         self.directNames = Set(frozenDefinitions.compactMap { $0["name"].string })
     }
 
+    /// Returns the same authorized contracts used by discovery, without running a search or a call.
+    var capabilityDefinitions: [JSONValue] {
+        let names = Set(entries.map { $0.contract.id.rawValue })
+        return callableDefinitions.filter { names.contains($0["name"].string ?? "") }
+    }
+
     /// Installs profile guides prepared before the first call, retaining the session's fixed tool list.
     func installProfileGuides(_ guides: AppGuides) throws {
         guard self.guides == nil else { return }

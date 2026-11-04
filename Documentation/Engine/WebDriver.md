@@ -273,8 +273,10 @@ BRAUS_WEB_LIVE_TESTS=1 swift test --filter "WebDriverTests|WebDrivingTests|WebSe
 ```
 
 The live tests need Google Chrome in `/Applications`, use a throwaway profile and a local fixture,
-reach no network and leave no Chrome running. One drives `open_session`, `type_text`, `act`,
-`select` and `memory_task` through `AutomationTools` and reads the archive afterwards. The visible
+reach no network and leave no Chrome running. `WebEntryModesLiveTests` uses the current `open_session`,
+`plan`, `type_text`, `act` and `end` contracts through `AutomationTools` and reads the archive afterwards.
+Gestures carry row `step` values; the current session is implicit. An explicit `session` field is rejected
+as an invalid argument, not interpreted as a supported session selector. The visible
 window test (`BRAUS_WEB_WINDOW_TESTS=1`) opens a Chrome window on the person's screen and checks
 that the frontmost application never changes.
 

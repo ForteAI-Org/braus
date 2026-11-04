@@ -28,8 +28,8 @@ private let usage = ModelUsage(
 
 private let statusCall = ToolCall(
     id       : "call_0",
-    name     : "status",
-    arguments: Data("{}".utf8)
+    name     : "call",
+    arguments: Data(#"{"name":"status","arguments":{}}"#.utf8)
 )
 
 private let openTextEdit = ToolCall(
@@ -449,18 +449,15 @@ struct ModelToolLoopTests {
         #expect(events.last == .provider(.completed))
 
         let answered = try #require(transport.sent.last?.messages.last)
-        let expected = MCPRouter.failureResult(AutomationFailure(DesktopUnavailableSession.refusal))
+        // An exception after entering an effectful tool cannot prove that nothing was sent.
+        let expected = EngineCore.Outcome(gesture: .uncertain, effect: .unknown(.notReadable), recovery: .doNotRepeat)
         #expect(answered.role == .tool)
         #expect(answered.isError)
-        // Compared as JSON, since an object's keys come out in no fixed order.
-        let decoded = try JSONDecoder().decode(
-            JSONValue.self,
-            from: Data(answered.text.utf8)
-        )
-        let sent = try #require(expected["content"].array?.first?["text"].string)
-        #expect(decoded == (try JSONDecoder().decode(JSONValue.self, from: Data(sent.utf8))))
-        #expect(expected["structuredContent"] == .null)
-        #expect(answered.text.contains(#""status":"error""#))
+        #expect(answered.call?.id == openTextEdit.id)
+        #expect(transport.sent.count == 2, "the model received the refusal and continued the turn")
+        #expect(answered.text.hasPrefix("<outcome>\n" + expected.row + "\n"), "\(answered.text)")
+        #expect(answered.text.hasSuffix("\n</outcome>"), "\(answered.text)")
+        #expect(!answered.text.contains("<scene>"), "a failed opening invents no scene")
     }
 
     @Test func theRoundsCostIsAddedUpTheLastRoundIsTheContextAndOllamasWindowIsItsSetting() async throws {
@@ -530,16 +527,15 @@ struct ModelToolLoopTests {
 
     @Test func aLoopTurnOpensWithTheSeatLineAndSendsItsFirstActionsSceneWhole() async throws {
         let session   = UnchangingSession()
-        let id        = try #require(session.id).uuidString
         let observe   = ToolCall(
             id       : "call_0",
             name     : "observe",
-            arguments: Data(#"{"session":"\#(id)"}"#.utf8)
+            arguments: Data("{}".utf8)
         )
         let act       = ToolCall(
             id       : "call_1",
             name     : "act",
-            arguments: Data(#"{"session":"\#(id)","target":"Button 1"}"#.utf8)
+            arguments: Data(#"{"target":"Button 1"}"#.utf8)
         )
         let transport = ScriptedTransport(
             supportsTools: true,
@@ -575,9 +571,9 @@ struct ModelToolLoopTests {
         #expect(sent[0].messages.last?.text == seat + "\n\nClick Button 1.")
         #expect(sent[3].messages.last?.text == seat + "\n\nAgain.")
         // Within a turn an action's scene is its changes; the next turn's first one is whole again.
-        #expect(sent[2].messages.last?.text.contains(#""changes""#) == true)
-        #expect(sent[4].messages.last?.text.contains(#""scene""#) == true)
-        #expect(sent[4].messages.last?.text.contains(#""changes""#) == false)
+        #expect(sent[2].messages.last?.text.contains("since:") == true)
+        #expect(sent[4].messages.last?.text.contains("<scene>") == true)
+        #expect(sent[4].messages.last?.text.contains("since:") == false)
         #expect(!events.contains { String(describing: $0).contains("Braus seat") })
     }
 
@@ -677,8 +673,8 @@ struct ModelToolLoopTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let session = UnchangingSession()
         session.memoryDirectory = directory
-        let begin = ToolCall(id: "begin", name: "memory_task", arguments: Data(
-            #"{"operation":"begin","goal":"Change the tempo","recall":false}"#.utf8
+        let begin = ToolCall(id: "plan", name: "plan", arguments: Data(
+            #"{"request":"Change the tempo","rows":[{"title":"Change the tempo"}]}"#.utf8
         ))
         var transport = ScriptedTransport(supportsTools: true, rounds: [[.toolCall(begin), .completed(usage)]])
         let host = WorkerAgentHost(
@@ -695,7 +691,12 @@ struct ModelToolLoopTests {
             }
         }
         try await Self.wait { transport.sent.count == 2 }
-        #expect(events.contains { if case .tool(let text) = $0 { text.contains(#""status":"begun""#) } else { false } })
+        let firstMessage = try #require(transport.sent.last?.messages.first { $0.role == .tool && $0.call?.id == "plan" })
+        try #require(!firstMessage.isError, "\(firstMessage.text)")
+        let firstPlan = try JSONDecoder().decode(JSONValue.self, from: Data(firstMessage.text.utf8))
+        #expect(firstPlan["status"].string == "planned")
+        let firstTask = try #require(firstPlan["task"].string)
+        let firstAttempt = try #require(firstPlan["attempt"].string)
         if stop {
             host.stop()
             await #expect(throws: CancellationError.self) { try await turn.value }
@@ -704,16 +705,28 @@ struct ModelToolLoopTests {
             await #expect(throws: WorkerAgentHost.HumanInterventionSuspended.self) { try await turn.value }
             try host.endHumanIntervention(token)
         }
-        let next = stop ? begin : ToolCall(id: "status", name: "memory_task", arguments: Data(#"{"operation":"status"}"#.utf8))
+        let nextArguments = stop ? begin.arguments : Data(
+            #"{"rows":[{"id":"r1","title":"Change the tempo"}]}"#.utf8)
+        let next = ToolCall(id: "next-plan", name: "plan", arguments: nextArguments)
+        let end = ToolCall(id: "end", name: "end", arguments: Data(#"{"outcome":"completed"}"#.utf8))
         transport = ScriptedTransport(supportsTools: true, rounds: [
-            [.toolCall(next), .completed(usage)], [.delta("Checked."), .completed(usage)]
+            [.toolCall(next), .completed(usage)], [.toolCall(end), .completed(usage)],
+            [.delta("Checked."), .completed(usage)]
         ])
         events.removeAll()
         try await host.run(prompt: "Next request.", selection: ollama, sessionID: nil, role: nil) { events.append($0) }
-        let expected = stop ? #""status":"begun""# : #""status":"open""#
-        #expect(events.contains { if case .tool(let text) = $0 { text.contains(expected) } else { false } })
+        let nextMessage = try #require(transport.sent.last?.messages.first { $0.role == .tool && $0.call?.id == next.id })
+        try #require(!nextMessage.isError, "\(nextMessage.text)")
+        let nextPlan = try JSONDecoder().decode(JSONValue.self, from: Data(nextMessage.text.utf8))
+        #expect(nextPlan["status"].string == (stop ? "planned" : "revised"))
+        #expect((nextPlan["task"].string == firstTask) == !stop)
+        #expect((nextPlan["attempt"].string == firstAttempt) == !stop)
+        let endMessage = try #require(transport.sent.last?.messages.first { $0.role == .tool && $0.call?.id == "end" })
+        #expect(!endMessage.isError, "\(endMessage.text)")
+        let ended = try JSONDecoder().decode(JSONValue.self, from: Data(endMessage.text.utf8))
+        #expect(ended["status"].string == "ended" && ended["outcome"].string == "completed")
         #expect(!events.contains { if case .tool(let text) = $0 { text.contains("task_already_open") } else { false } })
-        #expect(transport.sent.first?.messages.last?.text.contains("closed its attempt as abandoned") == stop)
+        #expect(transport.sent.first?.messages.last?.text.contains("closed it as abandoned, not completed") == stop)
         try await host.close()
         await MemoryService.shared(for: directory).close()
     }
@@ -776,9 +789,7 @@ struct ModelToolLoopTests {
     func takeControlInterruptsObserve() async throws {
         let session = UnchangingSession()
         session.holdsRead = true
-        let call = ToolCall(id: "read", name: "observe", arguments: Data(
-            "{\"session\":\"\(try #require(session.id).uuidString)\"}".utf8
-        ))
+        let call = ToolCall(id: "read", name: "observe", arguments: Data("{}".utf8))
         let transport = ScriptedTransport(supportsTools: true, rounds: [[.toolCall(call), .completed(usage)]])
         let host = WorkerAgentHost(
             workingDirectory: URL.temporaryDirectory.appending(path: "braus-interrupt-\(UUID())"),
@@ -816,7 +827,7 @@ struct ModelToolLoopTests {
             session.holdsRead = true
         }
         let arguments = tool == "act"
-            ? "{\"session\":\"\(try #require(session.id).uuidString)\",\"target\":\"Button 1\"}"
+            ? "{\"target\":\"Button 1\"}"
             : "{\"app\":\"Test\"}"
         let call = ToolCall(id: "protected", name: tool, arguments: Data(arguments.utf8))
         let transport = ScriptedTransport(supportsTools: true, rounds: [[.toolCall(call), .completed(usage)]])
@@ -1499,7 +1510,7 @@ extension ModelToolLoopTests {
             #expect(!Task.isCancelled)
             completed = true
         }
-        let arguments = "{\"session\":\"\(try #require(session.id).uuidString)\",\"target\":\"Button 1\"}"
+        let arguments = "{\"target\":\"Button 1\"}"
         let transport = ScriptedTransport(supportsTools: true, rounds: [[
             .toolCall(ToolCall(id: "reading", name: "act", arguments: Data(arguments.utf8))), .completed(usage)
         ]])

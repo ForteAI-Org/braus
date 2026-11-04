@@ -10,10 +10,6 @@ struct ReplayRegenerationTests {
     func golden(_ item: ReplayCase) async throws {
         let actual = try await replayBytes(regenerateModelAnswer(#require(item.input), tool: item.tool))
         let file = ReplayCorpus.fixtures.appending(path: "golden/current-delivery/\(item.id).txt")
-        if ProcessInfo.processInfo.environment["BRAUS_RECORD_REPLAY_GOLDENS"] == "1" {
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try actual.write(to: file)
-        }
         let expected = try Data(contentsOf: file)
         #expect(actual == expected, "\(item.id): golden bytes differ")
     }

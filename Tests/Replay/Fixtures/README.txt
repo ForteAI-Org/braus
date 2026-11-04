@@ -22,9 +22,13 @@ only; history is never an active reference. Remove resolved exceptions.
 
 Current model delivery is regenerated through ResultFormatter.finish and pinned in
 `golden/current-delivery/`. The original `golden/*.txt`, recorded answers and scene
-totals above remain historical evidence. Set BRAUS_RECORD_REPLAY_GOLDENS=1 only
-when intentionally recording and reviewing a changed current contract; rerun
-without it to verify. Current tagged outcomes retain synchronized structured
+totals above remain historical evidence. The fifteen current delivery files were
+recovered byte for byte from the preserved resources used to verify the delivery
+contract committed in c7c31e53820d958ba98d3d761874f5ad71b33841; no expectations
+were regenerated during recovery. Tests only read the versioned expected files.
+An intentional contract change requires a separately produced candidate and a
+reviewed expected-file diff before verification; the assertion never records its
+own expected bytes. Current tagged outcomes retain synchronized structured
 content; producer diagnostic prose stays out of the model-facing message.
 The bounded scene policy removes the regenerated sequence-4 depth exception;
 the historical depth exception remains. The original scene-size threshold is

@@ -174,15 +174,20 @@ struct WebSessionLiveTests {
             let fixture = try #require(Bundle.module.url(forResource: "web-session", withExtension: "html"))
 
             let opened = try await tools.call("open_session", Self.json(#"{"app":"\#(fixture.absoluteString)"}"#))
-            let id = try #require(web.id?.uuidString, "\(opened)")
-            _ = try await tools.call("memory_task", Self.json(#"{"operation":"begin","goal":"Send a note to Ada"}"#))
-            let typed = try await tools.call("type_text", Self.json(#"{"session":"\#(id)","target":"Name","text":"Ada"}"#))
+            _ = try #require(web.id, "\(opened)")
+            let planned = try await tools.call("plan", Self.json(#"""
+                {"request":"Send a note to Ada and choose Blue",
+                 "rows":[{"title":"Enter the name"},{"title":"Send the note"},{"title":"Choose the color"}]}
+                """#))
+            try #require(planned["isError"].bool != true, "\(planned)")
+            let typed = try await tools.call("type_text", Self.json(#"{"target":"Name","text":"Ada","step":"r1"}"#))
             #expect(typed["isError"].bool != true, "\(typed)")
-            let sent = try await tools.call("act", Self.json(#"{"session":"\#(id)","target":"Send"}"#))
+            let sent = try await tools.call("act", Self.json(#"{"target":"Send","step":"r2"}"#))
             #expect(sent["isError"].bool != true, "\(sent)")
-            let chose = try await tools.call("select", Self.json(#"{"session":"\#(id)","control":"Color","item":"Blue"}"#))
+            let chose = try await tools.call("call", Self.json(#"{"name":"select","arguments":{"control":"Color","item":"Blue","step":"r3"}}"#))
             #expect(chose["isError"].bool != true, "\(chose)")
-            _ = try await tools.call("memory_task", Self.json(#"{"operation":"end","outcome":"completed"}"#))
+            let ended = try await tools.call("end", Self.json(#"{"outcome":"completed"}"#))
+            #expect(ended["isError"].bool != true, "\(ended)")
             let seen = try await web.observe()
             #expect(seen.elements.contains { $0.label == "Color Blue" })
         } catch {
@@ -222,8 +227,9 @@ struct WebSessionLiveTests {
         let secrets = ["4111111111111111", "secret-cvc-737", "secret-otp-654321", "hunter2-secret"]
 
         let opened   = try await tools.call("open_session", Self.json(#"{"app":"\#(fixture.absoluteString)"}"#))
-        let id       = try #require(web.id?.uuidString, "\(opened)")
-        let observed = try await tools.call("observe", Self.json(#"{"session":"\#(id)","full":true}"#))
+        _ = try #require(web.id, "\(opened)")
+        let observed = try await tools.call("observe", Self.json(#"{"full":true}"#))
+        #expect(observed["isError"].bool != true, "\(observed)")
         let answers  = "\(opened)\(observed)"
         #expect(answers.contains("Quantity") && answers.contains("10115"), "\(answers)")
         #expect(!secrets.contains { answers.contains($0) }, "\(answers)")
@@ -299,13 +305,18 @@ struct WebSessionWindowTests {
         let front   = WebSessionWindowTests.frontName()
 
         let opened = try await tools.call("open_session", WebSessionLiveTests.json(#"{"app":"\#(fixture.absoluteString)"}"#))
-        let id = try #require(web.id?.uuidString, "\(opened)")
+        _ = try #require(web.id, "\(opened)")
         try await Task.sleep(for: .seconds(1))
         let afterOpen = WebSessionWindowTests.frontName()
         #expect(afterOpen == front, "opening took the focus: \(front) -> \(afterOpen)")
-        let typed = try await tools.call("type_text", WebSessionLiveTests.json(#"{"session":"\#(id)","target":"Name","text":"Ada"}"#))
+        let planned = try await tools.call("plan", WebSessionLiveTests.json(#"""
+            {"request":"Send a note to Ada without taking focus",
+             "rows":[{"title":"Enter the name"},{"title":"Send the note"}]}
+            """#))
+        try #require(planned["isError"].bool != true, "\(planned)")
+        let typed = try await tools.call("type_text", WebSessionLiveTests.json(#"{"target":"Name","text":"Ada","step":"r1"}"#))
         #expect(typed["isError"].bool != true, "\(typed)")
-        let sent = try await tools.call("act", WebSessionLiveTests.json(#"{"session":"\#(id)","target":"Send"}"#))
+        let sent = try await tools.call("act", WebSessionLiveTests.json(#"{"target":"Send","step":"r2"}"#))
         #expect(sent["isError"].bool != true, "\(sent)")
         try await Task.sleep(for: .seconds(2))
         let windows = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? []
@@ -315,6 +326,8 @@ struct WebSessionWindowTests {
             "no Chrome window is on screen")
         let afterAct = WebSessionWindowTests.frontName()
         #expect(afterAct == front, "acting took the focus: \(front) -> \(afterAct)")
+        let ended = try await tools.call("end", WebSessionLiveTests.json(#"{"outcome":"completed"}"#))
+        #expect(ended["isError"].bool != true, "\(ended)")
         await web.close()
     }
 

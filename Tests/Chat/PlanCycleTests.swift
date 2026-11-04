@@ -74,19 +74,34 @@ struct PlanCycleTests {
         }
     }
 
-    @Test(.enabled(if: SQLiteMemorySchema.version == 19, "Schema 19 availability contract"))
-    func unavailableArchiveNeverOpensFirstTask() async throws {
+    @Test func unavailableArchiveNeverOpensFirstTask() async throws {
+        let root = URL.temporaryDirectory.appending(path: "tu6-unavailable-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appending(path: "not-a-directory")
+        let original = Data("This file must not be replaced by an operation archive.".utf8)
+        try original.write(to: directory)
+        let session = ToolResultSession()
+        session.memoryDirectory = directory
+        let tools = AutomationTools(session: session)
+        let memory = MemoryService.shared(for: directory)
         do {
-            let directory = URL.temporaryDirectory.appending(path: "tu6-unavailable-\(UUID().uuidString)")
-            let session = ToolResultSession()
-            session.memoryDirectory = directory
-            let tools = AutomationTools(session: session)
             let result = try await tools.call("plan", arguments(1))
             #expect(result["isError"].bool == true)
+            let text = try #require(result["content"].array?.first?["text"].string)
+            let payload = try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+            #expect(payload["status"].string == "error")
+            #expect(payload["error"].string == "memory_unavailable")
             #expect(tools.openTask == nil)
-            #expect(String(describing: result).contains("todo_unavailable"))
-            await MemoryService.shared(for: directory).close()
+            #expect(session.calls.isEmpty)
+        } catch {
+            await memory.close()
+            MemoryService.forget(directory)
+            throw error
         }
+        await memory.close()
+        MemoryService.forget(directory)
+        #expect(try Data(contentsOf: directory) == original)
     }
 }
 

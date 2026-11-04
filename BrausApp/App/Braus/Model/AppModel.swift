@@ -27,7 +27,11 @@ import os
 @MainActor
 final class AppModel {
 
-    let broker = SeatBroker(configuration: .init(allowUnvalidatedBuild: true))
+    let broker = SeatBroker(configuration: .init(
+        allowUnvalidatedBuild: true,
+        perceptionStoreDirectory: WorkspaceLaunch.directory.appending(path: "Perception", directoryHint: .isDirectory),
+        recordingDirectory: WorkspaceLaunch.directory.appending(path: "Runs", directoryHint: .isDirectory)
+    ))
 
     let settings = ModelSettingsStore()
 

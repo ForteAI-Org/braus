@@ -11,11 +11,11 @@ import Testing
 @testable import Braus
 
 /// M07 through the worker's own path, to the workspace's files: a secret a task declares in a loop turn's
-/// `memory_task` is in no file of the workspace afterwards, whatever the turns carry once it is known: the worker's
+/// `plan` is in no file of the workspace afterwards, whatever the turns carry once it is known: the worker's
 /// reply, a command line's own web search and page read, the note before them, its failure's reason. The provider is
 /// a stand-in, the desktop unavailable, the store temporary and reopened as a relaunch would open it.
 ///
-/// What is proved is the tools' classification of the secret, which `memory_task` makes before anything else, and the
+/// What is proved is the tools' classification of the secret, which `plan` makes before anything else, and the
 /// workspace writer withholding it: the task itself may be refused (the unavailable desktop has no memory), and
 /// nothing here claims the living memory kept anything.
 @MainActor
@@ -35,9 +35,9 @@ struct WorkerSecretPersistenceTests {
         let directory = root.appending(path: "store", directoryHint: .isDirectory)
         let work      = root.appending(path: "work", directoryHint: .isDirectory)
 
-        // Turn 1, Braus's own loop: the model declares the secret in memory_task, then names it in its reply.
-        let begin = ToolCall(id: "call_0", name: "memory_task", arguments: Data(#"""
-            {"operation":"begin","goal":"Sign in to the fixture","remaining":"Sign in to the fixture",
+        // Turn 1, Braus's own loop: the model declares the secret in plan, then names it in its reply.
+        let begin = ToolCall(id: "call_0", name: "plan", arguments: Data(#"""
+            {"request":"Sign in to the fixture","rows":[{"title":"Sign in"}],
              "inputs":[{"name":"password","value":"\#(Self.secret)","secret":true}]}
             """#.utf8))
         let transport = Script(rounds: [
@@ -103,9 +103,9 @@ struct WorkerSecretPersistenceTests {
             }
             try await host.close()
         }
-        // What memory_task answered the model: accepted or refused, it holds no piece of the secret.
+        // What plan answered the model: accepted or refused, it holds no piece of the secret.
         let answer = try #require(transport.sent.flatMap { $0 }.first { $0.role == .tool && $0.call?.id == "call_0" })
-        print("memory_task answered:", answer.isError ? "error" : "result", answer.text.prefix(300))
+        print("plan answered:", answer.isError ? "error" : "result", answer.text.prefix(300))
         #expect(!answer.text.contains(Self.fragment), "\(answer.text)")
         #expect(endings.count == 3 && endings.first == .completed && endings.last == .completed, "\(endings)")
         guard endings.count == 3, case .failed = endings[1] else {

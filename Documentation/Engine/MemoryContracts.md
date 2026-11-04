@@ -353,8 +353,8 @@ claim on process exit. An unavailable claim refuses writes without queuing or re
 Executor locks live in the process's temporary directory, so an unknown executor after reboot or across sandbox
 boundaries remains unresolved.
 
-`memory_task reconcile` accepts only unresolved calls of the current producer stream. The store requires a later
-successful read in the same stream, service, route and compatible profile/account context, with resource-specific
+`reconcile_call`, discovered through `find` and executed through `call`, accepts only unresolved calls of the
+current producer stream. The store requires a later successful read in the same stream, service, route and compatible profile/account context, with resource-specific
 evidence. A reminder completion needs the same reminder's `completed` flag. Creation needs the created identifier;
 GitHub issue creation also needs the declared read-back tool and matching namespace arguments. Linear creation
 currently lacks that namespace evidence in its retained read-back contract and remains unresolved. Generic status,

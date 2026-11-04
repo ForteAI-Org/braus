@@ -1,0 +1,1 @@
+{"content":[{"text":"<outcome>\nuncertain · unknown(not_readable) · do_not_repeat\nThe seat reported an error it does not describe.\n<\/outcome>","type":"text"}],"isError":false,"structuredContent":{"effect":"unknown(not_readable)","gesture":"uncertain","message":"The seat reported an error it does not describe.","recovery":"do_not_repeat","session":null}}

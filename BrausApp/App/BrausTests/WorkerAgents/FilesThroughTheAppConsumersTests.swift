@@ -27,7 +27,7 @@ import Testing
 /// model or the client read; each archive's `app_call`s under the task, with the adapter dispatch where the adapter
 /// ran and none where the policy refused before it, their arguments carrying the marker and never the content; no
 /// content in the worker's transcript events nor in any file of either archive; a refused overwrite with the bytes
-/// unchanged. And the channel off: with the same hook, neither consumer offers `app_call`, a call to it is refused
+/// unchanged. And the channel off: with the same hook, the `files` capability is unavailable and a delegated call is refused
 /// before any effect, and a client without the desktop is refused by the router's protocol error.
 @MainActor
 @Suite("F06: the files adapter through the app's worker and external client", .serialized, .timeLimit(.minutes(2)))
@@ -43,20 +43,22 @@ struct FilesThroughTheAppConsumersTests {
     nonisolated static let note     = "P12/note.txt"
 
     nonisolated static func files(_ verb: String, _ arguments: [String: JSONValue]) -> JSONValue {
-        .object(["app": .string("files"), "verb": .string(verb), "arguments": .object(arguments)])
+        var fields = arguments
+        if verb != "read" { fields["step"] = .string("r1") }
+        return .object(["name": .string("files." + verb), "arguments": .object(fields)])
     }
 
     /// The task's calls, in order, as the model would make them and as a client would send them.
     nonisolated static let steps: [(name: String, arguments: JSONValue)] = [
-        ("memory_task", .object(["operation": .string("begin"), "goal": .string("Keep a note in a folder"),
-                                 "remaining": .string("Keep a note in a folder")])),
-        ("app_call", files("make_folder", ["path": .string("~/P12")])),
-        ("app_call", files("write", ["path": .string("~/P12/note.txt"), "text": .string(written)])),
-        ("app_call", files("read", ["path": .string("~/P12/note.txt")])),
-        ("app_call", files("edit", ["path": .string("~/P12/note.txt"), "find": .string(found), "replace": .string(replaced)])),
-        ("app_call", files("write", ["path": .string("~/P12/note.txt"), "text": .string("gone")])),
-        ("app_call", files("move_to_trash", ["path": .string("~/P12/note.txt")])),
-        ("memory_task", .object(["operation": .string("end"), "outcome": .string("completed")])),
+        ("plan", .object(["request": .string("Keep a note in a folder"),
+                           "rows": .array([.object(["title": .string("Prepare, inspect and edit the note")])])])),
+        ("call", files("make_folder", ["path": .string("~/P12")])),
+        ("call", files("write", ["path": .string("~/P12/note.txt"), "text": .string(written)])),
+        ("call", files("read", ["path": .string("~/P12/note.txt")])),
+        ("call", files("edit", ["path": .string("~/P12/note.txt"), "find": .string(found), "replace": .string(replaced)])),
+        ("call", files("write", ["path": .string("~/P12/note.txt"), "text": .string("gone")])),
+        ("call", files("move_to_trash", ["path": .string("~/P12/note.txt")])),
+        ("end", .object(["outcome": .string("completed")])),
     ]
 
     /// The bytes the note must hold after each step (nil: no file), by the step's index.
@@ -65,16 +67,28 @@ struct FilesThroughTheAppConsumersTests {
         return [nil, nil, Data(written.utf8), Data(written.utf8), edited, edited, edited, edited]
     }
 
-    nonisolated static let outcomes = ["found_acted", "found_acted", "found_acted", "found_acted", "refused", "refused"]
+    nonisolated static let outcomes = ["ok", "ok", "ok", "ok", "refused", "refused"]
 
     /// The call the channel-off cases make: a write under the root itself, whose parent exists, so a hook that
     /// wrongly enabled the adapters would leave the file.
     nonisolated static let offStep: (name: String, arguments: JSONValue) =
-        ("app_call", files("write", ["path": .string("~/off.txt"), "text": .string(written)]))
+        ("call", files("write", ["path": .string("~/off.txt"), "text": .string(written)]))
     nonisolated static let offNote = "off.txt"
 
     nonisolated static func decode(_ text: String) -> JSONValue {
         (try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))) ?? .null
+    }
+
+    /// AdapterText is a separate current contract: its first word is the adapter's outcome.
+    nonisolated static func outcomeWord(in text: String) -> String {
+        String(text.split(whereSeparator: \.isWhitespace).first ?? "")
+    }
+
+    /// This read's multiline text is the exact block before the recorder receipt, including its final newline.
+    nonisolated static func readText(in text: String) -> String? {
+        guard let opening = text.range(of: "\ntext:\n"),
+              let receipt = text.range(of: "\nrecorded_call: ", range: opening.upperBound..<text.endIndex) else { return nil }
+        return String(text[opening.upperBound..<receipt.lowerBound])
     }
 
     /// A count behind a lock, shared by reference.
@@ -152,21 +166,24 @@ struct FilesThroughTheAppConsumersTests {
         process.executableURL = URL(filePath: "/usr/bin/sqlite3")
         process.arguments = ["-readonly", archive.appending(path: "memory.sqlite").path, """
             SELECT e.source || '|' || e.source_stream_id || '|' || a.execution_status || '|' || ifnull(d.adapter || '.' || d.verb, '-') || '|'
-                   || ifnull(r.task_id, '-') || '|'
+                   || ifnull(t.task_uuid, '-') || '|'
                    || ifnull((SELECT o.text_value FROM memory_operation_arguments o
                               WHERE o.event_id = a.event_id AND o.argument_name = 'arguments'), '-')
             FROM memory_events e JOIN memory_agent_actions a ON a.event_id = e.event_id
             LEFT JOIN memory_call_adapter_dispatches d ON d.event_id = a.event_id
             LEFT JOIN memory_task_call_revisions r ON r.event_id = a.event_id
-            WHERE a.tool_kind = 'app_call' ORDER BY e.local_order;
+            LEFT JOIN memory_tasks t ON t.task_id = r.task_id
+            WHERE a.tool_kind = 'app_call' ORDER BY e.event_id;
             """]
         let output = Pipe()
+        let errors = Pipe()
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = errors
         try process.run()
         let data = output.fileHandleForReading.readDataToEndOfFile()
+        let diagnostic = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         process.waitUntilExit()
-        try #require(process.terminationStatus == 0, "sqlite3 could not read the archive")
+        try #require(process.terminationStatus == 0, "sqlite3 could not read the archive: \(diagnostic)")
         return String(decoding: data, as: UTF8.self).split(separator: "\n").map { line in
             let parts = line.split(separator: "|", maxSplits: 5, omittingEmptySubsequences: false).map(String.init)
             func part(_ index: Int) -> String { parts.count > index ? parts[index] : "" }
@@ -208,7 +225,7 @@ struct FilesThroughTheAppConsumersTests {
     static func check(_ calls: [Recorded], source: String, stream: String, task: String?, _ label: String) {
         let verbs = ["make_folder", "write", "read", "edit", "write", "move_to_trash"]
         #expect(calls.count == verbs.count, "\(label): \(calls)")
-        #expect(task != nil && task != "", "\(label): the begin answer named no task")
+        #expect(task != nil && task != "", "\(label): the plan answer named no task")
         guard calls.count == verbs.count else { return }
         for (call, verb) in zip(calls, verbs) {
             #expect(call.source == source && call.stream == stream && call.status == "completed", "\(label) \(verb): \(call)")
@@ -318,7 +335,9 @@ struct FilesThroughTheAppConsumersTests {
             }
             let events = Transcript()
             let host = Self.worker(fixture, channels: .adapters, transport: transport)
-            #expect(host.servedTools.compactMap { $0["name"].string }.contains("app_call"))
+            let names = host.servedTools.compactMap { $0["name"].string }
+            #expect(names.count == 11 && names.contains("find") && names.contains("call"))
+            #expect(!names.contains("app_call") && !names.contains("app_capabilities"))
             let threw = await Self.turn(host, events: events)
             #expect(threw == nil, "\(threw ?? "")")
             // The disk after each step, read by the test before the model's next call; and at the end.
@@ -330,13 +349,15 @@ struct FilesThroughTheAppConsumersTests {
             // What the model read: the text in the read's answer, the refusals as outcomes.
             let answered = (transport.sent.last ?? []).filter { $0.role == .tool }
             try #require(answered.count == Self.steps.count, "\(answered.map(\.text))")
-            let outcomes = answered.map { Self.decode($0.text)["outcome"].string ?? "" }
+            let outcomes = answered.map { Self.outcomeWord(in: $0.text) }
             #expect(Array(outcomes[1...6]) == Self.outcomes, "\(outcomes)")
-            #expect(Self.decode(answered[3].text)["result"]["text"] == .string(Self.written), "the model reads the text: \(answered[3].text)")
+            #expect(Self.decode(answered[0].text)["status"].string == "planned", "\(answered[0].text)")
+            #expect(Self.decode(answered[7].text)["status"].string == "ended", "\(answered[7].text)")
+            #expect(Self.readText(in: answered[3].text) == Self.written, "the model reads the text: \(answered[3].text)")
             #expect(answered[6].text.contains("destructive actions are off"), "\(answered[6].text)")
             // The transcript the worker reports, and the archive: without the content.
             for nonce in Self.nonces { #expect(!events.text.contains(nonce), "the transcript holds \(nonce)") }
-            #expect(events.text.contains("app_call") && events.text.contains(ValueMinimization.marker), "\(events.text.prefix(400))")
+            #expect(events.text.contains("→ files.write") && events.text.contains(ValueMinimization.marker), "\(events.text.prefix(400))")
             #expect(leaks.withLock { $0 }.isEmpty, "the open archive held content: \(leaks.withLock { $0 })")
             let calls = try await Self.recorded(in: fixture.archive)
             Self.check(calls, source: "app", stream: "worker-f06", task: Self.decode(answered[0].text)["task"].string, "worker")
@@ -344,7 +365,7 @@ struct FilesThroughTheAppConsumersTests {
         }
     }
 
-    @Test("F06-A, the channel off: the same hook without the adapters channel: the worker offers no app_call, the model's call is refused, nothing on the disk, no content in the transcript or the archive")
+    @Test("F06-A, the channel off: the same hook without the adapters channel: the worker refuses the unavailable files capability through call, nothing on the disk, no content in the transcript or the archive")
     func workerWithoutTheChannel() async throws {
         try await Fixture.with("worker-off") { fixture in
             let transport = StepTransport(steps: [Self.offStep])
@@ -394,7 +415,8 @@ struct FilesThroughTheAppConsumersTests {
             let session = ExternalMCPSession(profile: profile, session: FilesDesktop(directory: fixture.archive),
                                              channels: .adapters, adapters: fixture.adapters)
             let names = await Self.listed(session)
-            #expect(names.contains("app_call") && names.contains("app_capabilities"), "\(names)")
+            #expect(names.count == 11 && names.contains("find") && names.contains("call"), "\(names)")
+            #expect(!names.contains("app_call") && !names.contains("app_capabilities"), "\(names)")
             var texts: [String] = []
             for (index, step) in Self.steps.enumerated() {
                 let answered = await Self.call(session, step, id: index + 1)
@@ -403,9 +425,11 @@ struct FilesThroughTheAppConsumersTests {
                 #expect(try Self.filesHoldingContent(under: fixture.archive).isEmpty, "the open archive after step \(index + 1)")
             }
             await session.close()
-            let outcomes = texts.map { Self.decode($0)["outcome"].string ?? "" }
+            let outcomes = texts.map { Self.outcomeWord(in: $0) }
             #expect(Array(outcomes[1...6]) == Self.outcomes, "\(outcomes)")
-            #expect(Self.decode(texts[3])["result"]["text"] == .string(Self.written), "the client reads the text: \(texts[3])")
+            #expect(Self.decode(texts[0])["status"].string == "planned", "\(texts[0])")
+            #expect(Self.decode(texts[7])["status"].string == "ended", "\(texts[7])")
+            #expect(Self.readText(in: texts[3]) == Self.written, "the client reads the text: \(texts[3])")
             #expect(fixture.trashed.count == 0, "the Trash was never asked")
             let calls = try await Self.recorded(in: fixture.archive)
             Self.check(calls, source: "mcp", stream: "mcp-" + profile.id.uuidString, task: Self.decode(texts[0])["task"].string, "client")
@@ -413,7 +437,7 @@ struct FilesThroughTheAppConsumersTests {
         }
     }
 
-    @Test("F06-B, the channel off and the desktop denied: the same hook without the adapters channel offers no app_call and the router refuses the call; a profile without the desktop is refused by the router's protocol error before anything; nothing on the disk, no content kept")
+    @Test("F06-B, the channel off and the desktop denied: the same hook without the adapters channel refuses the unavailable files capability through call; a profile without the desktop is refused by the router's protocol error before anything; nothing on the disk, no content kept")
     func clientWithoutTheChannelOrTheDesktop() async throws {
         try await Fixture.with("client-off") { fixture in
             let performed = Mutex(0)
@@ -426,8 +450,8 @@ struct FilesThroughTheAppConsumersTests {
             let names = await Self.listed(off)
             #expect(!names.contains("app_call") && !names.contains("app_capabilities"), "\(names)")
             let refused = await Self.call(off, Self.offStep, id: 1)
-            #expect(refused.answer["error"]["code"] == .number(-32602) && refused.answer["result"] == .null,
-                    "the router's protocol error: \(refused.answer)")
+            #expect(refused.isError && refused.answer["error"] == .null,
+                    "the call tool refuses an unavailable capability before dispatch: \(refused.answer)")
             await off.close()
 
             let denied = ExternalMCPSession(profile: MCPClientProfile(name: "No desktop", desktop: false),

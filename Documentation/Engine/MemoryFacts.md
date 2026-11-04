@@ -1,5 +1,7 @@
 # Memory facts: tasks, essential writes, verifications and the shared archive
 
+> Historical D1 delivery and retained storage contracts. The current model uses `plan`, a gesture’s `step`, and `end`; `memory_task` is neither advertised nor callable. Persisted `memory_task_*` table names and typed library fixtures remain valid storage identifiers. See [current runtime](README.md#current-runtime-contract).
+
 What the living memory records about the work an agent does, with which guarantees, since G76 plan
 D1 (October 2026): the task an agent communicates, the essential facts of every operation confirmed in
 the archive, the typed check of every operation, the values withheld from the record, schema 2 with its
@@ -26,14 +28,15 @@ described in [MemoryProcedures](MemoryProcedures.md).
 | Withheld value | `ValueRedaction`, `ValueMinimization` (Memory) | Where a withheld value was (an argument, the result's message, a verification's text, the target's label, section or identity, a sample's label, container or title, the observed effect, a listing's application) and why (`declared_secret`, `credential_pattern`, `secret_target`, `secure_field`, and since schema 9 `unclassified_target`: a text typed where the call could not attest an ordinary target); never the value, its length or a digest | `memory_value_redactions` |
 | Origin | `SQLiteArchiveTransfer`, `BrainMerge` (SQLiteMemory) | Each earlier archive or JSON directory the shared archive took knowledge from, the state of its transfer (`partial` when some of it could not be taken in), the source of every event taken (`added`, `duplicate`, `renamed`), and what its JSON Brains gave each application's Brain, element by element (`added`, `present`, `excluded`) | `memory_archive_origins`, `memory_origin_events`, `memory_origin_brain_contributions` |
 
-A task call is not an operation: `memory_task` is never recorded in `memory_agent_actions` and never
+In the historical D1 contract, a task call is not an operation: `memory_task` is never recorded in `memory_agent_actions` and never
 becomes a step. A call made with no open task is recorded as before, with no attribution: nothing
 attributes it later by time or order.
 
-### The task an agent communicates
+### Historical D1 task API
 
-`memory_task` is one more tool of `AutomationTools`, so the app's workers, its external MCP clients and
-`braus chat` share it; its description and `MemoryTaskTool.instructions` tell an agent when to call it.
+D1 exposed `memory_task` through `AutomationTools` to the app, external MCP clients and `braus chat`.
+The operation table below records that earlier API and its typed storage behavior; it is not the current tool surface.
+Today `plan` opens or revises the task, `step` attributes gestures to its rows, and `end` closes it.
 
 | Operation | Effect | Refusals (a tool error with a code, never a failed action) |
 | --- | --- | --- |

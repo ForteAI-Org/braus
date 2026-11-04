@@ -22,8 +22,8 @@ import Testing
 /// temporary folder; the desktop, a Seat and a provider are not used. `braus chat` is not part of the app, so the CLI
 /// entry is not here.
 ///
-/// The oracles: the double's record of gestures is the same from both; the task begins and ends completed in each;
-/// a stale session ID is refused before any gesture; every answer the model or the client read is the same once its
+/// The oracles: the double's record of gestures is the same from both; the task is planned and ends completed in each;
+/// an unsupported session field is refused before any gesture; every answer the model or the client read is the same once its
 /// identifiers are set aside, each refusal the same words; each archive records the same calls, each with its
 /// composition's own producer; a declared secret is in no answer and no file of either archive.
 @MainActor
@@ -33,22 +33,23 @@ struct AppEntryCompositionsTests {
 
     nonisolated static let secret = "Sentinel-I01A-P3x6"
 
-    /// The task's calls, in order, from the session ID the `open_session` answer gave (nil before it).
+    /// The current task calls, in order; the session is implicit and gestures name their plan row.
     nonisolated static let steps: [@Sendable (String?) -> (name: String, arguments: String)] = [
         { _ in ("open_session", #"{"app":"Synthetic Shop"}"#) },
-        { _ in ("memory_task", #"""
-            {"operation":"begin","goal":"Search lamps on the shop","recall":false,
+        { _ in ("plan", #"""
+            {"request":"Search lamps on the shop",
+             "rows":[{"title":"Enter the query"},{"title":"Submit the search"}],
              "inputs":[{"name":"query","value":"lamps"},
               {"name":"access_code","value":"\#(AppEntryCompositionsTests.secret)","secret":true}]}
             """#) },
-        { id in ("type_text", #"{"session":"\#(id ?? "")","target":"Search","text":"lamps"}"#) },
-        { id in (
+        { _ in ("type_text", #"{"target":"Search","text":"lamps","step":"r1"}"#) },
+        { _ in (
             "type_text",
-            #"{"session":"\#(id ?? "")","target":"Search","text":"\#(AppEntryCompositionsTests.secret)"}"#
+            #"{"target":"Search","text":"\#(AppEntryCompositionsTests.secret)","step":"r1"}"#
         ) },
-        { id in ("act", #"{"session":"\#(id ?? "")","target":"Go"}"#) },
-        { _ in ("act", #"{"session":"\#(UUID().uuidString)","target":"Go"}"#) },
-        { _ in ("memory_task", #"{"operation":"end","outcome":"completed"}"#) },
+        { _ in ("act", #"{"target":"Go","step":"r2"}"#) },
+        { _ in ("act", #"{"session":"\#(UUID().uuidString)","target":"Go","step":"r2"}"#) },
+        { _ in ("end", #"{"outcome":"completed"}"#) },
     ]
 
     enum Outcome: Equatable, CustomStringConvertible {
@@ -110,15 +111,17 @@ struct AppEntryCompositionsTests {
         process.arguments = ["-readonly", directory.appending(path: "memory.sqlite").path, """
             SELECT e.source || ' ' || e.source_stream_id || ' ' || a.tool_kind || ' ' || a.execution_status || ' '
                    || ifnull(a.result_kind, '-')
-            FROM memory_events e JOIN memory_agent_actions a ON a.event_id = e.event_id ORDER BY e.local_order;
+            FROM memory_events e JOIN memory_agent_actions a ON a.event_id = e.event_id ORDER BY e.event_id;
             """]
         let output = Pipe()
+        let errors = Pipe()
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = errors
         try process.run()
         let data = output.fileHandleForReading.readDataToEndOfFile()
+        let diagnostic = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         process.waitUntilExit()
-        try #require(process.terminationStatus == 0, "sqlite3 could not read the archive")
+        try #require(process.terminationStatus == 0, "sqlite3 could not read the archive: \(diagnostic)")
         return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
     }
 
@@ -186,7 +189,8 @@ struct AppEntryCompositionsTests {
                 "params": .object(["name": .string(call.name), "arguments": decode(call.arguments)]),
             ])) ?? .null
             let result = answer["result"]
-            let text = result["content"].array?.first?["text"].string ?? Self.sorted(answer)
+            let blocks = result["content"].array?.compactMap { $0["text"].string } ?? []
+            let text = blocks.isEmpty ? Self.sorted(answer) : blocks.joined(separator: "\n")
             if index == 0 { sessionID = decode(text)["session"].string }
             run.outcomes.append(outcome(text: text, isError: result["isError"].bool == true))
             run.read.append(text)
@@ -212,10 +216,10 @@ struct AppEntryCompositionsTests {
         print("worker outcomes:", worker.outcomes.map { String($0.description.prefix(160)) })
         print("calls:", worker.calls)
 
-        // Both ran every call; the task began and ended completed in each.
+        // Both ran every call; the task was planned and ended completed in each.
         for (label, run) in [("worker", worker), ("client", client)] {
             try #require(run.outcomes.count == Self.steps.count, "\(label): \(run.outcomes)")
-            #expect(Self.decode(run.read[1])["status"].string == "begun", "\(label): \(run.read[1])")
+            #expect(Self.decode(run.read[1])["status"].string == "planned", "\(label): \(run.read[1])")
             let ended = Self.decode(run.read[6])
             #expect(ended["status"].string == "ended" && ended["outcome"].string == "completed",
                     "\(label): \(run.read[6])")
@@ -225,17 +229,20 @@ struct AppEntryCompositionsTests {
                 }
             }
             if case .answer(let answered) = run.outcomes[5] {
-                Issue.record("\(label): a stale session ID was answered: \(answered)")
+                Issue.record("\(label): an unsupported session field was answered: \(answered)")
             }
             for text in run.read {
                 #expect(!text.contains(Self.secret) && !text.contains("P3x6"), "\(label): \(text.prefix(300))")
             }
         }
         // The same effect, outcomes and calls; each call its composition's own. Go pressed exactly once in each:
-        // equality alone would not tell a stale call's effect present in both.
+        // equality alone would not tell an invalid call's effect present in both.
         for (label, run) in [("worker", worker), ("client", client)] {
             #expect(run.gestures.filter { $0 == "act|Go" }.count == 1, "\(label): \(run.gestures)")
         }
+        // Both consumers receive the row notice, including text blocks after the first one.
+        #expect(client.read[4].contains("row r1 done: unknown"), "\(client.read[4])")
+        #expect(worker.read[4].contains("row r1 done: unknown"), "\(worker.read[4])")
         #expect(client.gestures == worker.gestures, "\(client.gestures) against \(worker.gestures)")
         for (index, pair) in zip(client.outcomes, worker.outcomes).enumerated() {
             #expect(pair.0 == pair.1, "call \(index + 1): \(pair.0) against \(pair.1)")
@@ -308,8 +315,8 @@ private final class EntryDesktop: AutomationSessionOperating {
     }
 }
 
-/// A model transport that issues the task's calls one per round, each from the session ID the `open_session` answer
-/// gave, then answers; it keeps what each round was sent.
+/// A model transport that issues the task's current-contract calls one per round, then answers;
+/// it keeps what each round was sent.
 private final class StepTransport: ModelTransport {
 
     private let steps: [@Sendable (String?) -> (name: String, arguments: String)]

@@ -1,0 +1,1 @@
+{"content":[{"text":"<outcome>\nsent · unknown(not_classified) · do_not_repeat\nThe effect could not be attributed to the requested gesture.\n<\/outcome>","type":"text"}],"isError":false,"structuredContent":{"effect":"unknown(not_classified)","gesture":"sent","message":"The effect could not be attributed to the requested gesture.","recovery":"do_not_repeat","session":null}}

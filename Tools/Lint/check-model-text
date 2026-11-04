@@ -209,6 +209,8 @@ def check(root):
 
 # Each identity below is a reviewed non-prose literal, never a general allow rule.
 CLASSIFICATIONS = """
+Sources/Integration/AutomationMCP/CallDispatcher.swift | names | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | Frozen capability schema name field.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | names | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | Empty fallback for a missing schema identifier.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | call | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | directory | 047888972441031f222d3b4eb8bd0b38bf157922c669d75db3b8e175d2a1761b | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | directory | 8b78f91c8ffc07ea39b5b5e1416e12d5d4084fce40d08d74d72e57c96a48b694 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.

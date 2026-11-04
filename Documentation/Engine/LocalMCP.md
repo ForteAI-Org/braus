@@ -46,9 +46,10 @@ are recorded with the `mcp` source and the grant as their stream in the user's o
 living memory, `Knowledge` under the app's support directory, shared with the workers
 and the command line (G76, [MemoryFacts](MemoryFacts.md#one-archive-per-user)): what a
 client learns the workers may reuse and the other way round. A client's earlier private
-archive, `MCP/Knowledge/<grant>`, is unified into it once and kept. The `memory_task`
-tool lets a client declare the task its calls serve; a task stays private to the grant's
-stream. A call that may change an application is refused when the memory cannot confirm
+archive, `MCP/Knowledge/<grant>`, is unified into it once and kept. A client declares its task
+with `plan`, attributes gestures with `step`, and closes the task with `end`; `memory_task` is not exposed.
+The fixed initial tool list uses `find`/`call` for additional capabilities. A task stays private to the
+grant's stream. A call that may change an application is refused when the memory cannot confirm
 it first. Desktop access allows both reading and acting; macOS permissions still
 belong to Braus and are not bypassed by the client grant.
 

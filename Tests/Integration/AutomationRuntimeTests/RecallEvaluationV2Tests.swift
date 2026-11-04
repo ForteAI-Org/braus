@@ -27,8 +27,10 @@ import Testing
 /// - `diagnose2`: a diagnosis of the phases on every split, for development (the second final is development since its
 ///   result), never a measure.
 /// - `final2`: the frozen calibration (`Fixtures/recall-calibration-v2.json`) must name this corpus's digest; every
-///   configuration is measured once on the final split, in both conditions, through the service and through
-///   `memory_task begin`, and judged by the criteria frozen with it. Each phase is reported with its denominator:
+///   configuration is measured once on the final split, in both conditions, through the service and an explicit
+///   historical typed query fixture, and judged by the criteria frozen with it. The fixture records the original
+///   query contract without invoking the retired model tool; it does not prove delivery through current plan rows.
+///   Each phase is reported with its denominator:
 ///   candidates, threshold, final tract, binding, compatibility, coverage. The operational outcome of a delivery carried
 ///   out is measured by the cycle and sharing suites, not here.
 @MainActor
@@ -654,7 +656,7 @@ struct RecallEvaluationV2Tests {
         return failed
     }
 
-    @Test("second corpus, final: every configuration with its frozen thresholds, full and minimal archives, service and tool",
+    @Test("second corpus, final: every configuration with its frozen thresholds, full and minimal archives, service and typed query recording",
           .enabled(if: mode == "final2" || mode == "final3", "BRAUS_RECALL_EVAL=final2 or final3 asks for the final measure"))
     func final() async throws {
         let corpus = try RecallCorpus.load(Self.corpusName)
@@ -685,14 +687,17 @@ struct RecallEvaluationV2Tests {
             let searched = try await Self.search(configuration, conditions: conditions, archives: &archives, frozen: thresholds)
             item.thresholds = thresholds
             item.conditions = Self.report(searched, thresholds: thresholds)
-            // The same queries through the product's entry, on the full archive: the delivery must agree with the service.
+            // The historical typed queries persist the same service delivery on the full archive.
+            // This is service/recording agreement, not coverage of the current model plan response.
             if let full = searched.first(where: { $0.condition.name == "full" }) {
                 var agreeing = 0
                 for query in full.prepared {
                     let tools = ProcedureLearningTests.tools(LearningSession(directory: full.archive.directory), stream: "final2-\(query.query["id"].string ?? "")")
-                    let answer = try await tools.call("memory_task", RecallCorpus.begin(query.query)).payload["recall"]
+                    let request = String(decoding: try JSONEncoder().encode(RecallCorpus.begin(query.query)), as: UTF8.self)
+                    let answer = try await HistoricalRecallFixture.beginQuery(tools, request)["recall"]
                     let outcomes = full.service.outcomes(query.prepared)
                     let same = answer["coverage"].string == NeedOutcome.overall(outcomes).rawValue
+                        && (answer["needs"].array ?? []).count == outcomes.count
                         && zip(answer["needs"].array ?? [], outcomes).allSatisfy { need, outcome in
                             let steps = need["selection"]["steps"].array?.compactMap { RecallJudge.number($0["step"]) } ?? []
                             return need["coverage"].string == outcome.coverage.rawValue
@@ -700,7 +705,7 @@ struct RecallEvaluationV2Tests {
                                 && steps.first == outcome.selected.map { $0.firstPosition + 1 }
                                 && steps.last == outcome.selected.map { $0.lastPosition + 1 }
                         }
-                    if same { agreeing += 1 } else { Issue.record("\(configuration.name) \(query.query["id"].string ?? ""): the tool delivered \(answer)") }
+                    if same { agreeing += 1 } else { Issue.record("\(configuration.name) \(query.query["id"].string ?? ""): the typed query delivered \(answer)") }
                 }
                 if let index = item.conditions.firstIndex(where: { $0.condition == "full" }) {
                     item.conditions[index].toolAgreement = "\(agreeing)/\(full.prepared.count)"

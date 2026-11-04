@@ -1,0 +1,1 @@
+{"content":[{"text":"<outcome>\nnot_sent · not_applicable · continue\nNo input was needed.\n<\/outcome>","type":"text"}],"isError":false,"structuredContent":{"effect":"not_applicable","gesture":"not_sent","message":"No input was needed.","recovery":"continue","session":null}}
