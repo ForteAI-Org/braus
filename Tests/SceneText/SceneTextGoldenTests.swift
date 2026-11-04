@@ -7,7 +7,9 @@ struct SceneTextGoldenTests {
     @MainActor
     func requiredDelivery() async throws {
         let scenes = try GoldenScene.all()
-        #expect(scenes.count == 8)
+        #expect(scenes.count == 10)
+        #expect(scenes.filter { $0.role == "primary" }.count == 8)
+        #expect(scenes.filter { $0.role == "supplement" }.count == 2)
         #expect(scenes.filter { !$0.scene.outOfViewFields.isEmpty }.count >= 2)
         #expect(scenes.contains { item in
             let labels = item.scene.outOfViewFields.map(\.label)
@@ -32,10 +34,10 @@ struct SceneTextGoldenTests {
 
     @Test(.disabled("needs attested scene fixtures"))
     @MainActor
-    func adapterUsesV2() async throws {
+    func adapterUsesCurrentSafeCuts() async throws {
         for item in try GoldenScene.all() {
             let rendered = try await SceneTextUnderTest.render(item.scene)
-            #expect(Data(rendered.text.utf8) == Data(item.textV2.utf8), "\(item.name): adapter bytes differ")
+            #expect(rendered.text == item.scene.text(cuts: .safe), "\(item.name): current adapter bytes differ")
             #expect(rendered.kind == nil)
         }
     }
@@ -62,14 +64,30 @@ struct SceneTextGoldenTests {
 
 extension SceneTextGoldenTests {
     @Test(.disabled("needs attested scene fixtures"))
-    func safeCutsMatch() throws {
+    @MainActor
+    func currentModelTextOmitsEmptySelections() async throws {
         for item in try GoldenScene.all() {
-            #expect(item.scene.text(cuts: .safe) == item.textV2)
+            let current = try await SceneTextUnderTest.render(item.scene)
             for element in item.scene.elements {
                 if let range = element.selectedRange, range.length == 0, let value = element.value {
-                    #expect(!item.textV2.contains("[sel \(range.location)..\(range.location)/\(value.utf16.count)]"))
+                    #expect(!current.text.contains("[sel \(range.location)..\(range.location)/\(value.utf16.count)]"))
                 }
             }
+        }
+    }
+}
+
+
+extension SceneTextGoldenTests {
+    /// The manual future golden remains independent from the current safe-cut renderer.
+    /// Add scoped known issues only after inspecting each delivered, reviewed case.
+    @Test(.disabled("needs attested fixtures and case-specific future-format ratchets"))
+    @MainActor
+    func futureFormatMatchesManualDesign() async throws {
+        for item in try GoldenScene.all() {
+            let current = try await SceneTextUnderTest.render(item.scene)
+            #expect(Data(current.text.utf8) == Data(item.textV2.utf8),
+                    "\(item.name): future design bytes differ")
         }
     }
 }
