@@ -178,7 +178,7 @@ public struct ActionEngine: Sendable {
                 await captureExpectationWindows(in: request.processID)
                 let outcome = await performAct(request)
                 let final = Self.stoppedOutcome(await concluded(outcome, settles: settles, in: request.processID))
-                if SecondLook.isEnabled, final.scene == nil, final.check?.limits.contains(.noAfterScene) == true {
+                if final.scene == nil, final.check?.limits.contains(.noAfterScene) == true {
                     trace.withdrawAfter()
                 }
                 trace.seal()
@@ -273,7 +273,7 @@ public struct ActionEngine: Sendable {
                 delivery = .delivered
             } catch {
                 delivery = Self.delivery(after: error, sent: 0)
-                if readsAfterUncertain { await confirm(.unknown, in: pid) }
+                await confirm(.unknown, in: pid)
             }
             let escaped = delivery == .delivered
             func judge() async -> ActOutcome {
@@ -316,12 +316,10 @@ public struct ActionEngine: Sendable {
             switch delivery {
             case .delivered: break
             case .notSent(let refusal):
-                if readsAfterUncertain {
-                    return Self.notSent(refusal, "dismissing the pop-up", scene: scene)
-                        ?? ActOutcome(.refused, refusal.sentence)
-                }
+                return Self.notSent(refusal, "dismissing the pop-up", scene: scene)
+                    ?? ActOutcome(.refused, refusal.sentence)
             case .uncertain(let u):
-                if readsAfterUncertain { return await afterUncertainDelivery(u, in: pid, judge: judge) }
+                return await afterUncertainDelivery(u, in: pid, judge: judge)
             }
             return await judge()
         }
@@ -356,7 +354,7 @@ public struct ActionEngine: Sendable {
             didPress = await controls.pressControl(labelled: element.label, in: pid)
         }
         let openedByPress = didPress
-        if openedByPress, SecondLook.isEnabled {
+        if openedByPress {
             VerdictTrace.current?.noteGestureEnded()
             InterruptibleWait.current?.open()
         }
@@ -470,7 +468,7 @@ public struct ActionEngine: Sendable {
             }
         } catch {
             let delivery = Self.delivery(after: error, sent: 0)
-            if case .uncertain(let u) = delivery, readsAfterUncertain {
+            if case .uncertain(let u) = delivery {
                 await confirm(.unknown, in: pid)
                 return await afterUncertainDelivery(u, in: pid, judge: judge)
             }
@@ -480,17 +478,10 @@ public struct ActionEngine: Sendable {
                 bundleID: request.bundleID, element: element, verb: request.verb, effect: nil, windowTitleAfter: nil,
                 before: perceived, attempt: delivery.attempt
             ))
-            switch delivery {
-            case .delivered: preconditionFailure("A failed post cannot be delivered")
-            case .notSent(let refusal):
-                return Self.notSent(refusal, "\(request.verb.performed) \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
-            case .uncertain(let u):
-                let outcome = ActOutcome(.actedUnverified, "\(request.verb.performed) \(OutcomeText.quoted(element.label)): delivery failed: "
-                    + "\(u.detail)", scene: nil, check: OperationCheck(
-                        condition: .structuralEffect, method: .sceneDifference, verdict: .unknown,
-                        limits: [.deliveryUncertain], performed: .uncertain, target: OperationCheck.Target(element)))
-                return Self.legacyUncertain(outcome, u)
+            guard case .notSent(let refusal) = delivery else {
+                preconditionFailure("Uncertain deliveries are judged before recording a refusal")
             }
+            return Self.notSent(refusal, "\(request.verb.performed) \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
         }
         return await judge()
     }
@@ -674,7 +665,7 @@ public struct ActionEngine: Sendable {
         do { try await post(.click(at: point), aim: .expecting(element.label), in: pid) }
         catch {
             let delivery = Self.delivery(after: error, sent: 0)
-            if case .uncertain(let u) = delivery, readsAfterUncertain {
+            if case .uncertain(let u) = delivery {
                 await confirm(.unknown, in: pid)
                 return await afterUncertainDelivery(u, in: pid, judge: judge)
             }
@@ -684,18 +675,10 @@ public struct ActionEngine: Sendable {
                 bundleID: request.bundleID, element: element, verb: .setToggle, effect: nil, windowTitleAfter: nil,
                 before: perceived, attempt: delivery.attempt
             ))
-            switch delivery {
-            case .delivered: preconditionFailure("A failed post cannot be delivered")
-            case .notSent(let refusal):
-                return Self.notSent(refusal, "set \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
-            case .uncertain(let u):
-                let outcome = ActOutcome(.actedUnverified, "set \(OutcomeText.quoted(element.label)): delivery failed: \(u.detail)",
-                                  check: OperationCheck(condition: .stateAfterGesture, method: .controlState,
-                                                        verdict: .unknown, expected: desired.rawValue,
-                                                        limits: [.deliveryUncertain], performed: .uncertain,
-                                                        target: OperationCheck.Target(element)))
-                return Self.legacyUncertain(outcome, u)
+            guard case .notSent(let refusal) = delivery else {
+                preconditionFailure("Uncertain deliveries are judged before recording a refusal")
             }
+            return Self.notSent(refusal, "set \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
         }
         return await judge()
     }
@@ -727,10 +710,8 @@ public struct ActionEngine: Sendable {
             let receipt = await controls.chooseMenuItem(element, within: popupFrame, in: pid)
             switch receipt {
             case .sent, .possiblySent:
-                if SecondLook.isEnabled {
-                    VerdictTrace.current?.noteGestureEnded()
-                    InterruptibleWait.current?.open()
-                }
+                VerdictTrace.current?.noteGestureEnded()
+                InterruptibleWait.current?.open()
             case .notHandled, .refused: break
             }
             if let outcome = await judged(receipt, request, element: element, perceived: perceived) { return outcome }
@@ -792,7 +773,7 @@ public struct ActionEngine: Sendable {
                 sent += 1
             } catch {
                 let delivery = Self.delivery(after: error, sent: sent)
-                if case .uncertain(let u) = delivery, readsAfterUncertain {
+                if case .uncertain(let u) = delivery {
                     await confirm(.unknown, in: pid)
                     return await afterUncertainDelivery(u, in: pid, judge: judge)
                 }
@@ -800,18 +781,10 @@ public struct ActionEngine: Sendable {
                 await confirm(.unknown, in: pid)
                 await recordPick(request, element: element, before: perceived, after: nil,
                                  attempt: delivery.attempt)
-                switch delivery {
-                case .delivered: preconditionFailure("A failed post cannot be delivered")
-                case .notSent(let refusal):
-                    return Self.notSent(refusal, "picking \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
-                case .uncertain(let u):
-                    let outcome = ActOutcome(.actedUnverified, "picking \(OutcomeText.quoted(element.label)): delivery failed: \(u.detail)",
-                                      check: OperationCheck(condition: .valueReadBack, method: .controlValue,
-                                                            verdict: .unknown, expected: element.label,
-                                                            limits: [.deliveryUncertain], performed: .uncertain,
-                                                            target: OperationCheck.Target(element)))
-                    return Self.legacyUncertain(outcome, u)
+                guard case .notSent(let refusal) = delivery else {
+                    preconditionFailure("Uncertain deliveries are judged before recording a refusal")
                 }
+                return Self.notSent(refusal, "picking \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
             }
             return await judge()
         }
@@ -883,7 +856,7 @@ public struct ActionEngine: Sendable {
             }
         } catch {
             let delivery = Self.delivery(after: error, sent: sent)
-            if case .uncertain(let u) = delivery, readsAfterUncertain {
+            if case .uncertain(let u) = delivery {
                 await confirm(.unknown, in: pid)
                 return await afterUncertainDelivery(u, in: pid, judge: judgeUncertain)
             }
@@ -891,17 +864,10 @@ public struct ActionEngine: Sendable {
             await confirm(.unknown, in: pid)
             await recordPick(request, element: element, before: perceived, after: nil,
                              attempt: delivery.attempt)
-            switch delivery {
-            case .delivered: preconditionFailure("A failed post cannot be delivered")
-            case .notSent(let refusal):
-                return Self.notSent(refusal, "picking \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
-            case .uncertain(let u):
-                let outcome = ActOutcome(.actedUnverified, "typing \(OutcomeText.quoted(typed)): delivery failed: \(u.detail)", check: OperationCheck(
-                    condition: .menuClosedAfterChoice, method: .windowCensus, verdict: .unknown,
-                    limits: [.deliveryUncertain, .commandEffectUnchecked], performed: .uncertain,
-                    target: OperationCheck.Target(element)))
-                return Self.legacyUncertain(outcome, u)
+            guard case .notSent(let refusal) = delivery else {
+                preconditionFailure("Uncertain deliveries are judged before recording a refusal")
             }
+            return Self.notSent(refusal, "picking \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
         }
         return await judge()
     }
@@ -959,7 +925,7 @@ public struct ActionEngine: Sendable {
             sent += 1
         } catch {
             let delivery = Self.delivery(after: error, sent: sent)
-            if case .uncertain(let u) = delivery, readsAfterUncertain {
+            if case .uncertain(let u) = delivery {
                 await confirm(.unknown, in: pid)
                 return await afterUncertainDelivery(u, in: pid, judge: judge)
             }
@@ -967,14 +933,10 @@ public struct ActionEngine: Sendable {
             await confirm(.unknown, in: pid)
             await recordPick(request, element: element, before: perceived, after: nil,
                              attempt: delivery.attempt)
-            switch delivery {
-            case .delivered: preconditionFailure("A failed post cannot be delivered")
-            case .notSent(let refusal):
-                return Self.notSent(refusal, "opening submenu \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
-            case .uncertain(let u):
-                let outcome = ActOutcome(.actedUnverified, "opening submenu \(OutcomeText.quoted(element.label)): delivery failed: \(u.detail)")
-                return Self.legacyUncertain(outcome, u)
+            guard case .notSent(let refusal) = delivery else {
+                preconditionFailure("Uncertain deliveries are judged before recording a refusal")
             }
+            return Self.notSent(refusal, "opening submenu \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
         }
         return await judge()
     }
@@ -1035,11 +997,7 @@ public struct ActionEngine: Sendable {
         case .notSent(let refusal):
             return Self.notSent(refusal, scrolled, scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
         case .uncertain(let u):
-            if readsAfterUncertain { return await afterUncertainDelivery(u, in: pid, judge: judge) }
-
-            let outcome = ActOutcome(.actedUnverified, "\(scrolled): delivery failed: \(u.detail)",
-                              check: Self.undelivered(.structuralEffect, method: .sceneDifference, target: element))
-            return Self.legacyUncertain(outcome, u)
+            return await afterUncertainDelivery(u, in: pid, judge: judge)
         }
         return await judge()
     }
@@ -1106,11 +1064,7 @@ public struct ActionEngine: Sendable {
         case .notSent(let refusal):
             return Self.notSent(refusal, dragged, scene: scene) ?? ActOutcome(.refused, refusal.sentence)
         case .uncertain(let u):
-            if readsAfterUncertain { return await afterUncertainDelivery(u, in: pid, judge: judge) }
-
-            let outcome = ActOutcome(.actedUnverified, "\(dragged): delivery failed: \(u.detail)",
-                              check: Self.undelivered(.structuralEffect, method: .sceneDifference, target: element))
-            return Self.legacyUncertain(outcome, u)
+            return await afterUncertainDelivery(u, in: pid, judge: judge)
         }
         return await judge()
     }
@@ -1167,12 +1121,7 @@ public struct ActionEngine: Sendable {
         case .notSent(let refusal):
             return Self.notSent(refusal, "right-clicking \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
         case .uncertain(let u):
-            if readsAfterUncertain { return await afterUncertainDelivery(u, in: pid, judge: judge) }
-
-            let outcome = ActOutcome(.actedUnverified, "right-clicking \(OutcomeText.quoted(element.label)): delivery failed: \(u.detail)",
-                              check: Self.undelivered(.menuItemChosen, method: .windowCensus, expected: item,
-                                                      target: element))
-            return Self.legacyUncertain(outcome, u)
+            return await afterUncertainDelivery(u, in: pid, judge: judge)
         }
         // The fixed pause on purpose: the menu is a window of its own, which the target's frames never show.
         await pause(timing.clickSettle)
@@ -1197,7 +1146,7 @@ public struct ActionEngine: Sendable {
                 delivery = .delivered
             } catch {
                 delivery = Self.delivery(after: error, sent: 0)
-                if readsAfterUncertain { await confirm(.unknown, in: pid) }
+                await confirm(.unknown, in: pid)
             }
             func dismissedMenu() async -> ActOutcome {
                 await pause(timing.popupDismiss)
@@ -1212,16 +1161,14 @@ public struct ActionEngine: Sendable {
                                           observed: nil, performed: .substitute, substitute: "right_click_then_escape",
                                           target: OperationCheck.Target(element)))
             }
-            if readsAfterUncertain {
-                let uncertain: UncertainDelivery?
-                switch delivery {
-                case .delivered: uncertain = nil
-                case .notSent(let refusal):
-                    uncertain = UncertainDelivery(kind: .refusedAfterOthers, sentBefore: 1, detail: "\(refusal)")
-                case .uncertain(let u): uncertain = u
-                }
-                if let uncertain { return await afterUncertainDelivery(uncertain, in: pid, judge: dismissedMenu) }
+            let uncertain: UncertainDelivery?
+            switch delivery {
+            case .delivered: uncertain = nil
+            case .notSent(let refusal):
+                uncertain = UncertainDelivery(kind: .refusedAfterOthers, sentBefore: 1, detail: "\(refusal)")
+            case .uncertain(let u): uncertain = u
             }
+            if let uncertain { return await afterUncertainDelivery(uncertain, in: pid, judge: dismissedMenu) }
             return await dismissedMenu()
         }
         let choice = ActionRequest(

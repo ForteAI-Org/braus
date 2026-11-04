@@ -23,9 +23,11 @@ final class ExternalMCPSession {
     lazy var router: MCPRouter = {
         let router = MCPRouter(
             tools: profile.desktop ? tools.toolDefinitions : [],
-            instructions: profile.desktop ? AutomationTools.mcpInstructions(.full) : Self.withoutDesktop
-        ) { [weak self] name, arguments in
+            instructions: profile.desktop ? AutomationTools.mcpInstructions(.full) : Self.withoutDesktop,
+            rejectedToolAttempt: { [tools] name in tools.recordToolAttempt(name) }
+        ) { [weak self, tools] name, arguments in
             guard let self, !self.isClosed else {
+                tools.recordToolAttempt(name)
                 throw MCPRequestFailure("This client is not authorized for desktop access.")
             }
             return try await self.callBraus(name, arguments)
@@ -56,7 +58,6 @@ final class ExternalMCPSession {
         self.tools = AutomationTools(session: session, channels: channels,
                                      adapters: channels.contains(.adapters) ? (adapters ?? .standard(approver: adapterApprover)) : nil,
                                      offersWeb: offersWeb, profile: profile.sessionProfile)
-        if let adapters, channels.contains(.adapters) { self.tools.adapters = adapters }
         self.tools.producer = CallProducer(source: .mcp, streamID: "mcp-" + profile.id.uuidString)
         self.perform = perform
         self.activity = activity
@@ -67,6 +68,9 @@ final class ExternalMCPSession {
         _ name     : String,
         _ arguments: JSONValue
     ) async throws -> JSONValue {
+        tools.recordToolAttempt(name)
+        let requestedName = name
+        let requestedArguments = arguments
         guard !isClosed, profile.desktop else {
             throw MCPRequestFailure("This client is not authorized for desktop access.")
         }
@@ -76,10 +80,7 @@ final class ExternalMCPSession {
         if let refusal = barrier.refusal(of: name, arguments) { throw MCPRequestFailure(refusal) }
         activity(name)
         return try await perform { [tools] in
-            try await tools.call(
-                name,
-                arguments
-            )
+            try await tools.callRecorded(requestedName, requestedArguments)
         }
     }
 

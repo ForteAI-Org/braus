@@ -1,12 +1,14 @@
 import AutomationRuntime
+import Capabilities
 import Foundation
 import LocalMCP
 import Testing
 @testable import AutomationMCP
 
 struct RuleContext {
-    var toolNames: Set<String> = ["observe", "open_session", "act", "status", "windows"]
-    var visibleNames: Set<String> = ["expected_value", "set_toggle", "braus_state"]
+    var toolNames: Set<String> = Set(ToolList.core.map(\.rawValue))
+        .union(["status", "windows", "apps", "app_capabilities", "reconcile_call"])
+    var visibleNames: Set<String> = ["expected_value", "set_toggle", "braus_state", "recorded_call", "not_happened"]
     var channels: AutomationChannels = []
     var toolDefinitions: [JSONValue] = []
     var recovery = "observe"

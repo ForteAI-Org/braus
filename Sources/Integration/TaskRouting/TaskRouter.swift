@@ -70,7 +70,7 @@ public struct TaskRouter: Sendable {
                 // grant before any event reaches the app, and the answer says so.
                 let unknown = availability.reason.map { " Whether it may run is not known yet (\($0)): its verb checks "
                     + "that first and refuses before acting if it may not." } ?? ""
-                return .use(entry.route, message: "\(trimmed): use app_call with app \"\(name)\"; app_capabilities "
+                return .use(entry.route, message: "\(trimmed): use find for \"\(name)\" and the task, then call with the discovered name and arguments; find "
                             + "lists its verbs. It works with \(trimmed) closed.\(unknown) "
                             + SharedRoutes.openOnlyIfNamed(trimmed)
                             + " When none of its verbs does the task, call open_session again with named true to drive the interface.")

@@ -45,14 +45,14 @@ struct VariantCorrespondenceTests {
     /// One attempt: the same text typed in both fields, then a button.
     static func attempt(_ tools: AutomationTools, _ session: LearningSession, goal: String, text: String,
                         button: String) async throws -> String {
-        _ = try await Learning.task(tools, #"{"operation":"begin","goal":"\#(goal)"}"#)
+        _ = try await Learning.task(tools, #"{"request":"\#(goal)"}"#)
         let id = session.id!.uuidString
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(app)"}"#)
         _ = try await Learning.call(tools, "type_text", #"{"session":"\#(id)","target":"Name","text":"\#(text)"}"#)
         _ = try await Learning.call(tools, "type_text", #"{"session":"\#(id)","target":"Destination","text":"\#(text)"}"#)
         _ = try await Learning.call(tools, "act", #"{"session":"\#(id)","target":"\#(button)"}"#)
-        let ended = try await Learning.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        return try #require(ended["candidate"]["id"].string)
+        let ended = try await Learning.task(tools, #"{"outcome":"completed"}"#)
+        return try await ProcedureLearningTests.candidateIDFixture(tools, session)
     }
 
     /// An interpretation whose two typed texts use the named parameters, with this attempt's value.
@@ -74,14 +74,14 @@ struct VariantCorrespondenceTests {
         let session = try Self.session()
         let tools = Learning.tools(session)
         let first = try await Self.attempt(tools, session, goal: "Save the report", text: "report", button: "Save")
-        let originAnswer = try await Learning.task(tools, Self.interpretation(first, "file", "file", value: "report"))
+        let originAnswer = try await Learning.interpretFixture(tools, session, Self.interpretation(first, "file", "file", value: "report"))
         #expect(originAnswer["status"].string == "interpreted", "\(originAnswer)")
         let origin = ProcedureAssembly.routeID(candidateID: first, revision: 1)
         let second = try await Self.attempt(tools, session, goal: "Save the draft elsewhere", text: "draft", button: "Cancel")
 
-        let split = try await Learning.task(tools, Self.interpretation(second, "input", "output", value: "draft", variantOf: origin))
+        let split = try await Learning.interpretFixture(tools, session, Self.interpretation(second, "input", "output", value: "draft", variantOf: origin))
         #expect(split["status"].string == "interpreted", "a variant whose prefix is not proven is kept: \(split)")
-        let renamed = try await Learning.task(tools, Self.interpretation(second, "document", "document", value: "draft", variantOf: origin))
+        let renamed = try await Learning.interpretFixture(tools, session, Self.interpretation(second, "document", "document", value: "draft", variantOf: origin))
         #expect(renamed["status"].string == "interpreted" && renamed["revision"] == .number(2), "\(renamed)")
 
         let splitRoute = ProcedureAssembly.routeID(candidateID: second, revision: 1)

@@ -1,5 +1,8 @@
 # Recall by the agent's choice
 
+> Current model contract: `plan` offers compact procedure parts for its rows, a gesture's `step` selects its row, and `end` closes the task. Completed candidates are interpreted internally by the procedure producer. `memory_task` is neither advertised nor callable. The query/choice and declaration formats below describe persisted data and typed library contracts; older tool-call examples are historical fixtures, not instructions for the current model. See [current runtime](README.md#current-runtime-contract) and [CLI preflight](Chat.md).
+
+
 The product's one path of the Recall since 2026-10-13, when the product owner chose it over the automatic selector
 (it was approved on 2026-10-12 as experiment A). Engine retrieves a few relevant sources. The agent that runs the task
 chooses the tracts it needs, using what it knows of the conversation. Engine checks the choice against the facts and

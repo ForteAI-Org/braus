@@ -420,14 +420,15 @@ enum SQLiteAgentCallRows {
             }
             switch (step.progress.status, step.progress.result) {
             case (.skipped, _):
-                guard stop == position || skipped else { return nil }
+                // A stop may follow the executed step, leaving the next step as the first skipped one.
+                guard let stop, position >= stop else { return nil }
                 skipped = true
             case (.completed, .outcome(let kind, _)?):
                 guard !skipped else { return nil }
                 attempted += 1
                 let request = try request(handle, eventID: id, stored: step)
                 let verificationIDs = try handle.query(
-                    "SELECT \(try DB2CIdentity.publicReference(handle, "memory_events", "event_id")) FROM memory_operation_verifications WHERE call_event_id = ? ORDER BY event_id",
+                    "SELECT \(try DB2CIdentity.publicReference(handle, "memory_events", "v.event_id")) FROM memory_operation_verifications v WHERE v.call_event_id = ? ORDER BY v.event_id",
                     [try SQLiteRowIdentity(handle).key(.event, id)]
                 ) { try $0.text(0) ?? "" }
                 let check = try verificationIDs.last.flatMap { try SQLiteOperationFactRows.verification(facts, $0)?.check }

@@ -3,17 +3,18 @@ import Foundation
 import Memory
 import LocalMCP
 import PerceptionCore
-import Switches
 import Testing
 @testable import AutomationMCP
 
 @MainActor
 struct SceneTextPolicyReplayTests {
     @Test(arguments: try ReplayCorpus.load().filter { $0.deliveries != nil })
-    func chainedIsToday(_ item: ReplayCase) async throws {
+    func canonicalPolicyPreservesSceneContentWithBoundedDependencies(_ item: ReplayCase) async throws {
         let session = ReplaySession()
         let policy = SceneTextPolicy()
         let deliveries = try #require(item.deliveries)
+        var depths: [Int: Int] = [:]
+        var snapshots: [Int: SceneSnapshot] = [:]
         for (index, delivery) in deliveries.enumerated() {
             session.id = delivery.session
             if let input = item.input {
@@ -21,13 +22,32 @@ struct SceneTextPolicyReplayTests {
                 session.observedWindowNumber = scenes[index].windowNumber
             }
             let answer = await policy.answer(delivery.scene, changesOnly: true, nested: true,
-                                                   session: session, shown: ValueMinimization()).observation(nested: true)
-            #expect(answer["revision"] == .number(Double(delivery.revision)))
-            #expect(answer["since"] == (delivery.since.map { .number(Double($0)) } ?? .null))
-            #expect(Data((answer["scene"].string ?? answer["changes"].string ?? "").utf8)
-                    == Data(delivery.savedText.utf8), "\(item.id) revision \(delivery.revision)")
+                                             session: session, shown: ValueMinimization())
+            #expect(answer.revision == delivery.revision)
+            switch answer.form {
+            case .whole:
+                depths[answer.revision] = 0
+                #expect(answer.text == answer.scene.text(cuts: .safe))
+            case .changes(let since, _):
+                let previous = try #require(snapshots[since])
+                let depth = try #require(depths[since]) + 1
+                #expect(depth <= 2)
+                depths[answer.revision] = depth
+                let expected = "r\(answer.revision) since r\(since)\n"
+                    + SceneChanges.changes(from: previous, to: answer.scene, cuts: .safe).text(since: since)
+                #expect(answer.text == expected)
+            case .unchanged(let since):
+                let previous = try #require(snapshots[since])
+                #expect(SceneChanges.changes(from: previous, to: answer.scene, cuts: .safe).isEmpty)
+                let depth = try #require(depths[since]) + 1
+                #expect(depth <= 2)
+                depths[answer.revision] = depth
+                #expect(answer.text == "r\(answer.revision) unchanged since r\(since)")
+            }
+            snapshots[answer.revision] = answer.scene
         }
     }
+
 }
 
 extension SceneTextPolicyReplayTests {
@@ -70,24 +90,21 @@ extension SceneTextPolicyReplayTests {
 }
 
 extension SceneTextPolicyReplayTests {
-    @Test(arguments: ["", "chained", "invalid"])
-    func defaultAndChainedMatchFrozenSyntheticText(_ arm: String) async throws {
-        let switches = arm.isEmpty ? [:] : ["scene_text_policy": arm]
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: switches)) {
-            let policy = SceneTextPolicy()
-            let session = SceneContextHoldTests.session()
-            let first = await policy.answer(SceneContextHoldTests.scene(), session: session, shown: ValueMinimization())
-            #expect(first.form == .whole(because: nil))
-            let next = await policy.answer(SceneContextHoldTests.scene(1), changesOnly: true,
-                                           session: session, shown: ValueMinimization())
-            #expect(next.text == "## Content @0,0 100x100\n~ [control] Setting 0 = 1 @10,0  (was = \"0\")")
-            #expect(next.form == .changes(since: 1, base: .last))
-            let unchanged = await policy.answer(SceneContextHoldTests.scene(1), changesOnly: true,
-                                                session: session, shown: ValueMinimization())
-            #expect(unchanged.form == .unchanged(since: 2))
-            #expect(unchanged.text == "Unchanged since revision 2.")
-        }
+    @Test func canonicalSyntheticTextIncludesItsExplicitBase() async throws {
+        let policy = SceneTextPolicy()
+        let session = SceneContextHoldTests.session()
+        let first = await policy.answer(SceneContextHoldTests.scene(), session: session, shown: ValueMinimization())
+        #expect(first.form == .whole(because: nil))
+        let next = await policy.answer(SceneContextHoldTests.scene(1), changesOnly: true,
+                                       session: session, shown: ValueMinimization())
+        #expect(next.text == "r2 since r1\n## Content @0,0 100x100\n~ [control] Setting 0 = 1 @10,0  (was = \"0\")")
+        #expect(next.form == .changes(since: 1, base: .anchor))
+        let unchanged = await policy.answer(SceneContextHoldTests.scene(1), changesOnly: true,
+                                            session: session, shown: ValueMinimization())
+        #expect(unchanged.form == .unchanged(since: 2))
+        #expect(unchanged.text == "r3 unchanged since r2")
     }
+
 }
 
 struct OneOwnerTests {

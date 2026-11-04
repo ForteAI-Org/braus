@@ -12,7 +12,6 @@ import Memory
 import OSLog
 import SQLiteMemory
 import Synchronization
-import Switches
 
 /// RecallService is the Recall of one living memory: it keeps the derived index in line with the catalogue, and
 /// answers a task's query with the one selection per need the D2 contracts support.
@@ -713,13 +712,15 @@ public actor RecallService {
         /// The task's values, constraints and observed state every need's selection reads.
         package let context: RecallSelector.Context
         let scores: [[Double]]
-        package let sources: [RecallSource]
+        package var sources: [RecallSource]
         package let considered: Int
         var phases: Phases
         var cosine: [[Double]] = []
         var lexical: [[Double]] = []
         var admissibility: [String: RecallAdmissibility] = [:]
         var eligibleRoutes: [Set<String>] = []
+        /// Eligibility belongs to individual parts, even when a generic part admits their shared route.
+        var eligibleSlots: [Set<Int>] = []
     }
 
     /// The bundle IDs of the applications the current generation's parts run in, which a need's application is resolved
@@ -738,7 +739,6 @@ public actor RecallService {
         let begun = ContinuousClock.now
         let context = RecallSelector.Context(values: request.values, constraints: request.constraints, observed: observed,
                                              needs: request.searchedNeeds)
-        let v2 = SwitchBoard.current.arm("recall", default: RecallRendering.Version.v1) == .v2
         // A request that cannot read does not warm or mutate the shared index.
         if access.reads { await catchUp() }
         var notes = request.notes
@@ -776,7 +776,7 @@ public actor RecallService {
             return Prepared(status: status, readsMemory: access.reads, cache: nil, channel: .none, searchStatus: .unavailable, notes: notes, needs: needs,
                             context: context, scores: [], sources: [], considered: 0, phases: phases)
         }
-        let admissible = v2 ? try await refreshAdmissibility(for: cache) : [:]
+        let admissible = try await refreshAdmissibility(for: cache)
         phases.index = begun.duration(to: .now)
         // The channel that can answer now: the configured one, or the lexical one when vectors are missing.
         var searchStatus = SearchStatus.completed
@@ -828,6 +828,7 @@ public actor RecallService {
         var lexical: [[Double]] = []
         var routes: [String] = []
         var eligibleRoutes: [Set<String>] = []
+        var eligibleSlots: [Set<Int>] = []
         var considered = 0
         for (index, need) in needs.enumerated() {
             let needScores = score(text: searched[index], vector: vectors[index], cache: cache, channel: channel)
@@ -836,21 +837,16 @@ public actor RecallService {
             // could select none of their steps.
             let live = cache.live
             let eligible: [Int]
-            if v2 {
-                let filters = RecallFilters(bundleIDs: need.bundleID.map { [$0] },
-                    availableChannels: availableChannels, doNotUse: doNotUse)
-                eligible = live.filter { slot in
-                    guard let entry = cache.slots[slot] else { return false }
-                    return filters.admits(entry, admissible[entry.routeID])
-                }
-                cosine.append(channel == .lexical ? [] : score(text: searched[index], vector: vectors[index], cache: cache, channel: .semantic))
-                lexical.append(channel == .semantic ? [] : score(text: searched[index], vector: nil, cache: cache, channel: .lexical))
-            } else {
-                eligible = need.bundleID.map { bundle in
-                    live.filter { cache.slots[$0]?.bundleID == nil || cache.slots[$0]?.bundleID == bundle }
-                } ?? live
+            let filters = RecallFilters(bundleIDs: need.bundleID.map { [$0] },
+                availableChannels: availableChannels, doNotUse: doNotUse)
+            eligible = live.filter { slot in
+                guard let entry = cache.slots[slot] else { return false }
+                return filters.admits(entry, admissible[entry.routeID])
             }
+            cosine.append(channel == .lexical ? [] : score(text: searched[index], vector: vectors[index], cache: cache, channel: .semantic))
+            lexical.append(channel == .semantic ? [] : score(text: searched[index], vector: nil, cache: cache, channel: .lexical))
             eligibleRoutes.append(Set(eligible.compactMap { cache.slots[$0]?.routeID }))
+            eligibleSlots.append(Set(eligible))
             let ranked = eligible.sorted { cache.precedes($0, $1, by: needScores) }.prefix(RecallContract.candidateLimit)
             considered += ranked.count
             let relevant = eligible.filter { needScores[$0] >= thresholds.absolute }
@@ -880,7 +876,8 @@ public actor RecallService {
         prepared.cosine = cosine
         prepared.lexical = lexical
         prepared.admissibility = admissible
-        prepared.eligibleRoutes = v2 ? eligibleRoutes : []
+        prepared.eligibleRoutes = eligibleRoutes
+        prepared.eligibleSlots = eligibleSlots
         return prepared
     }
 
@@ -910,7 +907,9 @@ public actor RecallService {
                 var steps: [Int: Double] = [:]
                 var parts: [String: Double] = [:]
                 for part in source.parts where part.isOffered {
-                    guard let at = cache.byPart[part.partID] else { continue }
+                    guard let at = cache.byPart[part.partID],
+                          prepared.eligibleSlots.indices.contains(index),
+                          prepared.eligibleSlots[index].contains(at) else { continue }
                     parts[part.partID] = scores[at]
                     if part.kind == .step { steps[part.firstPosition] = scores[at] }
                 }
@@ -930,7 +929,7 @@ public actor RecallService {
     }
 
     /// Searches for the request's needs, selects, records the query and answers its delivery.
-    public func recall(_ request: RecallRequest, producer: TaskProducer, access: MemoryAccess = .readLearn) async throws -> Answer {
+    public func recall(_ request: RecallRequest, producer: TaskProducer, access: MemoryAccess = .readLearn, availableChannels: Set<String>) async throws -> Answer {
         let started = ContinuousClock.now
         let queryID = UUID().uuidString
         var observed: ObservedState?
@@ -940,7 +939,7 @@ public actor RecallService {
             observed = try await memory.perform { try await $0.recall.observedState(of: producer.source, stream: producer.streamID, since: since) }
             _ = try await memory.perform { try await $0.procedures.reevaluateOutdated(at: self.memory.clock.brainMS()) }
         }
-        var prepared = try await prepare(request, observed: observed.map { [$0] } ?? [], access: access)
+        var prepared = try await prepare(request, observed: observed.map { [$0] } ?? [], access: access, availableChannels: availableChannels)
         var clock = ContinuousClock.now
         var outcomes = outcomes(prepared)
         prepared.phases.selection = clock.duration(to: .now)
@@ -957,10 +956,8 @@ public actor RecallService {
                 if Set(selected).isSubset(of: still) || attempt == 1 { break }
                 let routes = prepared.sources.map(\.routeID)
                 let reread = try await memory.perform { try await $0.recall.sources(routes) }
-                prepared = Prepared(status: prepared.status, readsMemory: prepared.readsMemory, cache: prepared.cache, channel: prepared.channel,
-                                    searchStatus: prepared.searchStatus, notes: prepared.notes, needs: prepared.needs,
-                                    context: prepared.context, scores: prepared.scores, sources: reread, considered: prepared.considered,
-                                    phases: prepared.phases)
+                // Re-reading offered state must retain the need's original part eligibility and scoring metadata.
+                prepared.sources = reread
                 outcomes = self.outcomes(prepared)
             }
             prepared.phases.checking = clock.duration(to: .now)
@@ -1401,9 +1398,7 @@ public actor RecallService {
     public func link(attemptID: String, taskID: String, producer: TaskProducer) async throws -> [LinkSummary] {
         let selections = try await memory.perform { try await $0.recall.selections(ofAttempt: attemptID) }
         guard !selections.isEmpty else {
-            if RecallRendering.Version.current == .v2 {
-                try await memory.perform { try await $0.recall.finishCalibration(attemptID: attemptID) }
-            }
+            try await memory.perform { try await $0.recall.finishCalibration(attemptID: attemptID) }
             return []
         }
         // Each query's values are the ones of the revision it was made under, never a later revision's.
@@ -1455,9 +1450,7 @@ public actor RecallService {
                                              undetermined: isLast ? links.filter(\.undetermined).count : 0))
             }
         }
-        if RecallRendering.Version.current == .v2 {
-            try await memory.perform { try await $0.recall.finishCalibration(attemptID: attemptID) }
-        }
+        try await memory.perform { try await $0.recall.finishCalibration(attemptID: attemptID) }
         return summaries
     }
 

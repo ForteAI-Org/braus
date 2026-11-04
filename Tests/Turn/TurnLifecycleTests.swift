@@ -1,3 +1,4 @@
+import LocalMCP
 import AutomationMCP
 import ChatCore
 import Foundation
@@ -67,7 +68,7 @@ struct TurnLifecycleTests {
         }
         let runner = testTurnRunner(host: try #require(host), root: root)
         let transport = TurnTestTransport([
-            [.toolCall(.init(id: "one", name: "status", arguments: Data("{}".utf8))),
+            [.toolCall(.init(id: "one", name: "observe", arguments: Data("{}".utf8))),
              .completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))],
             [.completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))]
         ])
@@ -122,7 +123,7 @@ struct TurnLifecycleTests {
             let record = try JSONSerialization.jsonObject(with: Data(contentsOf:
                 root.appending(path: "codex-instructions.json"))) as? [String: String]
             #expect(record?["session"] == "s1")
-            #expect(record?["instructions"] == TurnInstructions.compose(role: nil))
+            #expect(record?["instructions"] == testTurnInstructions())
         } catch let error as ProviderFailure where ending == "failure" {
             #expect(error == .init(kind: .turnError, message: "ok", exitStatus: 0))
         } catch is CancellationError where ending == "stop" {

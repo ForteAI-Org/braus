@@ -49,27 +49,48 @@ struct TypedSecretTests {
         let id        : String
     }
 
-    static func harness(memory: Bool = true, fields: [SyntheticPage.Field] = fields) async throws -> Harness {
+    static func harness(memory: Bool = true, permission: SessionProfile.Memory = .readLearn, fields: [SyntheticPage.Field] = fields) async throws -> Harness {
         let root = FileManager.default.temporaryDirectory
             .appending(path: "braus-w1t-\(UUID().uuidString)", directoryHint: .isDirectory)
         let knowledge = root.appending(path: "Knowledge", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: knowledge, withIntermediateDirectories: true)
         let session = await SyntheticWebSession.make(fields: fields, knowledge: memory ? knowledge : nil)
-        let tools = AutomationTools(session: session)
+        let tools = AutomationTools(session: session, profile: SessionProfile.app.replacing(memory: permission))
         tools.producer = CallProducer(source: .app, streamID: "w1t-\(UUID().uuidString)", traceID: "m1", messageRef: "m1")
         let transcript = Transcript()
         tools.record = { transcript.lines.append($0) }
         _ = try await tools.call("open_session", .object(["app": .string("web:fixture.test")]))
         let id = try #require(session.id?.uuidString)
+        if memory { try await plan(tools) }
         return Harness(root: root, knowledge: memory ? knowledge : nil, session: session, tools: tools,
                        transcript: transcript, id: id)
+    }
+
+    static func plan(_ tools: AutomationTools) async throws {
+        let result = try await tools.call("plan", .object([
+            "request": .string("Exercise field classification without exposing typed values"),
+            "rows": .array([.object(["title": .string("Enter the requested field value")])])
+        ]))
+        #expect(result["isError"].bool != true, "The fixture must establish a real plan before testing delivery")
+        _ = try #require(tools.openTask)
     }
 
     @discardableResult
     static func call(_ harness: Harness, _ name: String, _ arguments: [String: LocalMCP.JSONValue]) async throws -> LocalMCP.JSONValue {
         var arguments = arguments
-        arguments["session"] = .string(harness.id)
-        return try await harness.tools.call(name, .object(arguments))
+        if harness.tools.openTask != nil, !["observe", "open_session", "close_session"].contains(name) {
+            if name == "batch", let steps = arguments["steps"]?.array {
+                arguments["steps"] = .array(steps.map { item in
+                    var fields = item.object ?? [:]
+                    fields["step"] = .string("r1")
+                    return .object(fields)
+                })
+            } else { arguments["step"] = .string("r1") }
+        }
+        if harness.tools.toolDefinitions.contains(where: { $0["name"].string == name }) {
+            return try await harness.tools.call(name, .object(arguments))
+        }
+        return try await harness.tools.call("call", .object(["name": .string(name), "arguments": .object(arguments)]))
     }
 
     /// Closes the session and the memory, so every write is in the archive's files.
@@ -142,13 +163,6 @@ struct TypedSecretTests {
         ) { try $0.text(0) ?? "" }
     }
 
-    static func status(of answer: LocalMCP.JSONValue) -> String? {
-        guard let text = answer["content"].array?.first?["text"].string,
-              let value = try? JSONDecoder().decode(LocalMCP.JSONValue.self, from: Data(text.utf8)) else { return nil }
-        return value["status"].string
-    }
-
-    // MARK: T1, T2: secure and ordinary
 
     @Test("T1: type_text into a password field under a neutral label: withheld everywhere, a secure_field gap",
           arguments: variants)
@@ -167,7 +181,8 @@ struct TypedSecretTests {
         let harness = try await Self.harness()
         defer { Self.remove(harness) }
         let answer = try await Self.call(harness, "type_text", ["target": .string("Nome"), "text": .string("Grace Hopper")])
-        #expect(Self.status(of: answer) == "found_acted", "\(answer)")
+        #expect(answer["structuredContent"]["gesture"].string == "sent", "\(answer)")
+        #expect(answer["structuredContent"]["effect"].string == "confirmed")
         await Self.finish(harness)
         #expect(try !SecureFieldTests.files(in: try #require(harness.knowledge), holding: "Grace Hopper").isEmpty)
         #expect(try !Self.gaps(harness).contains { $0.hasPrefix("text:") })
@@ -196,7 +211,8 @@ struct TypedSecretTests {
         defer { Self.remove(harness) }
         harness.session.page.schedule([change], afterScene: harness.session.page.scenesRead + 1)
         let answer = try await Self.call(harness, "type_text", ["target": .string("Nome"), "text": .string("Grace")])
-        #expect(Self.status(of: answer) == "refused", "\(answer)")
+        #expect(answer["structuredContent"]["gesture"].string == "not_sent", "\(answer)")
+        #expect(answer["structuredContent"]["effect"].string == "not_applicable")
         #expect(harness.session.page.value(of: 12) != "Grace" && harness.session.page.value(of: 52) != "Grace")
         await Self.finish(harness)
     }
@@ -216,17 +232,23 @@ struct TypedSecretTests {
 
     @Test("T8: a session that classifies nothing (the default): every typed text is withheld")
     func defaultConformer() async throws {
+        let directory = URL.temporaryDirectory.appending(path: "braus-default-classification-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
         let probe = DesktopProbe()
+        probe.memoryDirectory = directory
         let tools = AutomationTools(session: probe)
         let transcript = Transcript()
         tools.record = { transcript.lines.append($0) }
         _ = try await tools.call("open_session", .object(["app": .string("com.example.App")]))
-        let id = try #require(probe.id?.uuidString)
+        _ = try #require(probe.id)
+        try await Self.plan(tools)
         let text = "probe-\(Self.fragment)"
-        await #expect(throws: (any Error).self) {
-            _ = try await tools.call("type_text", .object(["session": .string(id), "target": .string("Name"), "text": .string(text)]))
-        }
+        let failed = try await tools.call("type_text", .object(["step": .string("r1"), "target": .string("Name"), "text": .string(text)]))
+        #expect(failed["isError"].bool == true)
+        #expect(probe.calls.contains("type_text"), "The classification/delivery path must be reached, rather than the plan guard")
         #expect(!transcript.lines.contains { Self.values(of: $0).contains { $0.contains(Self.fragment) } }, "\(transcript.lines)")
+        await MemoryService.shared(for: directory).close()
+        MemoryService.forget(directory)
     }
 
     // MARK: T6: batch
@@ -276,11 +298,26 @@ struct TypedSecretTests {
 
     // MARK: T10, T11, T13: no memory, errors, cancellation, the last output
 
-    @Test("T10: with no memory, nothing is recorded and the transcript still withholds", arguments: variants)
+    @Test("T10: without an operational archive the plan guard refuses delivery without exposing text", arguments: variants)
     func noMemory(text: String) async throws {
         let harness = try await Self.harness(memory: false)
         defer { Self.remove(harness) }
+        await #expect(throws: (any Error).self) {
+            _ = try await Self.call(harness, "type_text", ["target": .string("Accesso"), "text": .string(text)])
+        }
+        #expect(harness.session.page.textEvents == 0)
+        await Self.finish(harness)
+        try Self.expectWithheld(text, in: harness)
+    }
+
+    @Test("Procedural memory off still permits planned interaction and withholds secure values")
+    func memoryPermissionOff() async throws {
+        let harness = try await Self.harness(permission: .off)
+        defer { Self.remove(harness) }
+        let text = "permission-\(Self.fragment)"
         let answer = try await Self.call(harness, "type_text", ["target": .string("Accesso"), "text": .string(text)])
+        #expect(harness.session.page.value(of: 11) == text)
+        #expect(harness.session.page.textEvents > 0)
         await Self.finish(harness)
         try Self.expectWithheld(text, in: harness, answers: [answer])
     }
@@ -291,16 +328,11 @@ struct TypedSecretTests {
         let harness = try await Self.harness()
         defer { Self.remove(harness) }
         harness.session.failure = AutomationFailure("could not type \(text) into the field")
-        var thrown = ""
-        do {
-            _ = try await Self.call(harness, "type_text", ["target": .string("Accesso"), "text": .string(text)])
-        } catch {
-            thrown = String(describing: error)
-        }
-        #expect(!thrown.isEmpty, "the call failed")
-        #expect(!thrown.contains(Self.fragment), "\(thrown)")
+        let answer = try await Self.call(harness, "type_text", ["target": .string("Accesso"), "text": .string(text)])
+        #expect(answer["isError"].bool == true, "The dispatcher reports the delivery error as a failed tool result")
+        #expect(harness.session.page.textEvents == 0)
         await Self.finish(harness)
-        try Self.expectWithheld(text, in: harness)
+        try Self.expectWithheld(text, in: harness, answers: [answer])
     }
 
     @Test("T11: a call cancelled while it delivers: the transcript and the archive withhold its text")
@@ -309,9 +341,9 @@ struct TypedSecretTests {
         defer { Self.remove(harness) }
         harness.session.waitsBeforeDelivering = true
         let text = "cancelled-\(Self.fragment)"
-        let tools = harness.tools, id = harness.id
+        let tools = harness.tools
         let call = Task { @MainActor in
-            try await tools.call("type_text", .object(["session": .string(id), "target": .string("Accesso"),
+            try await tools.call("type_text", .object(["step": .string("r1"), "target": .string("Accesso"),
                                                        "text": .string(text)]))
         }
         for _ in 0..<500 where !harness.transcript.lines.contains(where: { $0.hasPrefix("→ type_text") }) {
@@ -337,14 +369,13 @@ struct TypedSecretTests {
         let later = harness.transcript.lines.count
         let observed = try await Self.call(harness, "observe", ["full": .bool(true)])
         harness.session.failure = AutomationFailure("the field holds \(text) already")
-        var thrown = ""
-        do { _ = try await Self.call(harness, "type_text", ["target": .string("Nome"), "text": .string("Grace")]) }
-        catch { thrown = String(describing: error) }
-        #expect(!thrown.isEmpty && !thrown.contains(Self.fragment), "\(thrown)")
+        let failed = try await Self.call(harness, "type_text", ["target": .string("Nome"), "text": .string("Grace")])
+        #expect(failed["isError"].bool == true)
+        #expect(!Self.strings(in: failed).contains { $0.contains(Self.fragment) })
         let laterLines = Array(harness.transcript.lines.dropFirst(later))
         #expect(laterLines.contains { $0.hasPrefix("← observe") })
         await Self.finish(harness)
-        try Self.expectWithheld(text, in: harness, answers: [observed])
+        try Self.expectWithheld(text, in: harness, answers: [observed, failed])
     }
 
     // MARK: M07: a command line's own web search
@@ -456,6 +487,7 @@ struct TypedSecretTests {
         tools.record = { transcript.lines.append($0) }
         _ = try await tools.call("open_session", .object(["app": .string("web:fixture.test")]))
         let id = try #require(session.id?.uuidString)
+        try await Self.plan(tools)
         let harness = Harness(root: root, knowledge: knowledge, session: session, tools: tools, transcript: transcript, id: id)
         // An unclassified text, not a producer secret: inserted at a focus the page cannot attest.
         session.page.run("document.activeElement = { tagName: 'IFRAME', contentDocument: null };")

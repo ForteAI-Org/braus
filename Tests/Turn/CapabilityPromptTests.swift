@@ -4,41 +4,36 @@ import Capabilities
 import Foundation
 import LocalMCP
 import ModelTransports
-import Switches
 import Testing
 import Turn
 
 @MainActor
 struct CapabilityPromptTests {
     @Test func fixedPartBudgetAndGroupIndex() throws {
-        try SwitchBoard.$testing.withValue(SwitchBoard(values: ["prompt": "v2", "tool_surface": "v2", "task_cycle": "v2"])) {
-            let tools = AutomationTools(session: TurnTestSession(), channels: .all)
-            let names = tools.toolDefinitions.compactMap { $0["name"].string }
-            let text = TurnRunner.systemPrompt(role: nil, tools: tools.instructions,
-                toolNames: names, groupIndex: tools.groupIndex)
-            #expect(names == ToolList.core.map(\.rawValue))
-            #expect(text.contains(tools.groupIndex))
-            let bytes = try ToolCatalogue.fixedPartBytes(instructions: text, definitions: tools.toolDefinitions)
-            print("EA2_FIXED tool_surface=v2 task_cycle=v2 prompt=v2 channels=all bytes=\(bytes) tools=\(names.count)")
-            #expect(bytes <= 15_360)
-        }
+        let tools = AutomationTools(session: TurnTestSession(), channels: .all)
+        let names = tools.toolDefinitions.compactMap { $0["name"].string }
+        let text = TurnRunner.systemPrompt(role: nil, tools: tools.instructions,
+            toolNames: names, groupIndex: tools.groupIndex)
+        #expect(names == ToolList.core.map(\.rawValue))
+        #expect(text.contains(tools.groupIndex))
+        let bytes = try ToolCatalogue.fixedPartBytes(instructions: text, definitions: tools.toolDefinitions)
+        print("EA2_FIXED channels=all bytes=\(bytes) tools=\(names.count)")
+        #expect(bytes <= 15_360)
     }
 
     @Test func systemPromptGetsListAndIndex() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["prompt": "v2", "tool_surface": "v2", "task_cycle": "v2"])) {
-            let root = try testTurnRoot()
-            defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
-            let tools = AutomationTools(session: TurnTestSession())
-            let transport = TurnTestTransport([[.delta("Done.")]])
-            let host = TestTurnHost()
-            let runner = TurnRunner(tools: tools, configuration: .init(workingDirectory: root,
-                bridgeExecutable: URL(filePath: "/bin/cat"), allowsSuspension: false), host: host)
-            _ = try await runner.run(.init(prompt: "Inspect", route: .modelLoop(transport: transport, contextWindow: nil))) { _ in }
-            #expect(host.began == 1)
-            let message = try #require(transport.messages.first?.first { $0.role == .system })
-            #expect(message.text.contains(tools.groupIndex))
-            try await runner.close()
-        }
+        let root = try testTurnRoot()
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let tools = AutomationTools(session: TurnTestSession())
+        let transport = TurnTestTransport([[.delta("Done.")]])
+        let host = TestTurnHost()
+        let runner = TurnRunner(tools: tools, configuration: .init(workingDirectory: root,
+            bridgeExecutable: URL(filePath: "/bin/cat"), allowsSuspension: false), host: host)
+        _ = try await runner.run(.init(prompt: "Inspect", route: .modelLoop(transport: transport, contextWindow: nil))) { _ in }
+        #expect(host.began == 1)
+        let message = try #require(transport.messages.first?.first { $0.role == .system })
+        #expect(message.text.contains(tools.groupIndex))
+        try await runner.close()
     }
 
     @Test func runnerUsesInstanceInterruptionClass() async throws {
@@ -54,7 +49,7 @@ struct CapabilityPromptTests {
         let runner = TurnRunner(tools: tools, configuration: .init(workingDirectory: root,
             bridgeExecutable: URL(filePath: "/bin/cat"), allowsSuspension: true), host: host)
         let transport = TurnTestTransport([[
-            .toolCall(.init(id: "one", name: "demo.read", arguments: Data("{}".utf8)))
+            .toolCall(.init(id: "one", name: "call", arguments: Data(#"{"name":"demo.read","arguments":{}}"#.utf8)))
         ]])
         let run = Task {
             try await runner.run(.init(prompt: "Read", route: .modelLoop(transport: transport, contextWindow: nil))) { _ in }

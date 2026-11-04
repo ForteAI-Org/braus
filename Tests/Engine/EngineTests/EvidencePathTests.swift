@@ -2,7 +2,6 @@ import CoreGraphics
 import EngineCore
 @testable import Engine
 import PerceptionCore
-import Switches
 import Testing
 
 @Suite("Evidence record paths")
@@ -36,52 +35,48 @@ struct EvidencePathTests {
     }
 
     @Test func finalSecondLook() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["verdict_v2": "on", "second_look": "on"])) {
-            var off = GestureEvidenceTests.element("toggle", value: "Option")
-            off.kind = .control
-            off.role = "AXCheckBox"
-            off.state = .off
-            var on = off
-            on.state = .on
-            let observer = ActionEngineTests.RecordingObserver()
-            let actuator = SecondLookRecordTests.CountingActuator()
-            let engine = ActionEngine(.init(scenes: ActionEngineTests.ScriptedScenes([
-                GestureEvidenceTests.window([off]), GestureEvidenceTests.window([off]), GestureEvidenceTests.window([on])]),
-                actuator: actuator, windows: ActionEngineTests.ScriptedWindows([[]]), observer: observer,
-                settling: SecondLookRecordTests.ScriptedSettler()), pause: { _ in })
-            let outcome = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X",
-                                                         target: "Option", verb: .click))
-            let record = try #require(observer.records.last)
-            #expect(record.evidence?.lookedAgain == true)
-            #expect(record.evidence?.waited == outcome.waited)
-            #expect(record.evidence?.learnableEffect == record.effect)
-            #expect(record.evidence?.verdictEffect?.kind == .state)
-            #expect(actuator.attempts == 1)
-        }
+        var off = GestureEvidenceTests.element("toggle", value: "Option")
+        off.kind = .control
+        off.role = "AXCheckBox"
+        off.state = .off
+        var on = off
+        on.state = .on
+        let observer = ActionEngineTests.RecordingObserver()
+        let actuator = SecondLookRecordTests.CountingActuator()
+        let engine = ActionEngine(.init(scenes: ActionEngineTests.ScriptedScenes([
+            GestureEvidenceTests.window([off]), GestureEvidenceTests.window([off]), GestureEvidenceTests.window([on])]),
+            actuator: actuator, windows: ActionEngineTests.ScriptedWindows([[]]), observer: observer,
+            settling: SecondLookRecordTests.ScriptedSettler()), pause: { _ in })
+        let outcome = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X",
+                                                     target: "Option", verb: .click))
+        let record = try #require(observer.records.last)
+        #expect(record.evidence?.lookedAgain == true)
+        #expect(record.evidence?.waited == outcome.waited)
+        #expect(record.evidence?.learnableEffect == record.effect)
+        #expect(record.evidence?.verdictEffect?.kind == .state)
+        #expect(actuator.attempts == 1)
     }
 
-    @Test func expectationRetainsEvidenceWithSecondLookOff() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["second_look": "off"])) {
-            let before = GestureEvidenceTests.window([GestureEvidenceTests.element(value: "12")])
-            let after = GestureEvidenceTests.window([GestureEvidenceTests.element(value: "123")])
-            let observer = ActionEngineTests.RecordingObserver()
-            let engine = ActionEngine(.init(scenes: ActionEngineTests.ScriptedScenes([]),
-                actuator: ActionEngineTests.RecordingActuator(), windows: ActionEngineTests.ScriptedWindows([[]]),
-                observer: observer), pause: { _ in })
-            let trace = VerdictTrace()
-            await ScreenExpectation.$current.withValue(.element(label: "Display", expect: .value("123"))) {
-                await VerdictTrace.$current.withValue(trace) {
-                    await engine.record(ActionRecord(bundleID: "com.x", element: before.scene.elements[0],
-                        verb: .click, effect: nil, windowTitleAfter: after.scene.windowTitle,
-                        before: before, after: after))
-                }
+    @Test func expectationRetainsEvidenceBeforeFinalPublication() async throws {
+        let before = GestureEvidenceTests.window([GestureEvidenceTests.element(value: "12")])
+        let after = GestureEvidenceTests.window([GestureEvidenceTests.element(value: "123")])
+        let observer = ActionEngineTests.RecordingObserver()
+        let engine = ActionEngine(.init(scenes: ActionEngineTests.ScriptedScenes([]),
+            actuator: ActionEngineTests.RecordingActuator(), windows: ActionEngineTests.ScriptedWindows([[]]),
+            observer: observer), pause: { _ in })
+        let trace = VerdictTrace()
+        await ScreenExpectation.$current.withValue(.element(label: "Display", expect: .value("123"))) {
+            await VerdictTrace.$current.withValue(trace) {
+                await engine.record(ActionRecord(bundleID: "com.x", element: before.scene.elements[0],
+                    verb: .click, effect: nil, windowTitleAfter: after.scene.windowTitle,
+                    before: before, after: after))
             }
-            #expect(observer.records.isEmpty)
-            let held = try #require(trace.heldRecords().last)
-            #expect(held.evidence?.comparable == true)
-            #expect(held.evidence?.changes.count == 1)
-            #expect(held.evidence?.learnableEffect == nil)
         }
+        #expect(observer.records.isEmpty)
+        let held = try #require(trace.heldRecords().last)
+        #expect(held.evidence?.comparable == true)
+        #expect(held.evidence?.changes.count == 1)
+        #expect(held.evidence?.learnableEffect == nil)
     }
 
     @Test func popup() async throws {

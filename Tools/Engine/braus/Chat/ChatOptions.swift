@@ -30,7 +30,7 @@ struct ChatOptions {
     var script: String?
     /// Where a script's run leaves its evidence (`--evidence`).
     var evidence: String?
-    /// A JSON file with the identity the process must answer to `memory_task status` before any turn (`--preflight`).
+    /// A JSON file with the expected host runtime identity, checked before any provider turn (`--preflight`).
     var preflight: String?
     /// Whether a script goes on after a request that failed (`--continue`).
     var continueOnError = false
@@ -207,8 +207,8 @@ struct ChatOptions {
                                    --provider or --model-provider; the profile controls how long the Seat stays ready
       --evidence <directory>       with --script: per request its conversation, tasks, each task's
                                    diagnosis (braus memory --task) and a summary with times and tokens
-      --preflight <file.json>      before any turn, the identity the process must answer to memory_task
-                                   status (archive, recall.channel, …); a difference stops the chat
+      --preflight <file.json>      before any turn, compare the runtime identity with this expectation
+                                   (archive, profile and catalogue); a difference stops the chat
       --continue                   with --script: go on after a request that failed
       --channels <list>            routes beyond the Seat, comma separated: native (the MacDriver first,
                                    the Seat when it gives the app back), adapters (app_capabilities,

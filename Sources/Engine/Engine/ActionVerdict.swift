@@ -9,7 +9,6 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
-import Switches
 
 /// Judges action effects and qualifies outcomes from the available evidence.
 extension ActionEngine {
@@ -29,10 +28,6 @@ extension ActionEngine {
         return ActOutcome(outcome.kind, outcome.message, scene: outcome.scene, check: check,
                           notSent: outcome.notSent, noop: outcome.noop, cause: error.cause)
     }
-
-    private enum VerdictArm: String, Sendable { case off, on }
-
-    private enum MessageArm: String, Sendable { case v1, v2 }
 
     /// The check of an outcome whose path stated none (`ActOutcome.withStatedCheck`).
     static func checked(_ outcome: ActOutcome) -> ActOutcome {
@@ -102,7 +97,7 @@ extension ActionEngine {
                 let afterWindow = if rereading { reading } else { await perceive(pid) }
                 let after = afterWindow?.scene
                 await recordPick(request, element: element, before: perceived, after: afterWindow)
-                if stillOpen, SwitchBoard.current.arm("outcome", default: MessageArm.v1) == .v2,
+                if stillOpen,
                    let afterWindow,
                    Self.chosenControl(element, before: perceived, after: afterWindow,
                                       popups: openSurfaces.popups) != nil {
@@ -188,36 +183,15 @@ extension ActionEngine {
               let check = outcome.check, check.performed != .none
         else { return outcome }
         let limit: OperationCheck.Limit = ended == .capped ? .settleCapped : .settleUnwatched
-        // A read-back method whose value came from the scene's element is the scene.
-        let isDirect = [.controlState, .controlValue, .driverReceipt].contains(check.method) && !readBackFromScene
-        let usesNewVerdict = SwitchBoard.current.arm("verdict_v2", default: VerdictArm.off) == .on
-        let verdict: OperationCheck.Verdict = switch check.verdict {
-            case .passed : isDirect || usesNewVerdict ? .passed : .unknown
-            case .failed : .unknown
-            case .unknown: .unknown
-        }
+        let verdict: OperationCheck.Verdict = check.verdict == .passed ? .passed : .unknown
         let qualified = OperationCheck(
             condition: check.condition, method: check.method, methodVersion: check.methodVersion, verdict: verdict,
             expected: check.expected, observed: check.observed, limits: check.limits + [limit], performed: check.performed,
             substitute: check.substitute, target: check.target
         )
-        if usesNewVerdict {
-            return ActOutcome(verdict == .passed ? outcome.kind : .actedUnverified, outcome.message,
-                              scene: outcome.scene, check: qualified, notSent: outcome.notSent, noop: outcome.noop,
-                              cause: outcome.cause, lookedAgain: outcome.lookedAgain, waited: outcome.waited)
-        }
-        let milliseconds = cap.components.seconds * 1000 + cap.components.attoseconds / 1_000_000_000_000_000
-        var message = outcome.message + (ended == .capped
-            ? " The wait after it ended at its cap (\(milliseconds) ms) with the window still changing, or a request "
-                + "still in flight: what was read may not be what it leaves."
-            : " Nothing could be watched while waiting after it, or not all of it (a page's requests): the wait was its "
-                + "cap (\(milliseconds) ms), and what was read may not be what it leaves yet.")
-        if verdict != check.verdict {
-            message += " So whether it had its effect is not known yet: observe again before acting, and do not repeat it "
-                + "from this answer."
-        }
-        let kind: ActOutcomeKind = outcome.kind == .foundActed && verdict != .passed ? .actedUnverified : outcome.kind
-        return ActOutcome(kind, message, scene: outcome.scene, check: qualified)
+        return ActOutcome(verdict == .passed ? outcome.kind : .actedUnverified, outcome.message,
+                          scene: outcome.scene, check: qualified, notSent: outcome.notSent, noop: outcome.noop,
+                          cause: outcome.cause, lookedAgain: outcome.lookedAgain, waited: outcome.waited)
     }
 
     /// The answer to an input the actuator refused before any event of it went out (`GestureNotSent`): refused,
@@ -604,7 +578,7 @@ extension ActionEngine {
     }
 
     /// Compares volatile final facts and retains only the comparison's result, never its operands.
-    static func expectationOutcome(
+    package static func expectationOutcome(
         _ expectation: ScreenExpectation,
         outcome: ActOutcome,
         before: SceneSnapshot?,
@@ -643,7 +617,7 @@ extension ActionEngine {
         let verdict: OperationCheck.Verdict = result.verdict == .passed
             ? (prior.verdict == .unknown ? .unknown : already ? .failed : .passed) : result.verdict
         let limits = (outcome.check?.limits ?? []).filter {
-            ![.noExpectation, .unattributed, .noAfterScene, .readbackUnavailable].contains($0)
+            ![.noExpectation, .unattributed, .noAfterScene, .readbackUnavailable, .commandEffectUnchecked].contains($0)
                 && !(verdict == .unknown && [.settleCapped, .settleUnwatched].contains($0))
         } + (verdict == .unknown ? [.readbackUnavailable] : [])
         let observed = already ? OutcomeText.expectationAlreadySatisfied : result.observed
@@ -656,7 +630,7 @@ extension ActionEngine {
             lookedAgain: outcome.lookedAgain, waited: outcome.waited)
     }
 
-    /// Applies a bound predicate regardless of the switch that exposes single-gesture arguments.
+    /// Applies the predicate bound by a batch step independently of generic scene changes.
     func concluded(_ outcome: ActOutcome, settles: SettleTrail, in processID: pid_t) async -> ActOutcome {
         let final = await concludedReading(outcome, settles: settles, in: processID)
         guard let expectation = ScreenExpectation.current,
@@ -689,10 +663,10 @@ extension ActionEngine {
         let qualified = Self.checked(Self.qualified(outcome, after: initialEnding,
             readBackFromScene: settles.readBackFromScene, cap: timing.clickSettle))
         let first: ActOutcome
-        if SecondLook.isEnabled, let ended = VerdictTrace.current?.gestureEnded {
+        if let ended = VerdictTrace.current?.gestureEnded {
             first = qualified.with(lookedAgain: qualified.lookedAgain, waited: ended.duration(to: .now))
         } else { first = qualified }
-        guard SecondLook.isEnabled, let trace = VerdictTrace.current, let ended = trace.gestureEnded,
+        guard let trace = VerdictTrace.current, let ended = trace.gestureEnded,
               let mode = SecondLook.mode(for: first.check, alreadyLooked: first.lookedAgain),
               trace.rejudge != nil || trace.reread != nil else { return first }
         func cut() -> ActOutcome {

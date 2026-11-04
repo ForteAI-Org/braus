@@ -9,6 +9,7 @@ import EngineCore
 import Foundation
 @testable import LocalMCP
 import Network
+import Memory
 import PerceptionCore
 import Testing
 
@@ -90,18 +91,21 @@ struct ExternalReconnectTests {
     }
 
     private static func message(_ result: JSONValue) -> String {
-        guard let text = result["content"].array?.first?["text"].string,
-              let value = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)) else { return "" }
-        return value["message"].string ?? ""
+        guard let text = result["content"].array?.first?["text"].string else { return "" }
+        let value = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+        return value?["message"].string ?? text
     }
 
     @Test("I04: after a reconnect the old session ID reaches no session, the call in flight is not replayed, and the new session does only what it is asked")
     func oldIDAfterReconnect() async throws {
+        let directory = URL.temporaryDirectory.appending(path: "reconnect-plan-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
         var sessions: [HostedSession] = []
         var closed = 0
         var channels: [MCPChannel] = []
         let host = LocalMCPHost(maximumConnections: 1) {
             let session = HostedSession()
+            session.memoryDirectory = directory.appending(path: UUID().uuidString)
             sessions.append(session)
             let tools = AutomationTools(session: session)
             let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil) { name, arguments in
@@ -109,6 +113,10 @@ struct ExternalReconnectTests {
             }
             return MCPHostSession(router: router) {
                 await session.close()
+                if let archive = session.memoryDirectory {
+                    await MemoryService.shared(for: archive).close()
+                    MemoryService.forget(archive)
+                }
                 closed += 1
             }
         }
@@ -124,10 +132,13 @@ struct ExternalReconnectTests {
             let opened = try await call(first, endpoint, "open_session", ["app": .string(Self.application)])
             #expect(opened["isError"] == .bool(false), "\(opened)")
             let old = try #require(sessions.first?.id).uuidString
-            let acted = try await call(first, endpoint, "act", ["session": .string(old), "target": .string("Create")])
+            let plan = try await call(first, endpoint, "plan", ["request": .string("Create then wait"),
+                "rows": .array([.object(["title": .string("Create and wait")])])])
+            #expect(plan["isError"] == .bool(false))
+            let acted = try await call(first, endpoint, "act", ["target": .string("Create")])
             #expect(acted["isError"] == .bool(false), "\(acted)")
             try await first.write(envelope(endpoint, "tools/call", .object([
-                "name": .string("act"), "arguments": .object(["session": .string(old), "target": .string("Slow")]),
+                "name": .string("act"), "arguments": .object(["target": .string("Slow")]),
             ])))
             try #require(try await Self.eventually { sessions.first?.calls.contains("Slow") == true },
                          "the held action never started")
@@ -149,7 +160,7 @@ struct ExternalReconnectTests {
                 let stale = try await call(second, endpoint, "act",
                                            ["session": .string(old), "target": .string(target)])
                 #expect(stale["isError"] == .bool(true), "\(stale)")
-                #expect(Self.message(stale).contains("stale"), "\(stale)")
+                #expect(Self.message(stale).lowercased().contains("argument"), "\(stale)")
             }
             #expect(sessions.last?.calls == [], "the old ID reached the new session")
             #expect(sessions.first?.calls == firstCalls, "the old session was reached after its close")
@@ -158,7 +169,10 @@ struct ExternalReconnectTests {
             _ = try await call(second, endpoint, "open_session", ["app": .string(Self.application)])
             let new = try #require(sessions.last?.id).uuidString
             #expect(new != old)
-            let mine = try await call(second, endpoint, "act", ["session": .string(new), "target": .string("Create")])
+            let secondPlan = try await call(second, endpoint, "plan", ["request": .string("Create"),
+                "rows": .array([.object(["title": .string("Create")])])])
+            #expect(secondPlan["isError"] == .bool(false))
+            let mine = try await call(second, endpoint, "act", ["target": .string("Create")])
             #expect(mine["isError"] == .bool(false), "\(mine)")
             #expect(sessions.last?.calls == ["open", "Create"], "nothing replayed on the new session")
             #expect(sessions.first?.calls == firstCalls)
@@ -178,6 +192,7 @@ struct ExternalReconnectTests {
 /// held until the call is cancelled. `BridgeReconnectTests` composes its connections with it too.
 @MainActor
 final class HostedSession: AutomationSessionOperating {
+    var memoryDirectory: URL?
     var id: UUID?
     var calls: [String] = []
     var cancelled: [String] = []

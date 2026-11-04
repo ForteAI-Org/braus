@@ -16,10 +16,10 @@ import Testing
 
 /// RecallChoiceEvaluationTests measure experiment A against the automatic selector on the development corpus v4, by the
 /// protocol fixed before any result (`.scratch/brain-memory-recall/experiment-a/protocol.md`). For each query and condition:
-/// the proposal through `memory_task begin` (experiment enabled); a real agent's choice, a fresh ephemeral session of the
+/// an explicit typed service proposal (outside the current model catalogue); a real agent's choice, a fresh ephemeral session of the
 /// provider configured on this Mac (the Claude or Codex CLI as Braus invokes it, tools off), which receives Braus's instructions, the
 /// task as it resolved it, its begin call and the tool's answer, and nothing of the corpus's expectations; the choice through
-/// `memory_task choose`, one retry after a refusal; the automatic selector on the same search, as the control. The corpus's
+/// the typed service choice contract, one retry after a refusal; the automatic selector on the same search, as the control. The corpus's
 /// expectations judge both (`RecallJudge`); the model never judges. Gated: `BRAUS_RECALL_EVAL=choice4` and the models.
 ///
 /// - `BRAUS_RECALL_CHOICE_AGENT`: `claude` (default: the Claude CLI as Braus invokes it), `codex`, or `none` (no model call:
@@ -190,7 +190,7 @@ struct RecallChoiceEvaluationTests {
         guard case .object(var begin) = RecallCorpus.begin(query) else { return record }
         begin["recall_mode"] = .string("propose")
         var clock = ContinuousClock.now
-        let answer = try await tools.call("memory_task", .object(begin)).payload
+        let answer = try await HistoricalRecallFixture.beginProposal(tools, String(decoding: JSONEncoder().encode(JSONValue.object(begin)), as: UTF8.self))
         record.proposalMS = E.milliseconds(clock.duration(to: .now))
         record.exchanges = 1
         let proposal = answer["recall_proposal"]
@@ -238,16 +238,16 @@ struct RecallChoiceEvaluationTests {
                 if arguments["operation"] == nil { arguments["operation"] = .string("choose") }
                 record.plans.append(String(decoding: (try? encoder.encode(JSONValue.object(arguments))) ?? Data(), as: UTF8.self))
                 clock = .now
-                let result = try await tools.call("memory_task", .object(arguments))
+                let result = try await HistoricalRecallFixture.choose(tools, String(decoding: JSONEncoder().encode(JSONValue.object(arguments)), as: UTF8.self))
                 record.chooseMS += E.milliseconds(clock.duration(to: .now))
                 record.exchanges += 1
-                if result["isError"] == .bool(true) {
-                    let refusal = String(decoding: (try? encoder.encode(result.payload)) ?? Data(), as: UTF8.self)
+                if result["status"].string == "error" {
+                    let refusal = String(decoding: (try? encoder.encode(result)) ?? Data(), as: UTF8.self)
                     record.refusals.append(refusal)
-                    prompt += "\n\nmemory_task answered:\n\(refusal)\n\nReply with only the JSON arguments of your corrected memory_task choose call."
+                    prompt += "\n\nThe Recall service answered:\n\(refusal)\n\nReply with only the JSON arguments of your corrected typed choice."
                     continue
                 }
-                admitted = result.payload
+                admitted = result
                 plan = .object(arguments)
                 break
             }
@@ -270,10 +270,10 @@ struct RecallChoiceEvaluationTests {
         let values = request.values
         record.verdictA = RecallJudge.judge(query, outcomes: outcomesA, sources: sourcesA, values: values, learned: archive.learned).query
         record.answerA = RecallJudge.describe(outcomesA, learned: archive.learned)
-        _ = try? await tools.call("memory_task", P.json(#"{"operation":"end","outcome":"abandoned"}"#))
+        _ = try? await HistoricalRecallFixture.end(tools, #"{"operation":"end","outcome":"abandoned"}"#)
         // The control: the automatic selector on the same search of the same archive.
         clock = .now
-        let prepared = try await service.prepare(request)
+        let prepared = try await service.prepare(request, availableChannels: HistoricalRecallFixture.nativeChannels)
         let control = service.outcomes(prepared, thresholds: thresholds)
         record.controlMS = E.milliseconds(clock.duration(to: .now))
         let controlSources = Dictionary(uniqueKeysWithValues: prepared.sources.map { ($0.routeID, $0) })
@@ -313,13 +313,13 @@ struct RecallChoiceEvaluationTests {
             You are preparing a task for the person on their Mac, before any app action. From the conversation you resolved the \
             task as: \(begin["remaining"].string ?? begin["goal"].string ?? "")
 
-            You called memory_task with:
+            The task input fixture is:
             \(call)
 
-            memory_task answered:
+            The Recall service answered:
             \(tool)
 
-            Your next call is memory_task with operation "choose". Its arguments: {"operation":"choose","proposal":"<the proposal's \
+            Return only the JSON of a typed Recall choice. Its fields: {"operation":"choose","proposal":"<the proposal's \
             id>","plan":[{"need":<need number from 1>,"tracts":[{"source":"<s1, s2, …>","from":<first step>,"to":<last step>}],\
             "covered":"all"|"part"|"none"|"ambiguous","uncovered":"<what remains, in your words, when covered is part or none; the \
             question for the person when ambiguous>","alternatives":[<the options as tracts, only when covered is ambiguous>],\

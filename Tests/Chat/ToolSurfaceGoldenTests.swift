@@ -24,7 +24,7 @@ struct ToolSurfaceGoldenTests {
             "mcpFirstLine": .string(AutomationTools.mcpInstructions(.firstLine)),
             "mcpInstructions": .string(AutomationTools.mcpInstructions(.full))
         ])
-        try ToolGolden.compare(value, named: "tools-" + (names.isEmpty ? "none" : names.joined(separator: "-")))
+        try ToolGolden.compare(value, named: "current-tools-" + (names.isEmpty ? "none" : names.joined(separator: "-")))
     }
 }
 
@@ -47,6 +47,8 @@ struct ToolResultGoldenTests {
                 SceneElement(id: "row\($0)", kind: .control, label: "Track \($0)",
                              bounds: NormalizedRect(x: 0.1, y: 0.04 * Double($0), width: 0.2, height: 0.03))
             })
+        session.memoryDirectory = directory
+        session.memoryApplication = "test.synthetic"
         let tools = AutomationTools(session: session)
         tools.producer = CallProducer(source: .app, streamID: "tool-results", traceID: "fixed-trace")
         var transcript: [String] = []
@@ -54,11 +56,26 @@ struct ToolResultGoldenTests {
         var results: [JSONValue] = []
         func call(_ name: String, _ fields: [String: JSONValue] = [:], inSession: Bool = false) async throws {
             var fields = fields
-            if inSession { fields["session"] = .string(try #require(session.id).uuidString) }
-            results.append(try await tools.call(name, .object(fields)))
+            _ = inSession
+            if tools.openTask != nil, ["act", "type_text", "press_key", "menu", "batch"].contains(name) {
+                if name == "batch", let steps = fields["steps"]?.array {
+                    fields["steps"] = .array(steps.map { step in
+                        var value = step.object ?? [:]
+                        value["step"] = .string("r1")
+                        return .object(value)
+                    })
+                } else { fields["step"] = .string("r1") }
+            }
+            if !tools.toolDefinitions.contains(where: { $0["name"].string == name }) {
+                results.append(try await tools.call("call", .object(["name": .string(name), "arguments": .object(fields)])))
+            } else {
+                results.append(try await tools.call(name, .object(fields)))
+            }
         }
         try await call("status")
         try await call("open_session", ["app": .string("Synthetic Mixer")])
+        try await call("plan", ["request": .string("Set a track"),
+            "rows": .array([.object(["title": .string("Enable the track")])])])
         try await call("observe", ["full": .bool(true)], inSession: true)
         session.scene.elements[0].state = .on
         try await call("observe", inSession: true)
@@ -72,30 +89,29 @@ struct ToolResultGoldenTests {
         ])], inSession: true)
         session.scene.windowTitle = "Menu result"
         try await call("menu", ["path": .string("File > Save")], inSession: true)
-        session.memoryDirectory = directory
-        session.memoryApplication = "test.synthetic"
-        try await call("memory_task", ["operation": .string("begin"), "goal": .string("Set a track"), "recall": .bool(false)])
         #expect(tools.openTask != nil)
-        try await call("memory_task", ["operation": .string("update"), "result": .string("Track enabled")])
-        try await call("act", ["target": .string("Track 0")], inSession: true)
-        try await call("memory_task", ["operation": .string("end"), "outcome": .string("completed"),
-                                      "result_check": .object(["element": .string("Track 0"), "state": .string("on")])])
+        try await call("plan", ["request": .string("Set a track and verify it"),
+                                "rows": .array([.object(["id": .string("r1"), "title": .string("Enable the track")])])])
+        try await call("act", ["target": .string("Track 0"), "step": .string("r1")])
+        try await call("end", ["outcome": .string("completed"),
+                              "result_check": .object(["element": .string("Track 0"), "state": .string("on")])])
         #expect(tools.openTask == nil)
         do {
-            _ = try await tools.call("act", .object(["session": .string("stale"), "target": .string("Track 0")]))
-            Issue.record("A stale session was accepted")
+            _ = try await tools.call("memory_task", .object(["operation": .string("status")]))
+            Issue.record("The retired task tool was accepted")
         } catch let error as AutomationFailure {
             results.append(.object(["refused": .string(error.description)]))
         }
-        try await call("memory_task", ["operation": .string("begin"), "goal": .string("A stopped task"), "recall": .bool(false)])
+        try await call("plan", ["request": .string("A stopped task"),
+                                "rows": .array([.object(["title": .string("Pending work")])])])
         #expect(tools.openTask != nil)
         tools.markTaskInterrupted()
         try await tools.finishInterruptedTask()
         results.append(.object(["stopped": tools.takeStoppedTaskNotice().map(JSONValue.string) ?? .null]))
         #expect(tools.openTask == nil)
         #expect(tools.takeStoppedTaskNotice() == nil)
-        try ToolGolden.compare(.array(results), named: "results-calls")
-        try ToolGolden.compare(.array(transcript.map(JSONValue.string)), named: "results-transcript")
+        try ToolGolden.compare(.array(results), named: "current-results-calls")
+        try ToolGolden.compare(.array(transcript.map(JSONValue.string)), named: "current-results-transcript")
     }
 }
 
@@ -253,7 +269,7 @@ struct InterruptionPolicyLocationTests {
             let policy = AutomationTools.interruptionPolicy(for: name)
             let expected: AutomationTools.InterruptionPolicy
             switch name {
-            case "status", "windows", "apps", "observe", "app_capabilities", "human_step": expected = .readOnly
+            case "status", "windows", "apps", "observe", "find", "app_capabilities", "human_step": expected = .readOnly
             case "open_session": expected = .openingScene
             default: expected = .mutating
             }

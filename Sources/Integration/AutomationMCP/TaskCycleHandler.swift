@@ -33,7 +33,7 @@ final class TaskCycleHandler {
     /// the command line's chat. Each call is recorded under it, with the trace it names at that moment.
     var producer = CallProducer(source: .app, streamID: "tools-\(UUID().uuidString)")
 
-    /// The task the agent declared through `memory_task` and has not ended: its calls are attributed to it.
+    /// The task declared by the current plan and not ended; its calls are attributed to its rows.
     var openTask: OpenTask?
 
     var todo: Todo?
@@ -107,37 +107,9 @@ final class TaskCycleHandler {
     /// Closes the stopped attempt without claiming success or interpreting a candidate.
     /// A failed write keeps both the task and the interruption pending for a later retry.
     func finishInterruptedTask() async throws {
-        if TaskCycleArm.current == .v2 {
-            guard interruptedProducer != nil else { return }
-            _ = try await closeStoppedTask(.person)
-            interruptedProducer = nil
-            return
-        }
-        guard let interruptedProducer else { return }
-        guard let current = openTask else {
-            self.interruptedProducer = nil
-            return
-        }
-        guard let directory = session.memoryDirectory else {
-            throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle_handler.directory.v1")))
-        }
-        let owner = try TaskProducer(source: interruptedProducer.source, streamID: interruptedProducer.streamID)
-        let draft = try TaskCheckpointDraft(
-            kind: .end,
-            declared: .abandoned,
-            note: "The person stopped execution. Actions may have taken effect; completion was not established."
-        )
-        _ = try await TaskChannel.checkpoint(current, draft, producer: owner, memory: MemoryService.shared(for: directory))
-        openTask = nil
-        pendingCandidate = nil
-        remindedCandidate = nil
-        self.interruptedProducer = nil
-        stoppedTaskNotice = (ModelText.text(.init(rawValue: "task_cycle_handler.draft.v1"))
-            + "\(current.taskID)"
-            + ModelText.text(.init(rawValue: "task_cycle_handler.draft.v1.2")))
-            + ModelText.text(.init(rawValue: "task_cycle_handler.draft.v1.3"))
-            + ModelText.text(.init(rawValue: "task_cycle_handler.draft.v1.4"))
-        try formatter.transcribe("Braus stopped task", .object(["task": .string(current.taskID), "outcome": .string("abandoned")]))
+        guard interruptedProducer != nil else { return }
+        _ = try await closeStoppedTask(.person)
+        interruptedProducer = nil
     }
 
     var stoppedTaskNotice: String?
@@ -155,7 +127,7 @@ final class TaskCycleHandler {
         return stoppedTaskNotice
     }
 
-    /// Reads the open task and the admitted procedure count when the Recall arm enables it.
+    /// Reads the open task and the procedure count allowed by the session profile.
     func taskFacts(for bundleID: String?) async -> SeatTaskFacts {
         SeatTaskFacts(isOpen: openTask != nil, learnedForApp: await learnedForPlanApp(bundleID))
     }
@@ -163,9 +135,6 @@ final class TaskCycleHandler {
     /// The candidate the last checkpoint or end answered that no interpretation has taken yet: until one does,
     /// nothing of that attempt is learned.
     var pendingCandidate: String?
-
-    /// The last candidate the host reminded the agent of, so that it asks once.
-    private var remindedCandidate: String?
 
     /// The candidates interpreted in this process: an end that answers one again, with the same facts as its
     /// checkpoint, asks for nothing more.
@@ -178,24 +147,7 @@ final class TaskCycleHandler {
     /// What a host sends the agent after a turn that left a candidate it did not interpret, once per candidate;
     /// nil when there is none or it was asked already. Haiku 5.5 answered the person after an end and left the
     /// candidate, so nothing of a completed task was learned (canary of 14/10/2026).
-    func takeInterpretationReminder() -> String? {
-        guard access.learns, TaskCycleArm.current == .v1 else { return nil }
-        guard let candidate = pendingCandidate, candidate != remindedCandidate else { return nil }
-        remindedCandidate = candidate
-        return (ModelText.text(.init(rawValue: "task_cycle_handler.candidate.v1"))
-            + "\(candidate)"
-            + ModelText.text(.init(rawValue: "task_cycle_handler.candidate.v1.2")))
-            + ModelText.text(.init(rawValue: "task_cycle_handler.candidate.v1.3"))
-            + ModelText.text(.init(rawValue: "task_cycle_handler.candidate.v1.4"))
-    }
-
-    /// The line an answer with a candidate leads with.
-    static func interpretNext(_ candidate: String) -> String {
-        (ModelText.text(.init(rawValue: "task_cycle_handler.interpretNext.v1"))
-            + "\(candidate)"
-            + ModelText.text(.init(rawValue: "task_cycle_handler.interpretNext.v1.2")))
-            + ModelText.text(.init(rawValue: "task_cycle_handler.interpretNext.v1.3"))
-    }
+    func takeInterpretationReminder() -> String? { nil }
 
     /// What an end answer asks before the agent answers the person. A document the task changed and kept only as a
     /// copy is still open with the change; the app quit when the session ends then stops on its save prompt in the
@@ -205,26 +157,30 @@ final class TaskCycleHandler {
         + ModelText.text(.init(rawValue: "task_cycle_handler.closeChangedCopies.v1.2"))
         + ModelText.text(.init(rawValue: "task_cycle_handler.closeChangedCopies.v1.3"))
 
-    /// Interprets, as Braus, the candidate of a completed task the agent left uninterpreted after its reminder
-    /// (`ProcedureProducer.brausInterpretation`), through the same `memory_task interpret` as the agent's, so the
-    /// transcript shows it. Answers the candidate and the answer, or nil when nothing was left or the task did not complete.
-    func interpretLeftCandidate(call: (String, JSONValue) async throws -> JSONValue) async -> (candidate: String, answer: JSONValue)? {
+    /// Learns a completed candidate at the internal producer boundary, without a model-tool call.
+    func interpretLeftCandidate() async -> (candidate: String, answer: JSONValue)? {
         guard access.learns else { pendingCandidate = nil; return nil }
-        guard let candidate = pendingCandidate, let directory = session.memoryDirectory,
-              let producer = try? TaskProducer(source: self.producer.source, streamID: self.producer.streamID),
-              let stated = try? await ProcedureProducer.brausInterpretation(
-                  candidateID: candidate, producer: producer, memory: MemoryService.shared(for: directory)) else { return nil }
-        var arguments: [String: JSONValue] = [
-            "operation": .string("interpret"), "candidate": .string(candidate),
-            "procedure": .object(["label": .string(stated.label), "outcome": .string("completed")]),
-        ]
-        if !stated.phases.isEmpty {
-            arguments["phases"] = .array(stated.phases.map { phase in
-                .object(["from": .number(Double(phase.first + 1)), "to": .number(Double(phase.last + 1)), "label": .string(phase.label)])
-            })
+        guard let candidate = pendingCandidate else { return nil }
+        do {
+            let (memory, owner) = try cycleMemory()
+            guard let stated = try await ProcedureProducer.brausInterpretation(
+                candidateID: candidate, producer: owner, memory: memory) else { return nil }
+            var parts = [try PartStatement(reference: .procedure, label: stated.label, outcome: .completed)]
+            for phase in stated.phases {
+                parts.append(try PartStatement(reference: .phase(first: phase.first, last: phase.last),
+                    label: phase.label, outcome: nil))
+            }
+            let statement = try ProcedureInterpretation(candidateID: candidate, parts: parts)
+            let outcome = try await ProcedureProducer.interpret(statement, producer: owner, memory: memory)
+            interpretedCandidates.insert(candidate)
+            if pendingCandidate == candidate { pendingCandidate = nil }
+            await RecallService.shared(for: memory).schedule()
+            return (candidate, MCPRouter.toolResult(Self.interpreted(outcome, candidateID: candidate)))
+        } catch {
+            let diagnostic = producerSecrets.withheld(MemoryService.describe(error))
+            Logger(subsystem: "dev.forte.Braus", category: "TaskCycle").error("Task interpretation failed: \(diagnostic, privacy: .private)")
+            return nil
         }
-        guard let answer = try? await call(MemoryTaskTool.name, .object(arguments)) else { return nil }
-        return (candidate, answer)
     }
 
     /// Forgets the candidate the last conversation left uninterpreted, so a new conversation is reminded only of its
@@ -232,45 +188,10 @@ final class TaskCycleHandler {
     /// stays in the archive, uninterpreted, as the earlier conversation's.
     func forgetConversation() {
         pendingCandidate = nil
-        remindedCandidate = nil
         forgetDeliveredMemory()
         previousConversationTask = nil
         stoppedReference = nil
-        if TaskCycleArm.current == .v2 { stoppedTaskNotice = nil }
-    }
-
-    /// Answers a `memory_task` call: decodes it, writes the task's declaration through `TaskChannel`, and
-    /// keeps the open task its next calls are attributed to. It acts on no application and is not
-    /// recorded as a call. A refusal is answered as a tool error with a code and the facts the agent
-    /// needs (the current revision, the open task), never thrown as a failure of an action.
-    func call(_ arguments: JSONValue) async throws -> JSONValue {
-        // The request's secrets are the producer's before any line of it is written, the transcript's first.
-        for text in MemoryTaskTool.declaredSecrets(in: arguments) where !producerSecrets.secrets.contains(text) { producerSecrets.secrets.append(text) }
-        try formatter.transcribe("→ \(MemoryTaskTool.name)", Self.masked(arguments))
-        let answered: JSONValue
-        let isError: Bool
-        do {
-            answered = try await taskAnswer(arguments)
-            isError  = false
-        } catch let failure as MemoryTaskTool.Failure {
-            answered = Self.taskFailure(failure)
-            isError  = true
-        } catch let error as TaskContextError {
-            answered = Self.taskFailure(Self.failure(of: error))
-            isError  = true
-        } catch let error as ProcedureError {
-            answered = Self.taskFailure(Self.failure(of: error))
-            isError  = true
-        } catch {
-            answered = Self.taskFailure(MemoryTaskTool.Failure(code: "memory_unavailable",
-                message: (ModelText.text(.init(rawValue: "task_cycle_handler.error.v1"))
-                    + "\(MemoryService.describe(error))"
-                    + ModelText.text(.init(rawValue: "task_cycle_handler.error.v1.2")))
-                    + ModelText.text(.init(rawValue: "task_cycle_handler.error.v1.3"))))
-            isError  = true
-        }
-        try formatter.transcribe("← \(MemoryTaskTool.name)", answered)
-        return MCPRouter.toolResult(answered, isError: isError)
+        stoppedTaskNotice = nil
     }
 
 }

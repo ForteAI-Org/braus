@@ -15,12 +15,10 @@ import Memory
 import PerceptionCore
 @testable import SQLiteMemory
 
-/// RecallCorpus is the Recall's versioned quality corpus (`Fixtures/recall-corpus-v1.json`) and its builder. The
-/// knowledge is learned through the product's tools over the session double, as an agent's tasks are: begin, the
-/// operations, end, the interpretation, each admitted by D2's qualification. The changes that follow it are applied
-/// as the system applies them: a reinterpretation through the tool, a retired part through the procedures'
-/// repository, which no tool exposes. The queries carry expectations written apart from any run, split by task
-/// family into development and final, so no family of the final split was seen while calibrating.
+/// RecallCorpus builds the curated Recall quality fixture from real recorded actions and producer contracts.
+/// Tasks use plan/step/end. Curated interpretations and later revisions are applied explicitly to
+/// ProcedureProducer, preserving the corpus's labels, parameter bindings and independent query oracles.
+/// This fixture does not attest automatic learning or expose an interpretation tool to the model.
 @MainActor
 struct RecallCorpus {
 
@@ -145,15 +143,17 @@ struct RecallCorpus {
         return learned
     }
 
-    /// One task through the tools: begin without a search, the operations, the declared end, the interpretation.
+    /// Records a task through the current tools, then applies the corpus's curated producer statement.
     func learn(_ item: JSONValue, into directory: URL) async throws -> Learned {
         let id = item["id"].string ?? ""
         let session = LearningSession(directory: directory)
-        let tools = ProcedureLearningTests.tools(session, stream: "corpus-\(id)")
-        var begin: [String: JSONValue] = ["operation": .string("begin"), "goal": item["goal"], "recall": .bool(false)]
+        let tools = ProcedureLearningTests.tools(session, stream: "corpus-\(id)",
+            profile: SessionProfile.app.replacing(memory: .learn))
+        var begin: [String: JSONValue] = ["request": item["goal"],
+            "rows": .array([.object(["title": .string("Carry out the corpus task")])])]
         if item["inputs"] != .null { begin["inputs"] = item["inputs"] }
-        let begun = try await tools.call("memory_task", .object(begin)).payload
-        guard begun["status"].string == "begun" else { throw Failure("\(id): begin answered \(begun)") }
+        let begun = try await tools.call("plan", .object(begin)).payload
+        guard begun["status"].string == "planned" else { throw Failure("\(id): plan answered \(begun)") }
         var application: String?
         for operation in item["run"].array ?? [] {
             if let bundle = operation["open"].string {
@@ -162,17 +162,18 @@ struct RecallCorpus {
                 _ = try await tools.call("open_session", .object(["app": .string(bundle)]))
                 continue
             }
-            guard let tool = operation["op"].string, var arguments = operation["args"].object, let application else {
+            guard let tool = operation["op"].string, let arguments = operation["args"].object, let application else {
                 throw Failure("\(id): an operation before any application")
             }
-            arguments["session"] = .string(session.id?.uuidString ?? "")
             session.script[Self.scriptKey(tool, arguments)] = try operation["next"].string.map {
                 LearningSession.Outcome(next: try window(application, $0))
             }
-            _ = try await tools.call(tool, .object(arguments))
+            let encoded = try JSONValue.canonicalEncoder().encode(JSONValue.object(arguments))
+            _ = try await ProcedureLearningTests.call(tools, tool, String(decoding: encoded, as: UTF8.self))
         }
-        let ended = try await tools.call("memory_task", .object(["operation": .string("end"), "outcome": item["end"]])).payload
-        guard let candidate = ended["candidate"]["id"].string else { throw Failure("\(id): no candidate at the end: \(ended)") }
+        let ended = try await tools.call("end", .object(["outcome": item["end"]])).payload
+        guard ended["status"].string == "ended" else { throw Failure("\(id): end answered \(ended)") }
+        let candidate = try await ProcedureLearningTests.candidateIDFixture(tools, session)
         var interpretation = item["interpretation"].object ?? [:]
         interpretation["operation"] = .string("interpret")
         interpretation["candidate"] = .string(candidate)
@@ -184,7 +185,8 @@ struct RecallCorpus {
                 .replacingOccurrences(of: "{task}/", with: "\(task)/")
             interpretation = try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)).object ?? interpretation
         }
-        let interpreted = try await tools.call("memory_task", .object(interpretation)).payload
+        let fixture = String(decoding: try JSONValue.canonicalEncoder().encode(JSONValue.object(interpretation)), as: UTF8.self)
+        let interpreted = try await ProcedureLearningTests.interpretFixture(tools, session, fixture)
         guard interpreted["status"].string == "interpreted",
               interpreted["parts"].array?.allSatisfy({ $0["admitted"].bool == true }) == true else {
             throw Failure("\(id): the interpretation is not wholly admitted: \(interpreted)")
@@ -193,18 +195,19 @@ struct RecallCorpus {
                        revisions: [ProcedureAssembly.routeID(candidateID: candidate, revision: 1)])
     }
 
-    /// Applies the changes that follow the learning, in the corpus's order: a reinterpretation through the tool, a
-    /// part retired through the procedures' repository.
+    /// Applies curated producer revisions and repository retirements in fixture order, outside the model API.
     func applyChanges(to learned: inout [String: Learned], in directory: URL) async throws {
         let memory = MemoryService.shared(for: directory)
         for item in knowledge {
             guard let id = item["id"].string, let changes = item["after"].array, var known = learned[id] else { continue }
             for change in changes {
                 if var reinterpretation = change["reinterpret"].object {
-                    let tools = ProcedureLearningTests.tools(LearningSession(directory: directory), stream: "corpus-\(id)")
+                    let session = LearningSession(directory: directory)
+                    let tools = ProcedureLearningTests.tools(session, stream: "corpus-\(id)")
                     reinterpretation["operation"] = .string("interpret")
                     reinterpretation["candidate"] = .string(known.candidateID)
-                    let answer = try await tools.call("memory_task", .object(reinterpretation)).payload
+                    let fixture = String(decoding: try JSONValue.canonicalEncoder().encode(JSONValue.object(reinterpretation)), as: UTF8.self)
+                    let answer = try await ProcedureLearningTests.interpretFixture(tools, session, fixture)
                     guard answer["status"].string == "interpreted" else { throw Failure("\(id): the reinterpretation answered \(answer)") }
                     known.revisions.append(ProcedureAssembly.routeID(candidateID: known.candidateID, revision: known.revisions.count + 1))
                 } else if change["state"] != .null, case .number(let step) = change["state"]["step"] {
@@ -221,7 +224,7 @@ struct RecallCorpus {
 
     // MARK: Queries
 
-    /// The task values a query declares, as `memory_task` would record them.
+    /// The task values declared by this quality fixture's query.
     nonisolated static func values(_ query: JSONValue) throws -> [TaskValue] {
         try (query["inputs"].array ?? []).map { input in
             try TaskValue(name: input["name"].string ?? "", role: input["role"].string,
@@ -231,7 +234,7 @@ struct RecallCorpus {
         }
     }
 
-    /// The query's request as the Recall receives it from `memory_task begin`.
+    /// Builds a direct Recall service request for the quality fixture.
     nonisolated static func request(_ query: JSONValue) throws -> RecallRequest {
         let id = query["id"].string ?? "query"
         return try RecallRequest(taskID: "eval-\(id)", attemptID: "eval-\(id)", revision: 1, reason: .initial,
@@ -240,7 +243,7 @@ struct RecallCorpus {
                                  values: try values(query), constraints: (query["constraints"].array ?? []).compactMap(\.string))
     }
 
-    /// The query as an agent states it to `memory_task begin`.
+    /// Historical decoder fixture arguments. These are not requests accepted by the current tool facade.
     static func begin(_ query: JSONValue) -> JSONValue {
         var begin: [String: JSONValue] = ["operation": .string("begin"), "goal": query["remaining"], "remaining": query["remaining"]]
         if query["inputs"] != .null { begin["inputs"] = query["inputs"] }

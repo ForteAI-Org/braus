@@ -5,7 +5,7 @@
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
 
-import AutomationMCP
+@testable import AutomationMCP
 import AutomationRuntime
 import EngineCore
 import Foundation
@@ -15,7 +15,8 @@ import PerceptionCore
 @testable import SQLiteMemory
 import Testing
 
-/// ProcedureLearningTests prove the D2 cycle through the product's own entry: `AutomationTools` with
+/// ProcedureLearningTests separate current plan/step/end flows from explicit producer qualification fixtures.
+/// Both use `AutomationTools` with
 /// its recorder, the shared `MemoryService`, the real SQLite archive, the scene associations, the
 /// relations, the procedure producer and the qualification, over a session double that replaces only
 /// the operating system and the applications (`LearningSession`). Nothing is inserted by hand: every
@@ -31,20 +32,109 @@ struct ProcedureLearningTests {
         (try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))) ?? .null
     }
 
-    static func tools(_ session: LearningSession, source: MemoryEventSource = .app, stream: String = "worker-1") -> AutomationTools {
-        let tools = AutomationTools(session: session)
+    static func tools(_ session: LearningSession, source: MemoryEventSource = .app, stream: String = "worker-1",
+                      profile: SessionProfile? = nil) -> AutomationTools {
+        let tools = AutomationTools(session: session, profile: profile)
         tools.producer = CallProducer(source: source, streamID: stream, traceID: "message-1", messageRef: "message-1")
-        // These tests learn Finder's interface; the router would send an unnamed Finder to its adapter.
-        tools.router = nil
         return tools
     }
 
-    static func task(_ tools: AutomationTools, _ arguments: String) async throws -> JSONValue {
-        try await tools.call("memory_task", json(arguments)).payload
+    struct FixtureFailure: Error, CustomStringConvertible {
+        let description: String
+        init(_ description: String) { self.description = description }
     }
 
+    /// Sends only the current plan/end request shapes. Historical operation arguments must be migrated explicitly.
+    static func task(_ tools: AutomationTools, _ arguments: String) async throws -> JSONValue {
+        guard var fields = json(arguments).object, fields["operation"] == nil else {
+            throw FixtureFailure("This fixture still requests the retired task tool; use plan/end or the explicit producer fixture")
+        }
+        if fields["outcome"] != nil {
+            return try await tools.call("end", .object(fields)).payload
+        }
+        if fields["rows"] == nil {
+            fields["rows"] = .array([.object(["title": .string("Carry out the requested task")])])
+        }
+        return try await tools.call("plan", .object(fields)).payload
+    }
+
+    /// Exercises the current action catalogue and attributes this fixture's operations to its explicit row.
     static func call(_ tools: AutomationTools, _ name: String, _ arguments: String) async throws -> JSONValue {
-        try await tools.call(name, json(arguments)).payload
+        var fields = json(arguments).object ?? [:]
+        fields.removeValue(forKey: "session")
+        if tools.openTask != nil, !["open_session", "close_session", "observe", "plan", "end"].contains(name) {
+            if name == "batch", let steps = fields["steps"]?.array {
+                fields["steps"] = .array(steps.map { step in
+                    var values = step.object ?? [:]
+                    values["step"] = .string("r1")
+                    return .object(values)
+                })
+            } else { fields["step"] = .string("r1") }
+        }
+        if tools.toolDefinitions.contains(where: { $0["name"].string == name }) {
+            return try await tools.call(name, .object(fields)).payload
+        }
+        return try await tools.call("call", .object(["name": .string(name), "arguments": .object(fields)])).payload
+    }
+
+    static func fixtureProducer(_ tools: AutomationTools) throws -> TaskProducer {
+        try TaskProducer(source: tools.producer.source, streamID: tools.producer.streamID)
+    }
+
+    /// Reads the producer's saved candidate; this is fixture inspection, never a model tool response.
+    static func candidateFixture(_ tools: AutomationTools, _ session: LearningSession) async throws -> JSONValue {
+        let memory = MemoryService.shared(for: session.directory)
+        let source = tools.producer.source.rawValue.replacingOccurrences(of: "'", with: "''")
+        let stream = tools.producer.streamID.replacingOccurrences(of: "'", with: "''")
+        let saved = try rows("SELECT task_uuid FROM memory_tasks WHERE source = '\(source)' AND source_stream_id = '\(stream)' ORDER BY task_id DESC LIMIT 1", in: session).first
+        guard let taskID = tools.openTask?.taskID ?? saved else {
+            throw FixtureFailure("No task is available for this fixture")
+        }
+        guard let summary = try await ProcedureProducer.candidate(taskID: taskID, producer: fixtureProducer(tools), memory: memory) else {
+            throw FixtureFailure("The producer recorded no candidate")
+        }
+        return TaskCycleHandler.candidate(summary)
+    }
+
+    static func candidateIDFixture(_ tools: AutomationTools, _ session: LearningSession) async throws -> String {
+        guard let id = try await candidateFixture(tools, session)["id"].string else {
+            throw FixtureFailure("The candidate has no identity")
+        }
+        return id
+    }
+
+    /// Records a checkpoint directly for qualification tests that do not exercise the model's task API.
+    static func checkpointFixture(_ tools: AutomationTools, _ session: LearningSession,
+                                  _ arguments: String) async throws -> JSONValue {
+        guard let open = tools.openTask,
+              case .checkpoint(let draft, _, _, _) = try MemoryTaskTool.decode(json(arguments),
+                minimization: ValueMinimization(), messageRef: nil) else {
+            throw FixtureFailure("Expected an open task and checkpoint fixture")
+        }
+        let memory = MemoryService.shared(for: session.directory)
+        _ = try await TaskChannel.checkpoint(open, draft, producer: fixtureProducer(tools), memory: memory)
+        return .object(["candidate": try await candidateFixture(tools, session)])
+    }
+
+    /// Applies a curated statement at the real producer boundary; no facade compatibility route is installed.
+    static func interpretFixture(_ tools: AutomationTools, _ session: LearningSession,
+                                 _ arguments: String) async throws -> JSONValue {
+        do {
+            guard case .interpret(let interpretation, _, _) = try MemoryTaskTool.decode(json(arguments),
+                minimization: ValueMinimization(), messageRef: nil) else {
+                throw FixtureFailure("Expected an interpretation fixture")
+            }
+            let memory = MemoryService.shared(for: session.directory)
+            let outcome = try await ProcedureProducer.interpret(interpretation, producer: fixtureProducer(tools), memory: memory)
+            await RecallService.shared(for: memory).schedule()
+            return TaskCycleHandler.interpreted(outcome, candidateID: interpretation.candidateID)
+        } catch let error as ProcedureError {
+            return TaskCycleHandler.taskFailure(TaskCycleHandler.failure(of: error))
+        } catch let error as TaskContextError {
+            return TaskCycleHandler.taskFailure(TaskCycleHandler.failure(of: error))
+        } catch let error as MemoryTaskTool.Failure {
+            return TaskCycleHandler.taskFailure(error)
+        }
     }
 
     /// A Finder window with a search field, a list of files and a toggle; Preview's editing window; the
@@ -123,7 +213,7 @@ struct ProcedureLearningTests {
         _ = try await call(tools, "act", #"{"session":"\#(id)","target":"Show Preview","verb":"set_toggle","value":"on"}"#)
     }
 
-    @Test("A→B→A through the tools: one step per started operation in three blocks, interpreted at the checkpoint, admitted at the end, the same after reopening")
+    @Test("Producer qualification fixture over plan-attributed A→B→A facts survives checkpoint, end and reopening")
     func wholeCycle() async throws {
         let session = Self.photoSession(try W.directory())
         // Finder's toggle is already on: the operation is a verified no-op, with no gesture.
@@ -134,12 +224,12 @@ struct ProcedureLearningTests {
         )
         let tools = Self.tools(session)
         _ = try await Self.task(tools, #"""
-            {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
+            {"request":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
              "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
             """#)
         try await Self.runPhotoExport(tools, session)
 
-        let checkpoint = try await Self.task(tools, #"{"operation":"checkpoint","note":"exported"}"#)
+        let checkpoint = try await Self.checkpointFixture(tools, session, #"{"operation":"checkpoint","note":"exported"}"#)
         let candidate = checkpoint["candidate"]
         let candidateID = try #require(candidate["id"].string)
         #expect(candidate["steps"].array?.count == 8, "one step per started UI operation; open_session is no step")
@@ -147,13 +237,10 @@ struct ProcedureLearningTests {
         #expect(candidate["blocks"].array?.map { $0["app"].string ?? "" } == [Self.finder, Self.preview, Self.finder])
         #expect(candidate["steps"].array?[7]["check"].string == "requested_state_already_present passed")
         // The answer leads with the interpretation as the next call, and a host asks for it once (canary, 14/10/2026).
-        #expect(checkpoint["next"].string?.contains("memory_task interpret with candidate \(candidateID)") == true)
-        #expect(tools.pendingCandidate == candidateID)
-        #expect(tools.takeInterpretationReminder()?.contains(candidateID) == true)
-        #expect(tools.takeInterpretationReminder() == nil, "the host asks once per candidate")
+        #expect(checkpoint["next"] == .null)
+        #expect(tools.takeInterpretationReminder() == nil, "the model is never asked to interpret a producer fixture")
 
-        let interpreted = try await Self.task(tools, Self.photoInterpretation(candidateID))
-        #expect(tools.pendingCandidate == nil, "an interpretation takes the candidate")
+        let interpreted = try await Self.interpretFixture(tools, session, Self.photoInterpretation(candidateID))
         #expect(interpreted["status"].string == "interpreted" && interpreted["revision"] == .number(1), "\(interpreted)")
         #expect(interpreted["findings"] == .null, "every use reproduces the recorded argument")
         let parts = try #require(interpreted["parts"].array)
@@ -163,14 +250,9 @@ struct ProcedureLearningTests {
         #expect(parts.first { $0["part"].string == "procedure" }?["reasons"].array?.map { $0.string ?? "" }
                 == ["completion_not_declared"])
 
-        let ended = try await Self.task(tools, #"{"operation":"end","outcome":"completed","outputs":[{"name":"exported","value":"foto_web.jpg","kind":"file"}]}"#)
-        #expect(ended["candidate"]["id"].string == candidateID, "the same facts are the same candidate")
-        #expect(ended["candidate"]["new"].bool == false)
-        #expect(ended["next"] == .null && tools.pendingCandidate == nil,
-                "a candidate interpreted at the checkpoint is not asked for again at the end")
-        // The end, and only the end, asks to close a document changed and kept as a copy (PhotoCraft, 14/10/2026).
-        #expect(ended["before_answering"].string == AutomationTools.closeChangedCopies)
-        #expect(checkpoint["before_answering"] == .null)
+        let ended = try await Self.task(tools, #"{"outcome":"completed"}"#)
+        #expect(ended["candidate"] == .null && ended["next"] == .null)
+        #expect(ended["completion_evidence"] != .null)
 
         let memory = MemoryService.shared(for: session.directory)
         #expect(await memory.flush(within: .seconds(10)))
@@ -249,7 +331,7 @@ struct ProcedureLearningTests {
         var candidates: [String] = []
         for (criterion, name) in [("foto_demo", "foto_web"), ("ritratto", "ritratto_web")] {
             _ = try await Self.task(tools, #"""
-                {"operation":"begin","goal":"Export the photo","inputs":[{"name":"criterion","value":"\#(criterion)"},
+                {"request":"Export the photo","inputs":[{"name":"criterion","value":"\#(criterion)"},
                  {"name":"output_name","value":"\#(name)"}]}
                 """#)
             let id = session.id!.uuidString
@@ -264,10 +346,10 @@ struct ProcedureLearningTests {
             _ = try await Self.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
             _ = try await Self.call(tools, "open_session", #"{"app":"\#(Self.finder)"}"#)
             _ = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Show Preview","verb":"set_toggle","value":"on"}"#)
-            let ended = try await Self.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-            let candidate = try #require(ended["candidate"]["id"].string)
+            let ended = try await Self.task(tools, #"{"outcome":"completed"}"#)
+            let candidate = try await Self.candidateIDFixture(tools, session)
             candidates.append(candidate)
-            let interpreted = try await Self.task(tools, Self.photoInterpretation(candidate))
+            let interpreted = try await Self.interpretFixture(tools, session, Self.photoInterpretation(candidate))
             #expect(interpreted["findings"] == .null, "\(interpreted)")
             #expect(interpreted["parts"].array?.allSatisfy { $0["admitted"].bool == true } == true, "\(interpreted)")
             if criterion == "foto_demo" {
@@ -335,7 +417,7 @@ extension ProcedureLearningTests {
                                          limits: [.unattributed, .noExpectation], target: LearningSession.button("Cancel", x: 0.7))
         )
         let tools = Self.tools(session)
-        _ = try await Self.task(tools, #"{"operation":"begin","goal":"Export as JPEG","inputs":[{"name":"output_name","value":"foto_web"}]}"#)
+        _ = try await Self.task(tools, #"{"request":"Export as JPEG","inputs":[{"name":"output_name","value":"foto_web"}]}"#)
         let id = session.id!.uuidString
         _ = try await Self.call(tools, "open_session", #"{"app":"\#(Self.preview)"}"#)
         let batch = try await Self.call(tools, "batch", #"""
@@ -343,18 +425,20 @@ extension ProcedureLearningTests {
              {"operation":"select","control":"Format","item":"JPEG"},{"operation":"act","target":"Save"}]}
             """#)
         #expect(batch["status"].string == "stopped" && batch["attemptedSteps"] == .number(2))
-        _ = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Cancel"}"#)
+        let firstCancel = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Cancel"}"#)
+        #expect(firstCancel["gesture"].string == "sent", "First Cancel result: \(firstCancel)")
         clicks += 1
         session.script["act|Cancel"] = nil
-        _ = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Cancel"}"#)
-        let ended = try await Self.task(tools, #"{"operation":"end","outcome":"failed","note":"the format could not be chosen"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
-        let steps = try #require(ended["candidate"]["steps"].array)
+        let secondCancel = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Cancel"}"#)
+        #expect(secondCancel["gesture"].string == "sent", "Retry result: \(secondCancel)")
+        let ended = try await Self.task(tools, #"{"outcome":"failed","note":"the format could not be chosen"}"#)
+        let candidate = try await Self.candidateIDFixture(tools, session)
+        let steps = try #require(try await Self.candidateFixture(tools, session)["steps"].array)
         #expect(steps.map { $0["tool"].string ?? "" } == ["type_text", "select", "act", "act"],
                 "the batch's two started steps and the two clicks: no step for the batch, none for the skipped step")
         #expect(steps.map { $0["check"].string ?? "" } == ["value_read_back passed", "value_read_back failed",
                                                            "structural_effect unknown", "structural_effect passed"])
-        let answer = try await Self.task(tools, #"""
+        let answer = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"Export <file> as <name>.jpg in JPEG","outcome":"failed"},
              "steps":[{"step":1,"label":"Set <name>.jpg in the Name field","outcome":"completed"},
                       {"step":2,"label":"Choose JPEG","outcome":"failed"},
@@ -392,42 +476,42 @@ extension ProcedureLearningTests {
     func interruptionAndIdempotency() async throws {
         let session = Self.photoSession(try W.directory())
         let tools = Self.tools(session)
-        let begun = try await Self.task(tools, #"{"operation":"begin","goal":"Rotate the photo"}"#)
+        let begun = try await Self.task(tools, #"{"request":"Rotate the photo"}"#)
         let taskID = try #require(begun["task"].string)
         let id = session.id!.uuidString
         _ = try await Self.call(tools, "open_session", #"{"app":"\#(Self.preview)"}"#)
         _ = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Rotate Right"}"#)
-        let checkpoint = try await Self.task(tools, #"{"operation":"checkpoint","note":"rotated"}"#)
+        let checkpoint = try await Self.checkpointFixture(tools, session, #"{"operation":"checkpoint","note":"rotated"}"#)
         let first = try #require(checkpoint["candidate"]["id"].string)
         let statement = #"""
             {"operation":"interpret","candidate":"\#(first)","procedure":{"label":"Rotate <file>"},
              "steps":[{"step":1,"label":"Rotate the image right","outcome":"completed"}]}
             """#
-        let interpreted = try await Self.task(tools, statement)
+        let interpreted = try await Self.interpretFixture(tools, session, statement)
         #expect(Self.verdicts(interpreted) == ["procedure:completion_not_declared", "s1:admitted"])
-        let again = try await Self.task(tools, statement)
+        let again = try await Self.interpretFixture(tools, session, statement)
         #expect(again["status"].string == "already recorded" && again["revision"] == .number(1))
-        let conflict = try await Self.task(tools, #"""
+        let conflict = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(first)","revision":1,"procedure":{"label":"Something else"}}
             """#)
         #expect(conflict["error"].string == "interpretation_conflict")
-        let skipped = try await Self.task(tools, #"""
+        let skipped = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(first)","revision":3,"procedure":{"label":"Something else"}}
             """#)
         #expect(skipped["error"].string == "revision_out_of_order" && skipped["next_revision"] == .number(2))
-        let unknown = try await Self.task(tools, #"""
+        let unknown = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(first)","procedure":{"label":"x"},"steps":[{"step":9,"label":"none"}]}
             """#)
         #expect(unknown["error"].string == "unknown_reference")
         // The canary's two refusals (14/10/2026), in words: an output without its part, a value named as an argument.
-        let output = try await Self.task(tools, #"""
+        let output = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(first)","procedure":{"label":"x"},
              "parameters":[{"name":"exported","role":"exported photo","kind":"file","direction":"output"}]}
             """#)
         let outputMessage = output["message"].string ?? ""
         #expect(output["error"].string == "invalid_interpretation" && outputMessage.contains("needs produced_by")
                 && !outputMessage.contains("ProcedureError"), "\(output)")
-        let valueAsArgument = try await Self.task(tools, #"""
+        let valueAsArgument = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(first)","procedure":{"label":"x"},
              "parameters":[{"name":"criterion","role":"what the photo is found by"}],
              "uses":[{"step":1,"argument":"foto_demo","template":"{criterion}"}]}
@@ -437,15 +521,16 @@ extension ProcedureLearningTests {
                 "\(valueAsArgument)")
         // A new action makes a new candidate; the earlier one is stale.
         _ = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Markup"}"#)
-        let later = try await Self.task(tools, #"{"operation":"checkpoint","note":"marked up"}"#)
+        let later = try await Self.checkpointFixture(tools, session, #"{"operation":"checkpoint","note":"marked up"}"#)
         let second = try #require(later["candidate"]["id"].string)
         #expect(second != first)
-        let stale = try await Self.task(tools, statement)
+        let stale = try await Self.interpretFixture(tools, session, statement)
         #expect(stale["error"].string == "stale_candidate" && stale["current_candidate"].string == second)
         // The producer stops and a new attempt begins: the first attempt never ended.
-        let resumed = try await Self.task(tools, #"{"operation":"resume","task":"\#(taskID)"}"#)
-        #expect(resumed["status"].string == "resumed")
-        let late = try await Self.task(tools, #"""
+        let resumed = try await TaskChannel.resume(taskID, producer: Self.fixtureProducer(tools),
+            memory: MemoryService.shared(for: session.directory))
+        #expect(resumed.task.taskID == taskID)
+        let late = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(second)","procedure":{"label":"Rotate and mark up <file>","outcome":"completed"},
              "steps":[{"step":1,"label":"Rotate the image right","outcome":"completed"},{"step":2,"label":"Open markup","outcome":"completed"}]}
             """#)
@@ -473,16 +558,16 @@ extension ProcedureLearningTests {
         ], surface: .dialog, title: "Save")
         let tools = Self.tools(session)
         _ = try await Self.task(tools, #"""
-            {"operation":"begin","goal":"Save a copy named Export","inputs":[{"name":"file_name","value":"Export"},{"name":"wanted","value":"B.png"}]}
+            {"request":"Save a copy named Export","inputs":[{"name":"file_name","value":"Export"},{"name":"wanted","value":"B.png"}]}
             """#)
         let id = session.id!.uuidString
         _ = try await Self.call(tools, "open_session", #"{"app":"\#(Self.preview)"}"#)
         _ = try await Self.call(tools, "type_text", #"{"session":"\#(id)","target":"Export","text":"Export"}"#)
         _ = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Export"}"#)
         _ = try await Self.call(tools, "type_text", #"{"session":"\#(id)","target":"Export","text":"A.png"}"#)
-        let ended = try await Self.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
-        let answer = try await Self.task(tools, #"""
+        let ended = try await Self.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await Self.candidateIDFixture(tools, session)
+        let answer = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"Save a copy as <file_name>"},
              "steps":[{"step":1,"label":"Type <file_name> as the name"},{"step":2,"label":"Confirm with Export"},
                       {"step":3,"label":"Type the second name"}],
@@ -521,16 +606,16 @@ extension ProcedureLearningTests {
         let tools = Self.tools(session)
         let canary = "pin-7Q4-canary"
         _ = try await Self.task(tools, #"""
-            {"operation":"begin","goal":"Sign in","inputs":[{"name":"pin","value":"\#(canary)","secret":true}]}
+            {"request":"Sign in","inputs":[{"name":"pin","value":"\#(canary)","secret":true}]}
             """#)
         let id = session.id!.uuidString
         _ = try await Self.call(tools, "open_session", #"{"app":"\#(Self.finder)"}"#)
         _ = try await Self.call(tools, "type_text", #"{"session":"\#(id)","target":"Password","text":"\#(canary)"}"#)
         _ = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Sign In"}"#)
-        let ended = try await Self.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
+        let ended = try await Self.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await Self.candidateIDFixture(tools, session)
         #expect(!"\(ended)".contains(canary), "the candidate shows the withheld marker, never the secret")
-        let answer = try await Self.task(tools, #"""
+        let answer = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"Sign in with <pin>"},
              "steps":[{"step":1,"label":"Type <pin> in the password field"},{"step":2,"label":"Confirm sign in"}],
              "parameters":[{"name":"pin","role":"the person's code","kind":"text","secret":true}],
@@ -550,16 +635,16 @@ extension ProcedureLearningTests {
         let directory = try W.directory()
         let client = Self.photoSession(directory)
         let mcp = Self.tools(client, source: .mcp, stream: "mcp-claude")
-        _ = try await Self.task(mcp, #"{"operation":"begin","goal":"Rotate the photo"}"#)
+        _ = try await Self.task(mcp, #"{"request":"Rotate the photo"}"#)
         let id = client.id!.uuidString
         _ = try await Self.call(mcp, "open_session", #"{"app":"\#(Self.preview)"}"#)
         _ = try await Self.call(mcp, "act", #"{"session":"\#(id)","target":"Rotate Right"}"#)
-        let ended = try await Self.task(mcp, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
+        let ended = try await Self.task(mcp, #"{"outcome":"completed"}"#)
+        let candidate = try await Self.candidateIDFixture(mcp, client)
         let worker = Self.tools(Self.photoSession(directory), source: .app, stream: "worker-1")
-        let foreign = try await Self.task(worker, #"{"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"x"}}"#)
+        let foreign = try await Self.interpretFixture(worker, client, #"{"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"x"}}"#)
         #expect(foreign["error"].string == "foreign_task", "\(foreign)")
-        let own = try await Self.task(mcp, #"""
+        let own = try await Self.interpretFixture(mcp, client, #"""
             {"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"Rotate <file>"},"steps":[{"step":1,"label":"Rotate right"}]}
             """#)
         #expect(Self.verdicts(own) == ["procedure:admitted", "s1:admitted"])
@@ -573,15 +658,15 @@ extension ProcedureLearningTests {
     func variantOfAnEarlierVersion() async throws {
         let session = Self.photoSession(try W.directory())
         let tools = Self.tools(session)
-        _ = try await Self.task(tools, #"{"operation":"begin","goal":"Export the photo"}"#)
+        _ = try await Self.task(tools, #"{"request":"Export the photo"}"#)
         try await Self.runPhotoExport(tools, session)
-        let first = try await Self.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let firstCandidate = try #require(first["candidate"]["id"].string)
-        _ = try await Self.task(tools, Self.photoInterpretation(firstCandidate))
+        let first = try await Self.task(tools, #"{"outcome":"completed"}"#)
+        let firstCandidate = try await Self.candidateIDFixture(tools, session)
+        _ = try await Self.interpretFixture(tools, session, Self.photoInterpretation(firstCandidate))
         let original = ProcedureAssembly.routeID(candidateID: firstCandidate, revision: 1)
 
         // The same export with a markup before the Export dialog: the paths part at the fourth step.
-        _ = try await Self.task(tools, #"{"operation":"begin","goal":"Mark up and export the photo"}"#)
+        _ = try await Self.task(tools, #"{"request":"Mark up and export the photo"}"#)
         let id = session.id!.uuidString
         _ = try await Self.call(tools, "open_session", #"{"app":"\#(Self.finder)"}"#)
         _ = try await Self.call(tools, "type_text", #"{"session":"\#(id)","target":"Search","text":"foto_demo"}"#)
@@ -591,25 +676,25 @@ extension ProcedureLearningTests {
         _ = try await Self.call(tools, "act", #"{"session":"\#(id)","target":"Markup"}"#)
         _ = try await Self.call(tools, "menu", #"{"session":"\#(id)","path":"File > Export…"}"#)
         _ = try await Self.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
-        let second = try await Self.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(second["candidate"]["id"].string)
-        #expect(second["candidate"]["steps"].array?.count == 6)
+        let second = try await Self.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await Self.candidateIDFixture(tools, session)
+        #expect(try await Self.candidateFixture(tools, session)["steps"].array?.count == 6)
 
         let statement = #""procedure":{"label":"Find, rotate, mark up and export the photo"}"#
-        let unknown = try await Self.task(tools, #"""
+        let unknown = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)",\#(statement),"variant_of":"candidate-none/version-1","divergence_step":4}
             """#)
         #expect(unknown["error"].string == "unknown_reference", "\(unknown)")
-        let beyond = try await Self.task(tools, #"""
+        let beyond = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)",\#(statement),"variant_of":"\#(original)","divergence_step":10}
             """#)
         #expect(beyond["error"].string == "unknown_reference", "the earlier version has 8 steps: \(beyond)")
-        let half = try await Self.task(tools, #"""
+        let half = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)",\#(statement),"variant_of":"\#(original)"}
             """#)
         #expect(half["error"].string == "invalid_interpretation", "a variant names where it diverges: \(half)")
 
-        let variant = try await Self.task(tools, #"""
+        let variant = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)",\#(statement),"variant_of":"\#(original)","divergence_step":4}
             """#)
         #expect(variant["status"].string == "interpreted" && variant["revision"] == .number(1), "\(variant)")
@@ -627,7 +712,7 @@ extension ProcedureLearningTests {
 
         // The search text a parameter here and a literal in the origin: the two cannot be shown the same, so the
         // prefix is kept as suggested only.
-        let parameterized = try await Self.task(tools, #"""
+        let parameterized = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)",\#(statement),"variant_of":"\#(original)","divergence_step":4,
              "parameters":[{"name":"criterion","role":"text searched for the input file","kind":"text","value":"foto_demo","source":"request"}],
              "uses":[{"step":1,"argument":"text","template":"{criterion}"}]}
@@ -639,7 +724,7 @@ extension ProcedureLearningTests {
         #expect(suggested.variantPrefix == VariantPrefix.Check(status: .suggested, comparedSteps: 3, reason: .unreadableStep))
         // A prefix that runs past the first step that differs (the menu against the markup) is refused whole.
         let versionsBefore = try Self.rows("SELECT count(*) FROM memory_procedure_versions", in: session)
-        let contradicted = try await Self.task(tools, #"""
+        let contradicted = try await Self.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)",\#(statement),"variant_of":"\#(original)","divergence_step":5}
             """#)
         #expect(contradicted["error"].string == "contradicted_prefix" && contradicted["step"] == .number(4), "\(contradicted)")
@@ -654,5 +739,79 @@ extension ProcedureLearningTests {
                 "\(text.filter { $0.contains("version") })")
         #expect(text.contains { $0.contains("revision 2 ") && $0.hasSuffix("prefix suggested over 3 steps (unreadable_step)") },
                 "\(text.filter { $0.contains("version") })")
+    }
+}
+
+extension ProcedureLearningTests {
+    @Test func completedPlanIsLearnedAfterTurnWithoutModelInterpretation() async throws {
+        let session = Self.photoSession(try W.directory())
+        let tools = Self.tools(session)
+        var transcript: [String] = []
+        tools.record = { transcript.append($0) }
+        let begun = try await Self.task(tools, #"{"request":"Rotate the photo"}"#)
+        _ = try await Self.call(tools, "open_session", #"{"app":"\#(Self.preview)"}"#)
+        _ = try await Self.call(tools, "act", #"{"target":"Rotate Right"}"#)
+        let ended = try await Self.task(tools, #"{"outcome":"completed"}"#)
+        #expect(ended["candidate"] == .null && ended["next"] == .null)
+        #expect(tools.takeInterpretationReminder() == nil)
+        let candidate = try await Self.candidateIDFixture(tools, session)
+        await tools.afterTurn()
+        let memory = MemoryService.shared(for: session.directory)
+        let version = try await memory.perform { try await $0.procedures.version(ProcedureAssembly.routeID(candidateID: candidate, revision: 1)) }
+        #expect(version?.version.definition.steps.count == 1)
+        #expect(version?.version.definition.name == "Rotate the photo")
+        #expect(version?.isCurrent == true)
+        #expect(!transcript.joined().contains("memory_task"))
+        #expect(!transcript.joined().contains("Interpret the proposed procedure"))
+        let before = try Self.rows("SELECT count(*) FROM memory_procedure_interpretations", in: session)
+        await tools.afterTurn()
+        #expect(try Self.rows("SELECT count(*) FROM memory_procedure_interpretations", in: session) == before)
+        #expect(begun["task"].string != nil)
+        await memory.close()
+        MemoryService.forget(session.directory)
+    }
+
+    @Test func hostFallbackLearnsInternallyAndTheTurnBoundaryIsIdempotent() async throws {
+        let session = Self.photoSession(try W.directory())
+        let tools = Self.tools(session)
+        var transcript: [String] = []
+        tools.record = { transcript.append($0) }
+        _ = try await Self.task(tools, #"{"request":"Rotate the photo"}"#)
+        _ = try await Self.call(tools, "open_session", #"{"app":"\#(Self.preview)"}"#)
+        _ = try await Self.call(tools, "act", #"{"target":"Rotate Right"}"#)
+        _ = try await Self.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await Self.candidateIDFixture(tools, session)
+        let result = try #require(await tools.interpretLeftCandidate(), "The host fallback uses the internal producer")
+        #expect(result.candidate == candidate)
+        let answer = result.answer.payload
+        #expect(answer["status"].string == "interpreted")
+        let routeID = try #require(answer["version"].string)
+        let memory = MemoryService.shared(for: session.directory)
+        let version = try #require(try await memory.perform { try await $0.procedures.version(routeID) })
+        #expect(version.version.definition.name == "Rotate the photo")
+        #expect(version.version.definition.steps.count == 1 && version.isCurrent)
+        #expect(!transcript.joined().contains("memory_task"), "No retired tool call is attempted by the host fallback")
+        let before = try Self.rows("SELECT count(*) FROM memory_procedure_interpretations", in: session)
+        await tools.afterTurn()
+        #expect(await tools.interpretLeftCandidate() == nil)
+        #expect(try Self.rows("SELECT count(*) FROM memory_procedure_interpretations", in: session) == before)
+        await memory.close()
+        MemoryService.forget(session.directory)
+    }
+
+    @Test(arguments: ["failed", "abandoned"])
+    func nonCompletedPlanNeverTriggersAutomaticLearning(_ outcome: String) async throws {
+        let session = Self.photoSession(try W.directory())
+        let tools = Self.tools(session)
+        _ = try await Self.task(tools, #"{"request":"Rotate the photo"}"#)
+        _ = try await Self.call(tools, "open_session", #"{"app":"\#(Self.preview)"}"#)
+        _ = try await Self.call(tools, "act", #"{"target":"Rotate Right"}"#)
+        _ = try await Self.task(tools, #"{"outcome":"\#(outcome)"}"#)
+        #expect(await tools.interpretLeftCandidate() == nil)
+        await tools.afterTurn()
+        #expect(tools.pendingCandidate == nil)
+        #expect(try Self.rows("SELECT count(*) FROM memory_procedure_interpretations", in: session) == ["0"])
+        await MemoryService.shared(for: session.directory).close()
+        MemoryService.forget(session.directory)
     }
 }

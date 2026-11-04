@@ -551,14 +551,14 @@ struct ModelToolLoopTests {
                 [.delta("Done again."), .completed(usage)],
             ]
         )
-        let seat      = "Braus seat: session \(id) is open on Test (test.app), window \"Test\"."
+        let seat = "<braus_state>\nsession: open\napp: {\"name\":\"Test\",\"bundle\":\"test.app\",\"state\":\"current\"}\ntask: none\n</braus_state>"
         let host      = WorkerAgentHost(
             workingDirectory: URL.temporaryDirectory.appending(path: "braus-loop-\(UUID().uuidString)"),
             bridgeExecutable: URL(fileURLWithPath: "/nonexistent"),
             session         : { session },
             agents          : { _ in throw AutomationFailure("A loop turn asked for a command line.") },
             transports      : { _ in transport },
-            seatLine        : { SeatFacts(legacyText: seat) }
+            seatLine        : { SeatFacts(session: true, application: .init(name: "Test", bundleID: "test.app")) }
         )
         var events    = [WorkerAgentEvent]()
         for prompt in ["Click Button 1.", "Again."] {

@@ -1,7 +1,6 @@
 import EngineCore
 import Foundation
 import LocalMCP
-import Switches
 import Testing
 
 @Suite
@@ -9,10 +8,13 @@ struct ReplayRegenerationTests {
     @Test(arguments: try ReplayCorpus.load().filter { $0.input != nil })
     @MainActor
     func golden(_ item: ReplayCase) async throws {
-        let actual = try await SwitchBoard.$testing.withValue(
-            SwitchBoard(values: ["scene_after_uncertain": "off"])
-        ) { try replayBytes(await regenerate(#require(item.input))) }
-        let expected = try Data(contentsOf: ReplayCorpus.fixtures.appending(path: "golden/\(item.id).txt"))
+        let actual = try await replayBytes(regenerateModelAnswer(#require(item.input), tool: item.tool))
+        let file = ReplayCorpus.fixtures.appending(path: "golden/current-delivery/\(item.id).txt")
+        if ProcessInfo.processInfo.environment["BRAUS_RECORD_REPLAY_GOLDENS"] == "1" {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try actual.write(to: file)
+        }
+        let expected = try Data(contentsOf: file)
         #expect(actual == expected, "\(item.id): golden bytes differ")
     }
 
@@ -21,11 +23,11 @@ struct ReplayRegenerationTests {
     func formatterMutationIsVisible() async throws {
         let item = try #require(ReplayCorpus.load().first { $0.id == "refused-01" })
         let input = try #require(item.input)
-        let changed = ReplayInput(kind: input.kind, message: input.message + "!", scene: input.scene,
+        let changed = ReplayInput(kind: .foundActed, message: input.message, scene: input.scene,
                                   check: input.check, session: input.session,
                                   windowNumber: input.windowNumber, prefix: input.prefix)
-        let expected = try Data(contentsOf: ReplayCorpus.fixtures.appending(path: "golden/\(item.id).txt"))
-        #expect(try replayBytes(await regenerate(changed)) != expected)
+        let expected = try Data(contentsOf: ReplayCorpus.fixtures.appending(path: "golden/current-delivery/\(item.id).txt"))
+        #expect(try await replayBytes(regenerateModelAnswer(changed, tool: item.tool)) != expected)
     }
 
     @Test

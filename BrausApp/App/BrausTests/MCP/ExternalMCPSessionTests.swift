@@ -5,7 +5,6 @@ import Foundation
 import LocalMCP
 import PerceptionCore
 import Testing
-import Switches
 @testable import Braus
 
 @MainActor
@@ -48,7 +47,7 @@ struct ExternalMCPSessionTests {
     }
 
     @Test func delegatedCallReachesActivityUnderItsRealName() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2", "task_cycle": "v2"])) {
+        do {
             let desktop = SyntheticMCPDesktop()
             var activity: [String] = []
             let session = ExternalMCPSession(profile: MCPClientProfile(name: "Synthetic"), session: desktop,

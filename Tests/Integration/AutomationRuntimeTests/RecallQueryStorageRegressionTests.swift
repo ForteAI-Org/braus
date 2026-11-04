@@ -15,7 +15,7 @@ struct RecallQueryStorageRegressionTests {
         let memory = MemoryService.shared(for: session.directory)
         let service = RecallService.shared(for: memory)
         let tools = P.tools(session, stream: "query-storage")
-        let begun = try await P.task(tools, #"{"operation":"begin","goal":"Export the photo as PNG","recall":false}"#)
+        let begun = try await P.task(tools, #"{"request":"Export the photo as PNG"}"#)
         let taskID = try #require(begun["task"].string)
         let attemptID = try #require(begun["attempt"].string)
         let producer = try TaskProducer(source: .app, streamID: "query-storage")
@@ -27,7 +27,7 @@ struct RecallQueryStorageRegressionTests {
             let need = try RecallNeed(text: text)
             let request = try RecallRequest(taskID: taskID, attemptID: attemptID, revision: 1, reason: .initial,
                                         remainingWork: text, needs: [need], values: [value])
-            let prepared = try await service.prepare(request)
+            let prepared = try await service.prepare(request, availableChannels: Set(AgentTool.allCases.map(\.rawValue)))
             #expect(prepared.sources.contains { $0.routeID == routeID })
             let before = service.outcomes(prepared)
             let coverage = NeedOutcome.overall(before)
@@ -46,7 +46,7 @@ struct RecallQueryStorageRegressionTests {
                 }
             }
             queryIDs.append(saved.queryID)
-            let after = service.outcomes(try await service.prepare(request))
+            let after = service.outcomes(try await service.prepare(request, availableChannels: Set(AgentTool.allCases.map(\.rawValue))))
             try #require(before == after)
             #expect(request.remainingWork == text && request.searchedNeeds[0].text == text)
         }

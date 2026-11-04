@@ -41,6 +41,7 @@ public final class ModelToolLoop {
     var waitBeforeRetry: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     private let call: @MainActor (String, JSONValue) async throws -> JSONValue
+    private let rejectedToolAttempt: @MainActor (String) -> Void
 
     /// What a final answer is followed by: the host's request for an uninterpreted learning candidate.
     /// Nil goes on to the end of the turn.
@@ -69,9 +70,11 @@ public final class ModelToolLoop {
         definitions : [JSONValue],
         offersWeb   : Bool = false,
         instructions: any LoopInstructionComposing,
-        parallelSafe: @escaping ParallelSafety = { _, _ in false }
+        parallelSafe: @escaping ParallelSafety = { _, _ in false },
+        rejectedToolAttempt: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         self.call         = call
+        self.rejectedToolAttempt = rejectedToolAttempt
         self.reminder     = reminder
         self.definitions  = definitions
         self.offersWeb    = offersWeb
@@ -428,21 +431,24 @@ public final class ModelToolLoop {
         of toolCall: ToolCall
     ) async -> TurnMessage {
         let result: JSONValue
+        var decoded = false
         do {
             let arguments = try JSONDecoder().decode(
                 JSONValue.self,
                 from: toolCall.arguments
             )
+            decoded = true
             result = try await call(
                 toolCall.name,
                 arguments
             )
         } catch {
+            if !decoded { rejectedToolAttempt(toolCall.name) }
             result = MCPRouter.failureResult(error)
         }
 
-        var text = result["content"].array?.first?["text"].string ?? ""
-        if result["structuredContent"] != .null, let data = try? JSONValue.canonicalEncoder().encode(result["structuredContent"]) {
+        var text = (result["content"].array ?? []).compactMap { $0["text"].string }.joined(separator: "\n")
+        if (text.isEmpty || result["_meta"]["braus/content-complete"].bool != true), result["structuredContent"] != .null, let data = try? JSONValue.canonicalEncoder().encode(result["structuredContent"]) {
             text += "\n" + String(decoding: data, as: UTF8.self)
         }
         return TurnMessage(

@@ -3,7 +3,6 @@ import EngineCore
 import Foundation
 import Memory
 import PerceptionCore
-import Switches
 @testable import AutomationMCP
 
 struct RenderedScene: Sendable {
@@ -16,15 +15,13 @@ struct RenderedScene: Sendable {
 enum SceneTextUnderTest {
     @MainActor
     static func render(_ scene: SceneSnapshot) async throws -> RenderedScene {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_text": "v2", "scene_text_policy": "chained"])) {
-            let answer = await SceneTextPolicy().answer(scene, changesOnly: false,
-                session: SceneTextSession(), shown: ValueMinimization())
-            let bytes = Array(answer.text.utf8)
-            return RenderedScene(text: answer.text,
-                brainParts: answer.parts.filter { $0.source == .memory }.map {
-                    String(decoding: bytes[$0.utf8], as: UTF8.self)
-                }, kind: nil)
-        }
+        let answer = await SceneTextPolicy().answer(scene, changesOnly: false,
+            session: SceneTextSession(), shown: ValueMinimization())
+        let bytes = Array(answer.text.utf8)
+        return RenderedScene(text: answer.text,
+            brainParts: answer.parts.filter { $0.source == .memory }.map {
+                String(decoding: bytes[$0.utf8], as: UTF8.self)
+            }, kind: nil)
     }
 }
 

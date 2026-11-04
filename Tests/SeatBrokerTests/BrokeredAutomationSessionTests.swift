@@ -47,9 +47,7 @@ struct BrokeredAutomationSessionTests {
         )
         var probes = 0
         let probe = { probes += 1; return ["Accessibility"] }
-        #expect(desktop.turnStatus(seatLine: .v1, permissionProbe: probe).missingPermissions.isEmpty)
-        #expect(probes == 0)
-        #expect(desktop.turnStatus(seatLine: .v2, permissionProbe: probe).missingPermissions == ["Accessibility"])
+        #expect(desktop.turnStatus(permissionProbe: probe).missingPermissions == ["Accessibility"])
         #expect(probes == 1)
     }
 
@@ -203,9 +201,7 @@ struct BrokeredAutomationSessionTests {
         let call = Task {
             try await AutomationCallInterruption.$current.withValue(interruption) {
                 if opening { return try await tools.call("open_session", .object(["app": .string("Test")])) }
-                return try await tools.call("observe", .object([
-                    "session": .string(try #require(desktop.id).uuidString)
-                ]))
+                return try await tools.call("observe", .object([:]))
             }
         }
         await Self.until { reading }
@@ -889,34 +885,34 @@ struct BrokeredAutomationSessionTests {
         #expect(desktop.screenFrame == .zero)
     }
 
-    @Test("a turn's seat line names the live session, and once it is released the application it had",
+    @Test("a turn's seat facts identify an open session and retain the last application after release",
           .timeLimit(.minutes(1)))
     func theTurnStatusNamesTheLiveSessionOrTheLastApplication() async throws {
         let broker  = SeatBroker()
         let idle    = IdleClock()
         let desktop = try Self.seated(broker, idle: idle)
-        #expect(desktop.turnStatus.legacyText == "Braus seat: no session is open.")
+        #expect(!desktop.turnStatus.session && desktop.turnStatus.application == nil)
 
         try await desktop.turn { _ = try await desktop.open(application: "Test", window: nil) }
-        let id   = try #require(desktop.id)
-        var live = ""
+        #expect(desktop.id != nil)
+        var live = SeatFacts()
         try await desktop.turn {
             let facts = desktop.turnStatus
-            live = facts.legacyText
+            live = facts
             #expect(facts.session)
             #expect(facts.application == SeatFacts.Application(name: "Test", bundleID: "test.process"))
             #expect(facts.missingPermissions.isEmpty)
         }
-        #expect(live == "Braus seat: session \(id.uuidString) is open on Test (test.process), window \"Test\". "
-            + "Observe it with this session ID before acting.")
+        #expect(live.session)
+        #expect(live.application == SeatFacts.Application(name: "Test", bundleID: "test.process"))
 
         // The first turn's wait was cancelled by the second, whose wait then releases the seat.
         await idle.elapseOldest()
         await idle.elapseOldest()
         await Self.until { !desktop.holdsComputer }
         #expect(desktop.id == nil)
-        #expect(desktop.turnStatus.legacyText == "Braus seat: no session is open. "
-            + "The last one was on Test (test.process), window \"Test\".")
+        #expect(!desktop.turnStatus.session)
+        #expect(desktop.turnStatus.application == SeatFacts.Application(name: "Test", bundleID: "test.process"))
     }
 
     @Test("a worker alone keeps the seat across its turns")

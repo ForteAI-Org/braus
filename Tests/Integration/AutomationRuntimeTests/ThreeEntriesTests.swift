@@ -108,7 +108,7 @@ struct ThreeEntriesTests {
         return String(decoding: (try? encoder.encode(value)) ?? Data(), as: UTF8.self)
     }
 
-    /// The task through `entry`: begin with a declared secret, open the shop, type the query and the secret, search, a
+    /// The task through `entry`: plan with a declared secret, open the shop, type the query and the secret, search, a
     /// call with a stale session ID, end.
     static func run(_ entry: Entry) async throws -> Run {
         let session = Self.session(try W.directory())
@@ -124,7 +124,9 @@ struct ThreeEntriesTests {
                 do {
                     let value = try await tools.call(name, P.json(arguments))
                     run.read.append(text(value))
-                    outcome = .answer(identifiersAside(text(value.payload)))
+                    outcome = value["isError"].bool == true
+                        ? .refused(identifiersAside(value.payload["message"].string ?? text(value)))
+                        : .answer(identifiersAside(text(value.payload)))
                 } catch {
                     run.read.append(String(describing: error))
                     outcome = .refused(identifiersAside(String(describing: error)))
@@ -146,20 +148,20 @@ struct ThreeEntriesTests {
             return outcome
         }
 
-        _ = await call("memory_task", #"""
-            {"operation":"begin","goal":"Search lamps on the shop","recall":false,
+        _ = await call("plan", #"""
+            {"request":"Search lamps on the shop","rows":[{"title":"Search the shop"}],
              "inputs":[{"name":"query","value":"lamps"},{"name":"access_code","value":"\#(secret)","secret":true}]}
             """#)
         _ = await call("open_session", #"{"app":"\#(shop)"}"#)
-        let id = try #require(session.id, "\(run.outcomes)").uuidString
-        _ = await call("type_text", #"{"session":"\#(id)","target":"Search","text":"lamps"}"#)
-        _ = await call("type_text", #"{"session":"\#(id)","target":"Search","text":"\#(secret)"}"#)
-        _ = await call("act", #"{"session":"\#(id)","target":"Go"}"#)
+        _ = try #require(session.id, "\(run.outcomes)")
+        _ = await call("type_text", #"{"step":"r1","target":"Search","text":"lamps"}"#)
+        _ = await call("type_text", #"{"step":"r1","target":"Search","text":"\#(secret)"}"#)
+        _ = await call("act", #"{"step":"r1","target":"Go"}"#)
         let before = session.gestures
         let stale = await call("act", #"{"session":"\#(UUID().uuidString)","target":"Go"}"#)
         #expect(session.gestures == before, "\(entry): a stale ID reached the session")
         if case .answer = stale { Issue.record("\(entry): a stale session ID was answered: \(stale)") }
-        _ = await call("memory_task", #"{"operation":"end","outcome":"completed"}"#)
+        _ = await call("end", #"{"outcome":"completed"}"#)
 
         run.gestures = session.gestures
         run.calls = try P.rows("""
@@ -190,10 +192,6 @@ struct ThreeEntriesTests {
         var runs: [Entry: Run] = [:]
         for entry in Entry.allCases { runs[entry] = try await Self.run(entry) }
         let app = try #require(runs[.app])
-        print("gestures:", app.gestures)
-        print("outcomes:", app.outcomes.map { String($0.description.prefix(160)) })
-        print("calls:", app.calls)
-
         #expect(app.gestures.contains { $0.contains("Go") }, "the search was carried out: \(app.gestures)")
         for entry in [Entry.cli, .mcp] {
             let run = try #require(runs[entry])

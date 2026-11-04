@@ -218,7 +218,7 @@ struct MenuBarRungTests {
         try await record.finish(expecting: ids)
     }
 
-    @Test("MB-2: the rung the real runner's press hands over before the real observedOutcome survives an observation that throws, an ordinary error or a CancellationError alike: one press and one observation per call, the outcome actedUnverified with noAfterScene, the check unknown, the call ended as the outcome says, the rung kept")
+    @Test("MB-2: the rung the real runner's press hands over before the real observedOutcome survives an observation that throws, an ordinary error or a CancellationError alike: one press and two bounded observations per call, the outcome actedUnverified with noAfterScene, the check unknown, the call ended as the outcome says, the rung kept")
     func theRungOutlivesAFailedObservation() async throws {
         struct ObservationFailure: Error {}
         let record = try Record()
@@ -250,7 +250,8 @@ struct MenuBarRungTests {
                 run.pressed, outcome: run.outcome, processID: 1, before: ["w|AXWindow||Doc"],
                 signature: { _ in ["w|AXWindow||Doc"] }, observe: { observations += 1; throw failure.error }
             )
-            #expect(observations == 1 && presses == 1, "\(failure.name): one press, one observation, nothing replayed")
+            #expect(observations == 2 && presses == 1, "\(failure.name): one press and one second look, no replay")
+            #expect(outcome.lookedAgain)
             #expect(outcome.kind == .actedUnverified && outcome.check?.verdict == .unknown
                     && outcome.check?.limits.contains(.noAfterScene) == true && outcome.check?.performed == .requested,
                     "\(failure.name): \(outcome.kind): \(outcome.message)")

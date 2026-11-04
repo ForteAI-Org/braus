@@ -1,5 +1,8 @@
 # Memory recall
 
+> Current model contract: `plan` offers compact procedure parts for its rows, a gesture's `step` selects its row, and `end` closes the task. Completed candidates are interpreted internally by the procedure producer. `memory_task` is neither advertised nor callable. The query/choice and declaration formats below describe persisted data and typed library contracts; older tool-call examples are historical fixtures, not instructions for the current model. See [current runtime](README.md#current-runtime-contract) and [CLI preflight](Chat.md).
+
+
 What the living memory answers a new task since G76 plan D3 (October 2026): a search of the procedures
 D2 learned, from the agent's statement of the task, that proposes for each need at most one ordered
 interval of one version's steps, with the task's current values bound, what it requires, and the evidence

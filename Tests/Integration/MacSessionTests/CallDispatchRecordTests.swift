@@ -162,27 +162,37 @@ struct CallDispatchRecordTests {
                                     leases: MacAppLeases())
     }
 
-    static func sessionID(_ answer: JSONValue) -> String? {
-        guard let text = answer["content"].array?.first?["text"].string,
-              let value = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)) else { return nil }
-        return value["session"].string
+    /// Uses the actual current catalogue; native/adapter capabilities outside the initial tools go through call.
+    static func call(_ tools: AutomationTools, _ name: String, _ arguments: JSONValue) async throws -> JSONValue {
+        var fields = arguments.object ?? [:]
+        if tools.openTask != nil, !["plan", "end", "observe", "open_session", "close_session", "status"].contains(name) {
+            fields["step"] = .string("r1")
+        }
+        if tools.toolDefinitions.contains(where: { $0["name"].string == name }) {
+            return try await tools.call(name, .object(fields))
+        }
+        return try await tools.call("call", .object(["name": .string(name), "arguments": .object(fields)]))
     }
 
     @Test("a session no routing session fronts records its own route where a call reaches it; a call refused before it, or that reaches no session, records none")
     func standaloneRoutes() async throws {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
-        let tools = AutomationTools(session: RouteFake(.native, memory: knowledge))
+        let fake = RouteFake(.native, memory: knowledge)
+        let tools = AutomationTools(session: fake)
         tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "standalone")
-        let id = try #require(Self.sessionID(try await tools.call("open_session", .object(["app": .string("Notes")]))))
-        _ = try? await tools.call("act", .object(["session": .string(id), "target": .string("B3")]))
-        _ = try await tools.call("status", .object([:]))
+        _ = try await Self.call(tools, "open_session", .object(["app": .string("Notes")]))
+        _ = try #require(fake.id)
+        _ = try await Self.call(tools, "plan", .object(["request": .string("Inspect B3"),
+            "rows": .array([.object(["title": .string("Inspect B3")])])]))
+        _ = try? await Self.call(tools, "act", .object(["target": .string("B3")]))
+        _ = try await Self.call(tools, "status", .object([:]))
         await #expect(throws: (any Error).self) {
-            _ = try await tools.call("act", .object(["session": .string("stale"), "target": .string("B3")]))
+            _ = try await Self.call(tools, "act", .object(["session": .string("stale"), "target": .string("B3")]))
         }
         let calls = try await Self.recorded("standalone", in: knowledge)
-        #expect(calls.map(\.tool) == ["open_session", "act", "status", "act"], "\(calls)")
-        #expect(calls.map(\.route) == [CallRoute(.native), CallRoute(.native), nil, nil], "\(calls)")
+        #expect(calls.map(\.tool) == ["open_session", "act", "status"], "\(calls)")
+        #expect(calls.map(\.route) == [CallRoute(.native), CallRoute(.native), nil], "\(calls)")
         #expect(calls.allSatisfy { $0.dispatch == nil })
         await MemoryService.closeAll()
     }
@@ -194,7 +204,7 @@ struct CallDispatchRecordTests {
         let fake = RouteFake(route, memory: knowledge)
         let tools = AutomationTools(session: fake)
         tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "fake-\(route.rawValue)")
-        _ = try await tools.call("open_session", .object(["app": .string(route == .web ? "web:example.com" : "Notes")]))
+        _ = try await Self.call(tools, "open_session", .object(["app": .string(route == .web ? "web:example.com" : "Notes")]))
         let calls = try await Self.recorded("fake-\(route.rawValue)", in: knowledge)
         #expect(calls.count == 1 && calls.first?.route == CallRoute(route), "\(calls)")
         await MemoryService.closeAll()
@@ -205,13 +215,13 @@ struct CallDispatchRecordTests {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let fake = RouteFake(.desktop, memory: knowledge)
-        let tools = AutomationTools(session: fake, channels: [.web])
-        tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "redirect")
-        tools.router = TaskRouter(catalogue: RouteCatalogue(RouteCatalogue.standard.entries.map { entry in
+        let router = TaskRouter(catalogue: RouteCatalogue(RouteCatalogue.standard.entries.map { entry in
             entry.kind == .mail ? RouteEntry(.mail, .webMail, replaces: entry.replaces, needsLogin: true) : entry
         }))
-        let maps = try await tools.call("open_session", .object(["app": .string("Maps")]))
-        let mail = try await tools.call("open_session", .object(["app": .string("Mail")]))
+        let tools = AutomationTools(session: fake, channels: [.web], router: router)
+        tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "redirect")
+        let maps = try await Self.call(tools, "open_session", .object(["app": .string("Maps")]))
+        let mail = try await Self.call(tools, "open_session", .object(["app": .string("Mail")]))
         func text(_ answer: JSONValue) -> String { answer["content"].array?.first?["text"].string ?? "" }
         #expect(text(maps).contains("\"route\"") && text(mail).contains("\"ask\""), "\(text(maps)) \(text(mail))")
         #expect(fake.opened.isEmpty, "no session was opened")
@@ -232,7 +242,7 @@ struct CallDispatchRecordTests {
         let routing = RoutingAutomationSession(native: native, desktop: RouteFake(.desktop, memory: knowledge))
         let tools = AutomationTools(session: routing)
         tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "routed")
-        _ = try await tools.call("open_session", .object(["app": .string("Notes")]))
+        _ = try await Self.call(tools, "open_session", .object(["app": .string("Notes")]))
         let calls = try await Self.recorded("routed", in: knowledge)
         #expect(calls.count == 1 && calls.first?.route?.route == .desktop, "\(calls)")
         #expect(calls.first?.route?.handoffReason != nil, "the MacDriver's reason, as the routing session reported it")
@@ -244,22 +254,57 @@ struct CallDispatchRecordTests {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let adapter = ScriptedAdapter()
-        let tools = AutomationTools(session: Self.native(MacSessionTests.rich, knowledge: knowledge))
-        tools.adapters = AppAdapters([adapter])
+        let tools = AutomationTools(session: Self.native(MacSessionTests.rich, knowledge: knowledge),
+                                    adapters: AppAdapters([adapter]))
         tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "adapters")
-        func call(_ verb: String) async { _ = try? await tools.call("app_call", .object(["app": .string("Scripted"),
-                                                                                         "verb": .string(verb)])) }
-        await call("scripted.ok")
-        await call("boom")
-        await call("purge")
-        await call("missing")
-        #expect(adapter.invoked == ["ok", "boom"], "the policy refused purge before it ran: \(adapter.invoked)")
+        _ = try await Self.call(tools, "plan", .object(["request": .string("Exercise adapter dispatch"),
+            "rows": .array([.object(["title": .string("Exercise adapter dispatch")])])]))
+        var attempts = 0
+        func call(_ verb: String) async -> JSONValue? {
+            attempts += 1
+            let arguments: JSONValue = verb == "purge" ? .object(["step": .string("r1")]) : .object([:])
+            return try? await tools.call("call", .object(["name": .string("scripted." + verb), "arguments": arguments]))
+        }
+        _ = await call("ok")
+        _ = await call("boom")
+        _ = await call("purge")
+        let unknown = await call("missing")
+        #expect(unknown == nil || unknown?["isError"].bool == true)
+        #expect(attempts == 4, "All four model attempts are exercised")
+        #expect(adapter.invoked == ["ok", "boom"], "The policy refused purge and discovery refused missing: \(adapter.invoked)")
         let calls = try await Self.recorded("adapters", in: knowledge)
-        #expect(calls.map(\.tool) == ["app_call", "app_call", "app_call", "app_call"], "\(calls)")
+        try #require(calls.count == 3, "The three known adapter calls are recorded; an unknown capability never starts: \(calls)")
+        #expect(calls.map(\.tool) == ["app_call", "app_call", "app_call"], "\(calls)")
         #expect(calls.map(\.dispatch) == [AdapterDispatch(adapter: "scripted", verb: "ok"),
-                                          AdapterDispatch(adapter: "scripted", verb: "boom"), nil, nil], "\(calls)")
+                                          AdapterDispatch(adapter: "scripted", verb: "boom"), nil], "\(calls)")
         #expect(calls[1].status == .failed, "the invocation is kept on the failed call: \(calls[1])")
         #expect(calls.allSatisfy { $0.route == nil }, "an adapter is not a session route")
+        await MemoryService.closeAll()
+    }
+
+    @Test("invalid core arguments are refused before routing or recording, and the next valid call still runs")
+    func invalidCoreSchemasNeverReachTheRecorder() async throws {
+        let knowledge = Self.knowledge()
+        defer { try? FileManager.default.removeItem(at: knowledge) }
+        let fake = RouteFake(.desktop, memory: knowledge)
+        // Compose the named selector so the negative case exercises its type, not an absent field.
+        let tools = AutomationTools(session: fake, channels: .adapters, adapters: AppAdapters([ScriptedAdapter()]),
+            router: TaskRouter(catalogue: RouteCatalogue([])))
+        tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "invalid-core")
+        let invalid: [JSONValue] = [
+            .object(["app": .string("Notes"), "named": .string("yes")]),
+            .object(["app": .number(1)]),
+            .object(["app": .string("Notes"), "extra": .bool(true)]),
+        ]
+        for arguments in invalid {
+            let result = try? await tools.call("open_session", arguments)
+            #expect(result == nil || result?["isError"].bool == true)
+            #expect(fake.opened.isEmpty && fake.id == nil)
+            #expect(try await Self.recorded("invalid-core", in: knowledge).isEmpty)
+        }
+        _ = try await tools.call("open_session", .object(["app": .string("Notes"), "named": .bool(true)]))
+        #expect(fake.opened == ["Notes"] && fake.id != nil)
+        #expect(try await Self.recorded("invalid-core", in: knowledge).count == 1)
         await MemoryService.closeAll()
     }
 
@@ -270,27 +315,27 @@ struct CallDispatchRecordTests {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let fake  = RouteFake(.desktop, memory: knowledge)
-        let tools = AutomationTools(session: fake, channels: [.web])
-        tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "advice")
-        tools.router = TaskRouter(catalogue: RouteCatalogue(RouteCatalogue.standard.entries.map { entry in
+        let router = TaskRouter(catalogue: RouteCatalogue(RouteCatalogue.standard.entries.map { entry in
             entry.kind == .mail ? RouteEntry(.mail, .webMail, replaces: entry.replaces, needsLogin: true) : entry
         }))
+        let tools = AutomationTools(session: fake, channels: [.web], router: router)
+        tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "advice")
         let transcript = Transcript()
         tools.record = { transcript.lines.append($0) }
         // A task that declares the route's host a secret; its attribution as the tools hold it.
         let secret = "google.com/maps"
-        _ = try await tools.call("memory_task", .object([
-            "operation": .string("begin"), "goal": .string("Find the place"), "remaining": .string("Find the place"),
+        _ = try await Self.call(tools, "plan", .object([
+            "request": .string("Find the place"), "rows": .array([.object(["title": .string("Find the place")])]),
             "inputs": .array([.object(["name": .string("place"), "value": .string(secret), "secret": .bool(true)])]),
         ]))
         let attribution = try #require(tools.openTask?.attribution, "the task is open")
-        let maps = try await tools.call("open_session", .object(["app": .string("Maps")]))
-        let mail = try await tools.call("open_session", .object(["app": .string("Mail")]))
-        _ = try await tools.call("memory_task", .object(["operation": .string("end"), "outcome": .string("completed")]))
+        let maps = try await Self.call(tools, "open_session", .object(["app": .string("Maps")]))
+        let mail = try await Self.call(tools, "open_session", .object(["app": .string("Mail")]))
+        _ = try await Self.call(tools, "end", .object(["outcome": .string("completed")]))
         #expect(tools.openTask == nil, "the task ended")
         // After the end, the same decisions again on the same tools: their own rows, under no task.
-        let mapsAfter = try await tools.call("open_session", .object(["app": .string("Maps")]))
-        let mailAfter = try await tools.call("open_session", .object(["app": .string("Mail")]))
+        let mapsAfter = try await Self.call(tools, "open_session", .object(["app": .string("Maps")]))
+        let mailAfter = try await Self.call(tools, "open_session", .object(["app": .string("Mail")]))
         #expect(fake.opened.isEmpty, "nothing opened")
         for answer in [maps, mail, mapsAfter, mailAfter] {
             #expect(Self.answered(answer)["opened"] == .bool(false) && !Self.text(answer).contains(secret), Comment(rawValue: Self.text(answer)))
@@ -300,6 +345,7 @@ struct CallDispatchRecordTests {
 
         let calls = try await Self.recorded("advice", in: knowledge)
         let opens = calls.filter { $0.tool == "open_session" }
+        try #require(opens.count == 4, "Expected four recorded opens: \(opens)")
         #expect(opens.count == 4 && Set(opens.map(\.eventID)).count == 4, "four open_session calls, four event ids: \(opens.map(\.eventID))")
         for open in opens {
             #expect(open.status == .completed && open.route == nil && open.dispatch == nil
@@ -334,26 +380,26 @@ struct CallDispatchRecordTests {
         let fake  = RouteFake(.desktop, memory: knowledge)
         let tools = AutomationTools(session: fake, channels: [.web])
         tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "advice-open")
-        let opened = try await tools.call("open_session", .object(["app": .string("Maps"), "named": .bool(true)]))
-        let id = try #require(Self.sessionID(opened))
+        let opened = try await Self.call(tools, "open_session", .object(["app": .string("Maps"), "named": .bool(true)]))
+        _ = try #require(fake.id)
         #expect(fake.opened == ["Maps"])
-        let redirected = Self.answered(try await tools.call("open_session", .object(["app": .string("Maps")])))
+        let redirected = Self.answered(try await Self.call(tools, "open_session", .object(["app": .string("Maps")])))
         #expect(redirected["opened"] == .bool(false) && redirected["route"].string == "web:google.com/maps", "\(redirected)")
         await #expect(throws: AutomationFailure.self, "refused by the tools before the router") {
-            _ = try await tools.call("open_session", .object(["app": .string("Maps"), "named": .string("yes")]))
+            _ = try await Self.call(tools, "open_session", .object(["app": .string("Maps"), "named": .string("yes")]))
         }
-        _ = try await tools.call("close_session", .object(["session": .string(id)]))
+        _ = try await Self.call(tools, "close_session", .object([:]))
         #expect(fake.opened == ["Maps"], "opened once, never again")
         let calls = try await Self.recorded("advice-open", in: knowledge)
-        #expect(calls.map(\.tool) == ["open_session", "open_session", "open_session", "close_session"], "\(calls.map(\.tool))")
+        try #require(calls.count == 3, "Invalid arguments are refused before recording; three valid calls: \(calls)")
+        #expect(calls.map(\.tool) == ["open_session", "open_session", "close_session"], "\(calls.map(\.tool))")
         #expect(calls[0].status == .completed && calls[0].route == CallRoute(.desktop) && calls[0].advice == nil, "\(calls[0])")
         #expect(calls[1].status == .completed && calls[1].route == nil && calls[1].advice?.decision == .use
                 && calls[1].advice?.route == "web:google.com/maps", "\(calls[1])")
-        #expect(calls[2].status == .failed && calls[2].route == nil && calls[2].advice == nil, "\(calls[2])")
-        #expect(calls[3].advice == nil && calls.allSatisfy { $0.dispatch == nil && $0.rung == nil
+        #expect(calls[2].tool == "close_session" && calls[2].advice == nil && calls.allSatisfy { $0.dispatch == nil && $0.rung == nil
                                                                 && $0.attribution == nil })
-        #expect(calls[1].performed == nil && calls[1].samples == 0 && calls[2].performed == nil && calls[2].samples == 0)
-        #expect(Set(calls.map(\.eventID)).count == 4, "four calls, each its own event")
+        #expect(calls[1].performed == nil && calls[1].samples == 0)
+        #expect(Set(calls.map(\.eventID)).count == 3, "three admitted calls, each its own event")
         await MemoryService.closeAll()
     }
 
@@ -364,8 +410,7 @@ struct CallDispatchRecordTests {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let fake  = RouteFake(.native, memory: knowledge)
-        let tools = AutomationTools(session: fake, channels: [.web])
-        tools.adapters = AppAdapters([ReadyAdapter()])
+        let tools = AutomationTools(session: fake, channels: [.web], adapters: AppAdapters([ReadyAdapter()]))
         tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "open-note")
         let transcript = Transcript()
         tools.record = { transcript.lines.append($0) }
@@ -375,63 +420,62 @@ struct CallDispatchRecordTests {
             .minimize(text: "\(secret) has no files adapter in this build yet: driving its interface.").0
         let messagesNote = SharedRoutes.messageChannel + " " + SharedRoutes.whatsApp
         #expect(finderNote.contains(ValueMinimization.marker) && !finderNote.contains(secret))
-        _ = try await tools.call("memory_task", .object([
-            "operation": .string("begin"), "goal": .string("Tidy the folder"), "remaining": .string("Tidy the folder"),
+        _ = try await Self.call(tools, "plan", .object([
+            "request": .string("Tidy the folder"), "rows": .array([.object(["title": .string("Tidy the folder")])]),
             "inputs": .array([.object(["name": .string("app"), "value": .string(secret), "secret": .bool(true)])]),
         ]))
         let attribution = try #require(tools.openTask?.attribution)
         // Under the task: Finder opens with the fallback note (no files adapter in this build); Calendar is redirected.
-        let finder = try await tools.call("open_session", .object(["app": .string(secret)]))
-        #expect(Self.sessionID(finder) != nil && fake.opened.count == 1)
+        let finder = try await Self.call(tools, "open_session", .object(["app": .string(secret)]))
+        #expect(fake.id != nil && fake.opened.count == 1)
         #expect(Self.answered(finder)["routeNote"].string == finderNote && !Self.text(finder).contains(secret), Comment(rawValue: Self.text(finder)))
-        let calendar = try await tools.call("open_session", .object(["app": .string("Calendar")]))
+        let calendar = try await Self.call(tools, "open_session", .object(["app": .string("Calendar")]))
         #expect(Self.answered(calendar)["opened"] == .bool(false) && fake.opened.count == 1)
-        _ = try await tools.call("memory_task", .object(["operation": .string("end"), "outcome": .string("completed")]))
+        _ = try await Self.call(tools, "end", .object(["outcome": .string("completed")]))
         #expect(tools.openTask == nil)
         // After the task: a refusal before the router; an opening that fails right after the decision with the note;
         // then at once a named open with no note; then the contact's channel note, advice and not a fallback.
         await #expect(throws: AutomationFailure.self) {
-            _ = try await tools.call("open_session", .object(["app": .string("Maps"), "named": .string("yes")]))
+            _ = try await Self.call(tools, "open_session", .object(["app": .string("Maps"), "named": .string("yes")]))
         }
         #expect(fake.opened.count == 1, "refused before the router: not invoked")
         fake.failsOpen = AutomationFailure("Finder showed no window.")
-        await #expect(throws: AutomationFailure.self) {
-            _ = try await tools.call("open_session", .object(["app": .string(secret)]))
-        }
+        let failedOpen = try await Self.call(tools, "open_session", .object(["app": .string(secret)]))
+        #expect(failedOpen["isError"].bool == true, "\(failedOpen)")
         fake.failsOpen = nil
         #expect(fake.opened.count == 2, "the failing open was invoked once, never again")
-        _ = try await tools.call("open_session", .object(["app": .string("Maps"), "named": .bool(true)]))
+        _ = try await Self.call(tools, "open_session", .object(["app": .string("Maps"), "named": .bool(true)]))
         #expect(fake.opened.count == 3, "the named open was invoked once")
-        let messages = try await tools.call("open_session", .object(["app": .string("Messages")]))
+        let messages = try await Self.call(tools, "open_session", .object(["app": .string("Messages")]))
         #expect(Self.answered(messages)["routeNote"].string == messagesNote && fake.opened.count == 4)
         // The session open now is the last one the fake opened (Messages): closed by its own id.
-        _ = try await tools.call("close_session", .object(["session": .string(try #require(fake.id?.uuidString))]))
+        _ = try await Self.call(tools, "close_session", .object([:]))
         #expect(transcript.lines.allSatisfy { !$0.contains(secret) }, "the transcript holds the secret")
 
         let calls = try await Self.recorded("open-note", in: knowledge)
         let opens = calls.filter { $0.tool == "open_session" }
-        #expect(opens.count == 6 && Set(opens.map(\.eventID)).count == 6, "\(opens.map(\.eventID))")
+        try #require(opens.count == 5, "Invalid arguments are refused before recording; five admitted opens: \(opens)")
+        #expect(opens.count == 5 && Set(opens.map(\.eventID)).count == 5, "\(opens.map(\.eventID))")
         // 1. Finder opened with the fallback note: the real route, the open decision with exactly the note, the task.
         #expect(opens[0].status == .completed && opens[0].route == CallRoute(.native) && opens[0].attribution == attribution, "\(opens[0])")
         #expect(opens[0].advice == CallRouteAdvice(decision: .open, route: nil, message: finderNote), "\(String(describing: opens[0].advice))")
         // 2. Calendar redirected: a use, no route, the task.
         #expect(opens[1].advice?.decision == .use && opens[1].advice?.route == "app_call(calendar)" && opens[1].route == nil
                 && opens[1].attribution == attribution, "\(opens[1])")
-        // 3. Refused before the router: failed, nothing of the router's, no task.
-        #expect(opens[2].status == .failed && opens[2].route == nil && opens[2].advice == nil && opens[2].attribution == nil, "\(opens[2])")
+        // Invalid arguments above reached neither the router nor the operation recorder.
         // 4. The opening failed after the decision: the same note kept as the call's fact, the route row of the dispatch that
         //    was attempted, the call failed with no observation sample, no task.
-        #expect(opens[3].status == .failed && opens[3].advice == CallRouteAdvice(decision: .open, route: nil, message: finderNote)
-                && opens[3].route == CallRoute(.native) && opens[3].samples == 0 && opens[3].attribution == nil, "\(opens[3])")
+        #expect(opens[2].status == .failed && opens[2].advice == CallRouteAdvice(decision: .open, route: nil, message: finderNote)
+                && opens[2].route == CallRoute(.native) && opens[2].samples == 0 && opens[2].attribution == nil, "\(opens[2])")
         // 5. Right after it, the named open with no note: the route, no advice (nothing of the failed call's), no task.
         //    (The fake's scene is not perceived through a recorder, so no open here keeps a sample; the failed one's
         //    zero samples above is the same fact, not a difference.)
-        #expect(opens[4].status == .completed && opens[4].route == CallRoute(.native) && opens[4].advice == nil
-                && opens[4].attribution == nil, "\(opens[4])")
+        #expect(opens[3].status == .completed && opens[3].route == CallRoute(.native) && opens[3].advice == nil
+                && opens[3].attribution == nil, "\(opens[3])")
         // 6. Messages: opened, the contact's channel note recorded exactly as the open decision's advice, its own routeNote.
-        #expect(opens[5].status == .completed && opens[5].route == CallRoute(.native)
-                && opens[5].advice == CallRouteAdvice(decision: .open, route: nil, message: messagesNote)
-                && opens[5].advice?.message == Self.answered(messages)["routeNote"].string, "\(opens[5])")
+        #expect(opens[4].status == .completed && opens[4].route == CallRoute(.native)
+                && opens[4].advice == CallRouteAdvice(decision: .open, route: nil, message: messagesNote)
+                && opens[4].advice?.message == Self.answered(messages)["routeNote"].string, "\(opens[4])")
         for open in opens {
             #expect(open.dispatch == nil && open.rung == nil && open.performed == nil
                     && open.route?.handoffReason == nil, "\(open)")
@@ -446,14 +490,13 @@ struct CallDispatchRecordTests {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let fake  = RouteFake(.native, memory: knowledge)
-        let tools = AutomationTools(session: fake, channels: [.web])
         let reason = "Calendar access is off for Braus in Privacy & Security"
-        tools.adapters = AppAdapters([NotReadyAdapter(reason: reason)])
+        let tools = AutomationTools(session: fake, channels: [.web], adapters: AppAdapters([NotReadyAdapter(reason: reason)]))
         tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "open-reason")
         let transcript = Transcript()
         tools.record = { transcript.lines.append($0) }
-        _ = try await tools.call("memory_task", .object([
-            "operation": .string("begin"), "goal": .string("Add the meeting"), "remaining": .string("Add the meeting"),
+        _ = try await Self.call(tools, "plan", .object([
+            "request": .string("Add the meeting"), "rows": .array([.object(["title": .string("Add the meeting")])]),
             "inputs": .array([.object(["name": .string("why"), "value": .string(reason), "secret": .bool(true)])]),
         ]))
         let attribution = try #require(tools.openTask?.attribution)
@@ -461,12 +504,12 @@ struct CallDispatchRecordTests {
         let expectedNote = ValueMinimization(secrets: [reason])
             .minimize(text: "The calendar adapter cannot run (\(reason)): driving Calendar's interface instead.").0
         #expect(expectedNote.contains(ValueMinimization.marker) && !expectedNote.contains(reason))
-        let calendar = try await tools.call("open_session", .object(["app": .string("Calendar")]))
+        let calendar = try await Self.call(tools, "open_session", .object(["app": .string("Calendar")]))
         #expect(fake.opened == ["Calendar"])
         let note = Self.answered(calendar)["routeNote"].string ?? ""
         #expect(note == expectedNote, Comment(rawValue: note))
-        _ = try await tools.call("memory_task", .object(["operation": .string("end"), "outcome": .string("completed")]))
-        _ = try await tools.call("close_session", .object(["session": .string(try #require(Self.sessionID(calendar)))]))
+        _ = try await Self.call(tools, "end", .object(["outcome": .string("completed")]))
+        _ = try await Self.call(tools, "close_session", .object([:]))
         #expect(transcript.lines.allSatisfy { !$0.contains(reason) })
         let calls = try await Self.recorded("open-reason", in: knowledge)
         let opens = calls.filter { $0.tool == "open_session" }

@@ -126,7 +126,7 @@ struct ProcedureLearningCostTests {
         var calls: [Duration] = [], flushes: [Duration] = [], ends: [Duration] = []
         var lastCandidate = ""
         for task in 0..<Self.tasks {
-            _ = try await Learning.task(tools, #"{"operation":"begin","goal":"Walk the states, round \#(task)"}"#)
+            _ = try await Learning.task(tools, #"{"request":"Walk the states, round \#(task)"}"#)
             _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Self.bundle)"}"#)
             var state = 0
             for step in 0..<Self.steps {
@@ -138,10 +138,10 @@ struct ProcedureLearningCostTests {
             }
             var answer = JSONValue.null
             ends.append(try await Self.measured {
-                answer = try await Learning.task(tools, #"{"operation":"end","outcome":"completed"}"#)
+                answer = try await Learning.task(tools, #"{"outcome":"completed"}"#)
             })
-            lastCandidate = answer["candidate"]["id"].string ?? ""
-            #expect(answer["candidate"]["steps"].array?.count == Self.steps)
+            lastCandidate = try await Learning.candidateIDFixture(tools, session)
+            #expect(try await Learning.candidateFixture(tools, session)["steps"].array?.count == Self.steps)
             flushes.append(await Self.measured { #expect(await memory.flush(within: .seconds(60))) })
             session.windows[Self.bundle] = Self.window(0)
         }
@@ -152,12 +152,12 @@ struct ProcedureLearningCostTests {
         let steps = (1...Self.steps).map { #"{"step":\#($0),"label":"Step \#($0)"}"# }.joined(separator: ",")
         var interpreted = JSONValue.null
         let interpretation = try await Self.measured {
-            interpreted = try await Learning.task(tools, #"""
+            interpreted = try await Learning.interpretFixture(tools, session, #"""
                 {"operation":"interpret","candidate":"\#(lastCandidate)","procedure":{"label":"Walk the states"},"steps":[\#(steps)]}
                 """#)
         }
         #expect(interpreted["status"].string == "interpreted", "\(interpreted)")
-        print("measure: interpretation of \(Self.steps) steps \(Self.percentiles([interpretation]))")
+        print("measure: curated producer interpretation of \(Self.steps) steps \(Self.percentiles([interpretation]))")
 
         // Reads: a state from a new capture, its relations, the engine's expectation, a catalogue page.
         let brain = W.brain(memory)

@@ -5,7 +5,7 @@
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
 
-import AutomationRuntime
+@testable import AutomationRuntime
 import CoreGraphics
 import EngineCore
 import Foundation
@@ -262,7 +262,7 @@ final class LearningSession: AutomationSessionOperating {
     /// after it, and records both for the call. Only the command's own gesture and window check are the
     /// double's; a scripted refusal reaches no gesture and records nothing. A press whose window after it
     /// cannot be perceived, or whose call is cancelled meanwhile, is concluded by the production press
-    /// (`DialogButtonPress.observed`), after its one gesture.
+    /// (`MenuBarCommand.observedOutcome`), after its one gesture.
     private func native(_ key: String, default fallback: OperationCheck) async throws -> ActOutcome {
         guard let application, current != nil else { throw AutomationFailure("no session") }
         let outcome = script[key] ?? Outcome(check: fallback)
@@ -297,12 +297,18 @@ final class LearningSession: AutomationSessionOperating {
             if outcome.fails { throw AutomationFailure("the seat stopped") }
             if let next = outcome.next { windows[application] = next }
             if key.hasPrefix("press|"), outcome.afterPerception != .perceived {
-                return try await DialogButtonPress.observed(String(key.dropFirst("press|".count)), observe: observe,
-                                                            windowsChanged: { true })
+                return try await MenuBarCommand.observedOutcome(String(key.dropFirst("press|".count)),
+                    outcome: ActOutcome(.foundActed, "Pressed"), processID: 42, before: ["before"],
+                    settling: SettledCommand(), signature: { _ in ["after"] }, observe: observe)
             }
             let scene = try await observe()
             return ActOutcome(outcome.kind, "\(key) done", scene: scene, check: outcome.check ?? fallback)
         }
+    }
+
+    /// Supplies a deterministic settled boundary without sleeping or consulting a desktop.
+    private nonisolated struct SettledCommand: Settling {
+        func settle(in processID: pid_t, cap: Duration) async -> SettleResult { .settled }
     }
 
     /// The offered applications whose name or bundle ID contains the query, ignoring case, as the default session's do.

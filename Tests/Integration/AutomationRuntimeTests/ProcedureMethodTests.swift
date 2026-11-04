@@ -53,14 +53,14 @@ struct ProcedureMethodTests {
 
     static func begin(_ name: String) -> String {
         #"""
-        {"operation":"begin","goal":"Rotate the open image and export it as \#(name).jpg in JPEG","recall":false,
+        {"request":"Rotate the open image and export it as \#(name).jpg in JPEG",
          "inputs":[{"name":"output_name","value":"\#(name)","role":"name of the exported file without extension"}]}
         """#
     }
 
     static func end(result file: URL?) -> String {
-        guard let file else { return #"{"operation":"end","outcome":"completed"}"# }
-        return #"{"operation":"end","outcome":"completed","result_check":{"file":"\#(file.path)"}}"#
+        guard let file else { return #"{"outcome":"completed"}"# }
+        return #"{"outcome":"completed","result_check":{"file":"\#(file.path)"}}"#
     }
 
     /// The interpretation of the run with its mistakes: phases rotate (step 2) and export (steps 3 to 7).
@@ -98,8 +98,8 @@ struct ProcedureMethodTests {
         try await Self.run(tools, session, name: "foto_web")
         let ended = try await P.task(tools, Self.end(result: try Self.written(directory, "foto_web")))
         #expect(ended["result_check"].array?.first?["verdict"].string == "passed", "\(ended["result_check"])")
-        let candidate = try #require(ended["candidate"]["id"].string)
-        let interpreted = try await P.task(tools, Self.interpretation(candidate))
+        let candidate = try await P.candidateIDFixture(tools, session)
+        let interpreted = try await P.interpretFixture(tools, session, Self.interpretation(candidate))
         #expect(interpreted["status"].string == "interpreted", "\(interpreted)")
         let leftOut = interpreted["left_out"].array?.map { "\(RecallCycleTests.int($0["step"]) ?? 0):\($0["why"].string ?? "")" }
         #expect(leftOut == ["1:nothing_sent", "5:check_failed"], "\(interpreted)")
@@ -128,15 +128,15 @@ struct ProcedureMethodTests {
         let tools = P.tools(session)
         let id = session.id!.uuidString
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Open foto_1.png and export it","recall":false,
+            {"request":"Open foto_1.png and export it",
              "inputs":[{"name":"input_name","value":"foto_1.png","role":"the file to open"}]}
             """#)
         _ = try await P.call(tools, "open_session", #"{"app":"\#(P.preview)"}"#)
         _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"control|foto1png","section":"list view / Today at 15:52"}"#)
         _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Rotate Right"}"#)
         let ended = try await P.task(tools, Self.end(result: try Self.written(directory, "foto_web")))
-        let candidate = try #require(ended["candidate"]["id"].string)
-        let interpreted = try await P.task(tools, #"""
+        let candidate = try await P.candidateIDFixture(tools, session)
+        let interpreted = try await P.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"Open a file and rotate it","outcome":"completed"},
              "steps":[{"step":1,"label":"Select the file"},{"step":2,"label":"Rotate right"}],
              "parameters":[{"name":"input_name","role":"the file to open","kind":"text"}],
@@ -167,8 +167,8 @@ struct ProcedureMethodTests {
             let file = written ? try Self.written(directory, "foto_web") : directory.appendingPathComponent("foto_web.jpg")
             let ended = try await P.task(tools, Self.end(result: file))
             #expect(ended["result_check"].array?.first?["verdict"].string == (written ? "passed" : "failed"), "\(ended["result_check"])")
-            let candidate = try #require(ended["candidate"]["id"].string)
-            let interpreted = try await P.task(tools, Self.interpretation(candidate, mistakes: false, markup: true))
+            let candidate = try await P.candidateIDFixture(tools, session)
+            let interpreted = try await P.interpretFixture(tools, session, Self.interpretation(candidate, mistakes: false, markup: true))
             let parts = Dictionary(uniqueKeysWithValues: (interpreted["parts"].array ?? []).map {
                 ($0["part"].string ?? "", $0["admitted"].bool == true)
             })
@@ -189,15 +189,15 @@ struct ProcedureMethodTests {
         let session = Self.session(directory)
         let tools = P.tools(session)
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Rotate the open image and export it as foto_web.jpg in JPEG","recall":false,
+            {"request":"Rotate the open image and export it as foto_web.jpg in JPEG",
              "inputs":[{"name":"output_name","value":"foto_web","role":"name of the exported file without extension"},
                        {"name":"format","value":"JPEG","role":"format chosen in the Export dialog"}]}
             """#)
         try await Self.run(tools, session, name: "foto_web", mistakes: false)
         let ended = try await P.task(tools, Self.end(result: try Self.written(directory, "foto_web")))
-        var interpretation = Self.interpretation(try #require(ended["candidate"]["id"].string), mistakes: false)
+        var interpretation = Self.interpretation(try await P.candidateIDFixture(tools, session), mistakes: false)
         interpretation = interpretation.replacingOccurrences(of: #","uses":[{"step":3,"argument":"text","template":"{output_name}.jpg"}]"#, with: "")
-        let interpreted = try await P.task(tools, interpretation)
+        let interpreted = try await P.interpretFixture(tools, session, interpretation)
         let routeID = try #require(interpreted["version"].string, "\(interpreted)")
         let memory = MemoryService.shared(for: directory)
         let stored = try #require(try await memory.perform { try await $0.procedures.version(routeID) })
@@ -231,22 +231,26 @@ struct ProcedureMethodTests {
             try await Self.run(tools, session, name: "foto_web", mistakes: false)
             let file = try Self.written(directory, "foto_web")
             let ended = try await P.task(tools, completed ? Self.end(result: file)
-                                                          : #"{"operation":"end","outcome":"failed","note":"not exported"}"#)
-            #expect(ended["candidate"]["id"].string != nil, "\(ended)")
-            let left = await tools.interpretLeftCandidate()
+                                                          : #"{"outcome":"failed","note":"not exported"}"#)
+            #expect(ended["status"].string == "ended")
+            let candidate = try await P.candidateIDFixture(tools, session)
+            let memory = MemoryService.shared(for: directory)
+            await tools.afterTurn()
+            #expect(await memory.flush(within: .seconds(10)))
+            let routeID = ProcedureAssembly.routeID(candidateID: candidate, revision: 1)
+            let learned = try await memory.perform { try await $0.procedures.version(routeID) }
             guard completed else {
-                #expect(left == nil, "a failed task is not interpreted by Braus")
-                await MemoryService.shared(for: directory).close()
+                #expect(learned == nil, "A failed task is not interpreted automatically")
+                await memory.close()
                 continue
             }
-            let answer = try #require(left?.answer.payload, "Braus interprets the completed task")
-            let routeID = try #require(answer["version"].string, "\(answer)")
-            #expect((answer["parts"].array ?? []).first { $0["part"].string == "procedure" }?["admitted"].bool == true, "\(answer)")
-            let memory = MemoryService.shared(for: directory)
-            let stored = try #require(try await memory.perform { try await $0.procedures.version(routeID) })
+            let stored = try #require(learned, "The turn boundary learns a completed task without a reminder tool")
+            #expect(stored.qualifications[routeID + "/procedure"]?.verdict == .admitted)
             #expect(stored.version.definition.name == "Rotate the open image and export it as foto_web.jpg in JPEG")
             #expect(stored.version.definition.parameters.map(\.name) == ["output_name"], "the typed name is the task's value")
-            #expect(await tools.interpretLeftCandidate() == nil, "nothing is left once interpreted")
+            await tools.afterTurn()
+            #expect(try P.rows("SELECT count(*) FROM memory_procedure_interpretations", in: session) == ["1"],
+                    "A second boundary does not create another interpretation")
             await memory.close()
         }
     }
@@ -259,7 +263,7 @@ struct ProcedureMethodTests {
         _ = try await P.task(learner, Self.begin("foto_web"))
         try await Self.run(learner, first, name: "foto_web")
         let firstEnd = try await P.task(learner, Self.end(result: try Self.written(directory, "foto_web")))
-        let firstInterpreted = try await P.task(learner, Self.interpretation(try #require(firstEnd["candidate"]["id"].string)))
+        let firstInterpreted = try await P.interpretFixture(learner, first, Self.interpretation(try await P.candidateIDFixture(learner, first)))
         let firstVersion = try #require(firstInterpreted["version"].string)
         #expect((firstInterpreted["parts"].array ?? []).first { $0["part"].string == "procedure" }?["admitted"].bool == true)
 
@@ -270,7 +274,7 @@ struct ProcedureMethodTests {
         try await Self.run(repeater, second, name: "foto_mail", mistakes: false)
         let secondEnd = try await P.task(repeater, Self.end(result: directory.appendingPathComponent("foto_mail.jpg")))
         #expect(secondEnd["result_check"].array?.first?["verdict"].string == "failed", "\(secondEnd["result_check"])")
-        let interpreted = try await P.task(repeater, Self.interpretation(try #require(secondEnd["candidate"]["id"].string),
+        let interpreted = try await P.interpretFixture(repeater, second, Self.interpretation(try await P.candidateIDFixture(repeater, second),
                                                                          mistakes: false))
         let secondVersion = try #require(interpreted["version"].string)
         #expect(interpreted["repeats"] == nil || interpreted["repeats"] == .null, "\(interpreted)")
@@ -293,8 +297,8 @@ struct ProcedureMethodTests {
         _ = try await P.task(learner, Self.begin("foto_web"))
         try await Self.run(learner, first, name: "foto_web", unknownStep: true)
         let firstEnd = try await P.task(learner, Self.end(result: try Self.written(directory, "foto_web")))
-        let firstCandidate = try #require(firstEnd["candidate"]["id"].string)
-        let firstInterpreted = try await P.task(learner, Self.interpretation(firstCandidate, markup: true))
+        let firstCandidate = try await P.candidateIDFixture(learner, first)
+        let firstInterpreted = try await P.interpretFixture(learner, first, Self.interpretation(firstCandidate, markup: true))
         let firstVersion = try #require(firstInterpreted["version"].string)
 
         // The second run makes no mistake, but its last step's check is unknown this time.
@@ -303,8 +307,8 @@ struct ProcedureMethodTests {
         _ = try await P.task(repeater, Self.begin("foto_mail"))
         try await Self.run(repeater, second, name: "foto_mail", mistakes: false, unknownStep: true)
         let secondEnd = try await P.task(repeater, Self.end(result: try Self.written(directory, "foto_mail")))
-        let secondCandidate = try #require(secondEnd["candidate"]["id"].string)
-        let interpreted = try await P.task(repeater, Self.interpretation(secondCandidate, mistakes: false, markup: true))
+        let secondCandidate = try await P.candidateIDFixture(repeater, second)
+        let interpreted = try await P.interpretFixture(repeater, second, Self.interpretation(secondCandidate, mistakes: false, markup: true))
         let secondVersion = try #require(interpreted["version"].string)
         #expect(interpreted["repeats"].string == firstVersion, "\(interpreted)")
         let parts = (interpreted["parts"].array ?? []).filter { $0["admitted"].bool != true }

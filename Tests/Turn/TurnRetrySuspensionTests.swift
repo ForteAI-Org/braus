@@ -1,3 +1,4 @@
+import LocalMCP
 import ChatCore
 import Foundation
 import ModelTransports

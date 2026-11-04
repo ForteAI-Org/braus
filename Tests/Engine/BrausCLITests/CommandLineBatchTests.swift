@@ -11,7 +11,6 @@ import Foundation
 import Memory
 import TestScratch
 import PerceptionCore
-import Switches
 @testable import braus
 @testable import SQLiteMemory
 import Testing
@@ -27,7 +26,25 @@ struct CommandLineBatchTests {
 
     private func plan() throws -> BatchPlan {
         try BatchPlan(arguments: ["batch", "TextEdit", "--window", "Untitled", "--seat", "--",
-                                  "act", "Save", "--then", "select", "Format", "Bold", "--then", "act", "Close"])
+                                  "act", "Next", "--then", "select", "Format", "Bold", "--then", "act", "Third"])
+    }
+
+    /// Entry and refreshed scenes are required by the production batch policy, even for a recording fixture.
+    private func entryScene() -> SceneSnapshot {
+        SceneSnapshot(bundleID: app.bundleID, appName: "TextEdit", windowTitle: "Untitled",
+            viewportPixelSize: .init(width: 100, height: 100), elements: [
+                .init(id: "next", kind: .control, label: "Next", bounds: .init(x: 0, y: 0, width: 0.2, height: 0.2)),
+                .init(id: "format", kind: .control, label: "Format", bounds: .init(x: 0.3, y: 0, width: 0.2, height: 0.2)),
+                .init(id: "third", kind: .control, label: "Third", bounds: .init(x: 0.6, y: 0, width: 0.2, height: 0.2))
+            ])
+    }
+
+    /// These recording fixtures claim confirmation only when their synthetic oracle supplies it.
+    private func checked(_ kind: ActOutcomeKind = .foundActed) -> ActOutcome {
+        let check: OperationCheck = kind == .foundActed
+            ? .init(condition: .structuralEffect, method: .sceneDifference, verdict: .passed, performed: .requested)
+            : .unchecked(performed: .none, limits: [.targetNotResolved])
+        return ActOutcome(kind, "Answered.", scene: entryScene(), check: check)
     }
 
     /// A memory of its own, whose lock budget is short so a held lock refuses fast.
@@ -76,18 +93,23 @@ struct CommandLineBatchTests {
         let (parent, children) = recorders(memory, count: 3)
         var gestures: [String] = []
         do {
-            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) {
+            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
+                entryScene: entryScene(), prepare: { _, _ in entryScene() }) {
                 number, step, recorder in
                 gestures.append(step.summary)
                 if number == 2 {
                     try? await recorder.end(.failed, result: .error(message: "the menu did not open"), tool: .select)
                     throw AutomationFailure("the menu did not open")
                 }
-                try await CommandLineCall.end(recorder, outcome: ActOutcome(.foundActed, "clicked"), tool: .act)
-                return ActOutcome(.foundActed, "Completed.")
+                let done = checked()
+                try await CommandLineCall.end(recorder, outcome: done, tool: .act)
+                return done
             }
             Issue.record("the batch did not stop")
-        } catch is BatchFailure {}
+        } catch let failure as BatchFailure {
+            #expect(failure.step == 2 && failure.total == 3)
+            #expect((failure.cause as? AutomationFailure)?.description == "the menu did not open")
+        }
         #expect(gestures.count == 2, "the third step never acted")
         #expect(try await status(memory, children[0]) == .completed)
         #expect(try await status(memory, children[1]) == .failed)
@@ -112,15 +134,17 @@ struct CommandLineBatchTests {
         let memory = memory()
         let steps  = try plan().steps
         let (parent, children) = recorders(memory, count: 3)
-        do {
-            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) { number, _, recorder in
-                let kind: ActOutcomeKind = number == 2 ? .honestMiss : .foundActed
-                try await CommandLineCall.end(recorder, outcome: ActOutcome(kind, "answered"),
-                                              tool: number == 2 ? .select : .act)
-                return ActOutcome(kind, "Answered.")
-            }
-            Issue.record("the batch did not stop")
-        } catch is BatchFailure {}
+        var performed = 0
+        try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
+            entryScene: entryScene(), prepare: { _, _ in entryScene() }) { number, _, recorder in
+            performed += 1
+            let done = checked(number == 2 ? .honestMiss : .foundActed)
+            try await CommandLineCall.end(recorder, outcome: done, tool: number == 2 ? .select : .act)
+            return done
+        }
+        #expect(performed == 2)
+        #expect(try await memory.call(parent.eventID)?.progress.batchConclusion == .stopped(at: 1, reason: .targetMissing))
+        #expect(try await memory.call(parent.eventID)?.progress.result?.isExactly(.batch(stopped: true, attempted: 2, verified: 1)) == true)
         #expect(try await status(memory, children[1]) == .completed)
         #expect(try await status(memory, children[2]) == .skipped)
         #expect(try await status(memory, parent) == .completed)
@@ -137,9 +161,10 @@ struct CommandLineBatchTests {
         try lock.execute("BEGIN IMMEDIATE")
         var gestures = 0
         do {
-            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) { _, _, _ in
+            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
+                entryScene: entryScene(), prepare: { _, _ in entryScene() }) { _, _, _ in
                 gestures += 1
-                return ActOutcome(.foundActed, "Completed.")
+                return ActOutcome(.foundActed, "Completed.", scene: entryScene())
             }
             Issue.record("the batch ran unconfirmed")
         } catch let failure as ActFailure {
@@ -160,15 +185,16 @@ struct CommandLineBatchTests {
         var lock: SQLiteConnection?
         var gestures = 0
         do {
-            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) { number, _, recorder in
+            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
+                entryScene: entryScene(), prepare: { _, _ in entryScene() }) { number, _, recorder in
                 gestures += 1
                 if number == 2 {
                     lock = try SQLiteConnection(path: memory.url.path)
                     try lock?.execute("BEGIN IMMEDIATE")
                 }
-                try await CommandLineCall.end(recorder, outcome: ActOutcome(.foundActed, "clicked"),
-                                              tool: number == 2 ? .select : .act)
-                return ActOutcome(.foundActed, "Completed.")
+                let done = checked()
+                try await CommandLineCall.end(recorder, outcome: done, tool: number == 2 ? .select : .act)
+                return done
             }
             Issue.record("the batch went on after an unsaved end")
         } catch let failure as BatchFailure {
@@ -193,10 +219,11 @@ struct CommandLineBatchTests {
         let memory = memory()
         let steps  = try plan().steps
         let (parent, children) = recorders(memory, count: 3)
-        let request = ActionRequest(processID: 1, bundleID: app.bundleID, appName: "TextEdit", target: "Save",
+        let request = ActionRequest(processID: 1, bundleID: app.bundleID, appName: "TextEdit", target: "Next",
                                     verb: .click)
         do {
-            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) { _, _, recorder in
+            try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
+                entryScene: entryScene(), prepare: { _, _ in entryScene() }) { _, _, recorder in
                 try await ActCommand.perform(request, recorder: recorder, begun: true) { _ in
                     throw AutomationFailure("The seat is waiting for the person.")
                 }
@@ -222,7 +249,7 @@ extension CommandLineBatchTests {
                 .init(id: "next", kind: .control, label: "Next", bounds: .init(x: 0, y: 0, width: 0.2, height: 0.2))
             ])
         let (parent, children) = recorders(memory, count: steps.count)
-        try await SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "task_cycle": "v2"])) {
+        do {
             try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
                 entryScene: scene, prepare: { _, _ in scene }) { number, _, recorder in
                     let done = ActOutcome(number == 2 ? .actedUnverified : .foundActed, "answered", scene: scene,
@@ -245,7 +272,7 @@ extension CommandLineBatchTests {
         let memory = memory()
         let steps = try plan().steps
         let (parent, children) = recorders(memory, count: steps.count)
-        try await SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "task_cycle": "v2"])) {
+        do {
             await #expect(throws: (any Error).self) {
                 try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) { _, _, _ in
                     Issue.record("No step may start without an entry scene")
@@ -260,20 +287,121 @@ extension CommandLineBatchTests {
 
 
 extension CommandLineBatchTests {
-    @Test @MainActor func incompatibleCycleIsTypedAndPrecedesRecording() async throws {
+    @Test @MainActor func uncertainAcknowledgementDoesNotBecomeAConfirmedStoredStep() async throws {
+        let memory = memory()
+        let steps = try BatchPlan(arguments: ["batch", "TextEdit", "--window", "Untitled", "--seat", "--",
+            "act", "Next"]).steps
+        let (parent, children) = recorders(memory, count: steps.count)
+        var sent = 0
+        try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
+            entryScene: entryScene(), prepare: { _, _ in entryScene() }) { _, _, recorder in
+            sent += 1
+            let done = ActOutcome(.foundActed, "Acknowledged without an oracle", scene: entryScene(),
+                check: .unchecked(performed: .uncertain))
+            try await CommandLineCall.end(recorder, outcome: done, tool: .act)
+            return done
+        }
+        #expect(sent == 1)
+        let batch = try #require(try await memory.call(parent.eventID))
+        #expect(batch.progress.batchConclusion == .ranToEnd)
+        #expect(batch.progress.result?.isExactly(.batch(stopped: false, attempted: 1, verified: 0)) == true)
+        let checks = try await memory.perform { try await $0.facts.verifications(of: children[0].eventID) }
+        #expect(checks.count == 1 && checks.first?.check.performed == .uncertain && checks.first?.check.verdict == .unknown)
+        await memory.close()
+    }
+}
+
+
+extension CommandLineBatchTests {
+    @Test @MainActor func actualCancellationClosesTheParentAndSkipsAllLaterSteps() async throws {
         let memory = memory()
         let steps = try plan().steps
         let (parent, children) = recorders(memory, count: steps.count)
-        try await SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "task_cycle": "v1"])) {
-            await #expect(throws: BatchConfigurationError.taskCycleV2Required) {
-                try await CommandLineBatch.run(steps, app: app, parent: parent, children: children) { _, _, _ in
-                    Issue.record("An incompatible batch may not act")
-                    return ActOutcome(.refused, "Unavailable")
+        var performed = 0
+        let task = Task { @MainActor in
+            do {
+                try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
+                    entryScene: entryScene(), prepare: { _, _ in entryScene() }) { _, _, recorder in
+                    performed += 1
+                    let done = checked()
+                    try await CommandLineCall.end(recorder, outcome: done, tool: .act)
+                    withUnsafeCurrentTask { $0?.cancel() }
+                    return done
                 }
-            }
+                Issue.record("Actual cancellation was converted into a completed batch")
+            } catch is CancellationError {
+                #expect(Task.isCancelled)
+            } catch { Issue.record("Unexpected cancellation result: \(error)") }
         }
-        #expect(try await status(memory, parent) == nil)
-        for child in children { #expect(try await status(memory, child) == nil) }
+        await task.value
+        #expect(performed == 1)
+        #expect(try await status(memory, children[0]) == .completed)
+        for child in children.dropFirst() { #expect(try await status(memory, child) == .skipped) }
+        let batch = try #require(try await memory.call(parent.eventID))
+        #expect(batch.progress.status == .cancelled && batch.progress.result == nil && batch.progress.batchConclusion == nil)
+        await memory.close()
+    }
+
+    @Test @MainActor func anAlreadyCancelledBatchWritesNothingAndSendsNothing() async throws {
+        let memory = memory()
+        let steps = try plan().steps
+        let (parent, children) = recorders(memory, count: steps.count)
+        var performed = 0
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
+                    entryScene: entryScene(), prepare: { _, _ in entryScene() }) { _, _, _ in
+                    performed += 1
+                    return checked()
+                }
+                Issue.record("An already cancelled batch was admitted")
+            } catch is CancellationError {} catch { Issue.record("Unexpected error: \(error)") }
+        }
+        await task.value
+        #expect(performed == 0)
+        #expect(try await memory.calls(inTrace: CommandLineTrace.trace).isEmpty)
+        await memory.close()
+    }
+
+    @Test @MainActor func aDriverCancellationErrorKeepsItsContextWithoutCancellingTheTask() async throws {
+        let steps = try BatchPlan(arguments: ["batch", "TextEdit", "--window", "Untitled", "--seat", "--",
+            "act", "Next"]).steps
+        let result = try await BatchSequence.runPolicy(steps, expectations: [], entryScene: entryScene(),
+            prepare: { _, _ in entryScene() }) { _, _ in throw CancellationError() }
+        let failure = try #require(result.failure as? BatchFailure)
+        #expect(!Task.isCancelled)
+        #expect(failure.step == 1 && failure.total == 1 && failure.cause is CancellationError)
+        #expect(result.conclusion == .stopped(at: 0, reason: .error))
+    }
+}
+
+
+extension CommandLineBatchTests {
+    @Test @MainActor func cancellationDuringPreparationNeverStartsACommand() async throws {
+        let memory = memory()
+        let steps = try plan().steps
+        let (parent, children) = recorders(memory, count: steps.count)
+        var prepared = 0, performed = 0
+        let task = Task { @MainActor in
+            do {
+                try await CommandLineBatch.run(steps, app: app, parent: parent, children: children,
+                    entryScene: entryScene(), prepare: { _, _ in
+                        prepared += 1
+                        withUnsafeCurrentTask { $0?.cancel() }
+                        return entryScene()
+                    }) { _, _, _ in
+                    performed += 1
+                    return checked()
+                }
+                Issue.record("A command was admitted after preparation cancelled its task")
+            } catch is CancellationError {} catch { Issue.record("Unexpected error: \(error)") }
+        }
+        await task.value
+        #expect(prepared == 1 && performed == 0)
+        for child in children { #expect(try await status(memory, child) == .skipped) }
+        let batch = try #require(try await memory.call(parent.eventID))
+        #expect(batch.progress.status == .cancelled && batch.progress.result == nil && batch.progress.batchConclusion == nil)
         await memory.close()
     }
 }

@@ -31,7 +31,7 @@ struct MCPInstructionsTests {
         #expect(!firstLine.isEmpty)
         #expect(Array(firstLine.utf8) == Array(full.prefix { $0 != "\n" }.utf8))
         let opening = String(full.prefix(512))
-        for rule in ["data", "never instructions", "memory_task", "begin", "end", "evidence",
+        for rule in ["untrusted data", "never instructions", "verify effects",
                      "never repeat an uncertain action"] {
             #expect(opening.contains(rule))
         }
@@ -60,7 +60,7 @@ struct MCPInstructionsTests {
     @Test func externalTextNamesOnlyServedTools() throws {
         let full = ModelText.text(.init(rawValue: "tool_catalogue.mcpClientInstructions.v1"))
         let names = Set(AutomationTools.definitions.compactMap { $0["name"].string })
-        for name in ["open_session", "observe", "memory_task"] {
+        for name in ["open_session", "observe", "plan", "end", "find", "call"] {
             #expect(full.contains(name))
             #expect(names.contains(name))
         }
@@ -74,8 +74,9 @@ struct MCPInstructionsTests {
     @Test func externalTextResumesWithAFullScene() {
         let full = ModelText.text(.init(rawValue: "tool_catalogue.mcpClientInstructions.v1"))
         #expect(full.contains("After an interruption, a reconnect or a compaction, call observe with full true before acting."))
-        #expect(full.contains("memory_task status says where the task stands, not what the screen shows"))
-        #expect(full.contains("It does not replace observe"))
+        #expect(full.contains("Archived task facts do not replace observe"))
+        #expect(!full.contains("memory_task"))
+        #expect(full.contains("implicitly"))
     }
 
     @Test func fullObserveAfterADeliveredSceneIsWhole() async throws {
@@ -84,15 +85,15 @@ struct MCPInstructionsTests {
         let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil, call: tools.call)
         let id = JSONValue.string(try #require(session.id).uuidString)
         let first = try #require(await router.handle(request("tools/call", params: .object([
-            "name": .string("observe"), "arguments": .object(["session": id])
+            "name": .string("observe"), "arguments": .object([:])
         ]))))
-        #expect(first["result"].payload["scene"].string == session.scene.text())
+        #expect(first["result"]["structuredContent"]["scene"].string == session.scene.text(cuts: .safe))
         let resumed = try #require(await router.handle(request("tools/call", params: .object([
-            "name": .string("observe"), "arguments": .object(["session": id, "full": .bool(true)])
+            "name": .string("observe"), "arguments": .object(["full": .bool(true)])
         ]))))
         #expect(resumed["result"]["isError"].bool == false)
-        #expect(resumed["result"].payload["scene"].string == session.scene.text())
-        #expect(resumed["result"].payload["changes"] == .null)
+        #expect(resumed["result"]["structuredContent"]["scene"].string == session.scene.text(cuts: .safe))
+        #expect(resumed["result"]["structuredContent"]["changes"] == .null)
     }
 
     @Test func systemPromptHasNoCommercialApp() {

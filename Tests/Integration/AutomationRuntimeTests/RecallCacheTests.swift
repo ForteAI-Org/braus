@@ -68,7 +68,7 @@ struct RecallCacheTests {
 
         // A reinterpretation supersedes the photo's first version: its entries leave, the second's come.
         let renamed = P.photoInterpretation(candidate).replacingOccurrences(of: "Confirm the export", with: "Save the exported image")
-        #expect(try await P.task(P.tools(session), renamed)["status"].string == "interpreted")
+        #expect(try await P.interpretFixture(P.tools(session), session, renamed)["status"].string == "interpreted")
         #expect(await service.waitUntilIdle(within: .seconds(60)))
         #expect(try await Self.same(service, memory, configuration), "after a superseded version")
         #expect(try await service.cachedEntries().allSatisfy { !$0.partID.hasPrefix(first + "/") }, "the superseded version is out")
@@ -78,7 +78,7 @@ struct RecallCacheTests {
         let format = "\(second)/step-5"
         _ = try await memory.perform { try await $0.procedures.setState(.retired, of: format, reason: "the pop-up moved", by: "test",
                                                                         at: memory.clock.calendarMS()) }
-        let begun = try await P.task(P.tools(session, stream: "before-the-worker"), RecallCycleTests.exportRequest)
+        let begun = try await HistoricalRecallFixture.beginQuery(P.tools(session, stream: "before-the-worker"), RecallCycleTests.exportRequest)
         let steps = begun["recall"]["needs"].array?.first?["selection"]["steps"].array?.compactMap { RecallCycleTests.int($0["step"]) } ?? []
         #expect(!steps.contains(6), "never delivered, whatever the cache still held: \(steps)")
         await service.schedule()

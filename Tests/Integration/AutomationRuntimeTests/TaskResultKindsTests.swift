@@ -81,7 +81,7 @@ struct TaskResultKindsTests {
             let tools = P.tools(session)
             let id = session.id!.uuidString
             _ = try await P.task(tools, #"""
-                {"operation":"begin","goal":"Rotate the document and save it in place","recall":false,
+                {"request":"Rotate the document and save it in place",
                  "inputs":[{"name":"document","value":"\#(document.path)","kind":"file","role":"the document to change"},
                            {"name":"original","value":"\#(original.path)","kind":"file","role":"a file to leave as it is"}]}
                 """#)
@@ -91,15 +91,15 @@ struct TaskResultKindsTests {
             try await Task.sleep(for: .milliseconds(20))
             try Data((changed ? "dopo" : "prima").utf8).write(to: document)
             let ended = try await P.task(tools, #"""
-                {"operation":"end","outcome":"completed","result_check":[{"file_changed":"\#(document.path)"},
+                {"outcome":"completed","result_check":[{"file_changed":"\#(document.path)"},
                  {"file_unchanged":"\#(original.path)"}]}
                 """#)
             #expect(ended["completion_evidence"]["checks"].string == (changed ? "passed" : "failed"))
             #expect(ended["completion_evidence"]["goal_match"].string == "not_assessed")
             let verdicts = ended["result_check"].array?.map { $0["verdict"].string ?? "" }
             #expect(verdicts == [changed ? "passed" : "failed", "passed", "passed"], "the folder's guard third: \(ended["result_check"])")
-            let candidate = try #require(ended["candidate"]["id"].string)
-            let interpreted = try await P.task(tools, #"""
+            let candidate = try await P.candidateIDFixture(tools, session)
+            let interpreted = try await ResultProducerFixture.interpret(tools, session, #"""
                 {"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"Mark up the document and save it","outcome":"completed"},
                  "steps":[{"step":1,"label":"Show the markup bar"}]}
                 """#)
@@ -123,20 +123,20 @@ struct TaskResultKindsTests {
             session.script["act|Search"] = LearningSession.Outcome(kind: .actedUnverified, check: Self.unknownEffect)
             let tools = P.tools(session)
             let id = session.id!.uuidString
-            _ = try await P.task(tools, #"{"operation":"begin","goal":"Turn off Show Preview in Finder","recall":false}"#)
+            _ = try await P.task(tools, #"{"request":"Turn off Show Preview in Finder"}"#)
             _ = try await P.call(tools, "open_session", #"{"app":"\#(P.finder)"}"#)
             _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Show Preview"}"#)
-            let checkpoint = try await P.task(tools, #"""
+            let checkpoint = try await ResultProducerFixture.checkpoint(tools, session, #"""
                 {"operation":"checkpoint","note":"switched","result_check":{"element":"Show Preview","state":"\#(expected)"}}
                 """#)
             #expect(checkpoint["result_check"].array?.first?["verdict"].string == (expected == "off" ? "passed" : "failed"),
                     "\(checkpoint)")
             _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Search"}"#)
-            let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
+            let ended = try await P.task(tools, #"{"outcome":"completed"}"#)
             #expect(ended["result_check"] == nil || ended["result_check"] == .null,
                     "the checkpoint read the result: nothing is missing at the end: \(ended)")
-            let candidate = try #require(ended["candidate"]["id"].string)
-            let interpreted = try await P.task(tools, #"""
+            let candidate = try await P.candidateIDFixture(tools, session)
+            let interpreted = try await ResultProducerFixture.interpret(tools, session, #"""
                 {"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"Turn off a Finder switch","outcome":"completed"},
                  "phases":[{"from":1,"to":1,"label":"Turn the switch off"},{"from":2,"to":2,"label":"Go back to the search"}],
                  "steps":[{"step":1,"label":"Turn off Show Preview"},{"step":2,"label":"Click the search field"}],
@@ -161,19 +161,19 @@ struct TaskResultKindsTests {
         _ = try await P.task(tools, ProcedureMethodTests.begin("foto_web"))
         try await ProcedureMethodTests.run(tools, session, name: "foto_web", mistakes: false)
         let file = try ProcedureMethodTests.written(directory, "foto_web")
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed","result_check":{"none":"nothing to read"}}"#)
+        let ended = try await P.task(tools, #"{"outcome":"completed","result_check":{"none":"nothing to read"}}"#)
         #expect(ended["result_check"].array?.first?["verdict"].string == "unknown", "\(ended)")
-        let candidate = try #require(ended["candidate"]["id"].string)
+        let candidate = try await P.candidateIDFixture(tools, session)
         var interpretation = ProcedureMethodTests.interpretation(candidate, mistakes: false)
         interpretation.removeLast()
         interpretation += #","result_check":{"file":"\#(file.path)"}}"#
-        let interpreted = try await P.task(tools, interpretation)
+        let interpreted = try await ResultProducerFixture.interpret(tools, session, interpretation)
         #expect(interpreted["result_check"].array?.first?["verdict"].string == "passed",
                 "a none is no reading: the file named now is read: \(interpreted)")
         await MemoryService.shared(for: directory).close()
     }
 
-    @Test("an end with no result check and a file output by its path checks that file; one named in interpret is read then")
+    @Test("an end reads an explicit written-file predicate; a later producer qualification can read a file too")
     func resultFromOutputsOrInterpretation() async throws {
         let directory = try W.directory()
         let session = ProcedureMethodTests.session(directory)
@@ -181,8 +181,15 @@ struct TaskResultKindsTests {
         _ = try await P.task(tools, ProcedureMethodTests.begin("foto_web"))
         try await ProcedureMethodTests.run(tools, session, name: "foto_web", mistakes: false)
         let file = try ProcedureMethodTests.written(directory, "foto_web")
+        let open = tools.openTask
+        let recordedBefore = try P.rows("SELECT count(*) FROM memory_task_events", in: session)
+        await #expect(throws: AutomationFailure.self) {
+            try await P.task(tools, #"{"outcome":"completed","outputs":[{"name":"exported","value":"\#(file.path)","kind":"file"}]}"#)
+        }
+        #expect(tools.openTask == open, "Schema rejection cannot close or revise the real plan")
+        #expect(try P.rows("SELECT count(*) FROM memory_task_events", in: session) == recordedBefore)
         let ended = try await P.task(tools, #"""
-            {"operation":"end","outcome":"completed","outputs":[{"name":"exported","value":"\#(file.path)","kind":"file"}]}
+            {"outcome":"completed","result_check":{"file_written":"\#(file.path)"}}
             """#)
         #expect(ended["result_check"].array?.first?["check"].string?.hasPrefix("file_written") == true, "\(ended)")
         #expect(ended["result_check"].array?.first?["verdict"].string == "passed")
@@ -194,12 +201,12 @@ struct TaskResultKindsTests {
         _ = try await P.task(worker, ProcedureMethodTests.begin("foto_web"))
         try await ProcedureMethodTests.run(worker, second, name: "foto_web", mistakes: false)
         let written = try ProcedureMethodTests.written(other, "foto_web")
-        let end = try await P.task(worker, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(end["candidate"]["id"].string)
+        let end = try await P.task(worker, #"{"outcome":"completed"}"#)
+        let candidate = try await P.candidateIDFixture(worker, second)
         var interpretation = ProcedureMethodTests.interpretation(candidate, mistakes: false)
         interpretation.removeLast()
         interpretation += #","result_check":{"file_written":"\#(written.path)"}}"#
-        let interpreted = try await P.task(worker, interpretation)
+        let interpreted = try await ResultProducerFixture.interpret(worker, second, interpretation)
         #expect(interpreted["result_check"].array?.first?["verdict"].string == "passed", "\(interpreted)")
         #expect((interpreted["parts"].array ?? []).allSatisfy { $0["admitted"].bool == true }, "\(interpreted)")
         await MemoryService.shared(for: other).close()
@@ -214,7 +221,7 @@ struct TaskResultKindsTests {
             let session = ProcedureMethodTests.session(directory)
             let tools = P.tools(session)
             _ = try await P.task(tools, #"""
-                {"operation":"begin","goal":"Rotate the open image and export it as foto_web.jpg in JPEG","recall":false,
+                {"request":"Rotate the open image and export it as foto_web.jpg in JPEG",
                  "inputs":[{"name":"output_name","value":"foto_web","role":"name of the exported file without extension"},
                            {"name":"photo","value":"\#(original.path)","kind":"file","role":"the photo to export"}]}
                 """#)
@@ -225,8 +232,8 @@ struct TaskResultKindsTests {
             #expect(checks.count == 2 && checks.last?["check"].string?.hasPrefix("file_unchanged") == true, "\(checks)")
             #expect(checks.last?["verdict"].string == (rewritten ? "failed" : "passed"), "\(checks)")
             #expect(checks.last?["guard"].string != nil, "Braus's guard says it is one")
-            let candidate = try #require(ended["candidate"]["id"].string)
-            let interpreted = try await P.task(tools, ProcedureMethodTests.interpretation(candidate, mistakes: false))
+            let candidate = try await P.candidateIDFixture(tools, session)
+            let interpreted = try await ResultProducerFixture.interpret(tools, session, ProcedureMethodTests.interpretation(candidate, mistakes: false))
             let procedure = (interpreted["parts"].array ?? []).first { $0["part"].string == "procedure" }
             #expect(procedure?["admitted"].bool == true, "a guard is shown, never what refuses the procedure: \(interpreted)")
             await MemoryService.shared(for: directory).close()
@@ -243,13 +250,13 @@ struct TaskResultKindsTests {
             let tools = P.tools(session)
             let id = session.id!.uuidString
             _ = try await P.task(tools, #"""
-                {"operation":"begin","goal":"Show the markup bar on the open document","recall":false,
+                {"request":"Show the markup bar on the open document",
                  "inputs":[{"name":"document","value":"\#(original.path)","kind":"file","role":"the open document"}]}
                 """#)
             _ = try await P.call(tools, "open_session", #"{"app":"\#(P.preview)"}"#)
             _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Markup"}"#)
             if saved { try Data("salvato da solo".utf8).write(to: original) }
-            let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed","result_check":{"none":"the bar is shown only"}}"#)
+            let ended = try await P.task(tools, #"{"outcome":"completed","result_check":{"none":"the bar is shown only"}}"#)
             let guards = (ended["result_check"].array ?? []).filter { $0["guard"] != nil && $0["guard"] != .null }
             #expect(guards.count == 1 && guards.first?["check"].string?.hasPrefix("file_unchanged") == true, "\(ended["result_check"])")
             #expect(guards.first?["verdict"].string == (saved ? "failed" : "passed"), "\(guards)")
@@ -262,8 +269,8 @@ struct TaskResultKindsTests {
             #expect(before.first?.guardsFailed == (saved ? 1 : 0), "a changed input no check names is counted")
             if saved {
                 // The change was the task's own: named at the interpretation, it explains the guard.
-                let interpreted = try await P.task(tools, #"""
-                    {"operation":"interpret","candidate":"\#(try #require(ended["candidate"]["id"].string))",
+                let interpreted = try await ResultProducerFixture.interpret(tools, session, #"""
+                    {"operation":"interpret","candidate":"\#(try await P.candidateIDFixture(tools, session))",
                      "procedure":{"label":"Show the markup bar","outcome":"completed"},"steps":[{"step":1,"label":"Show the markup bar"}],
                      "result_check":{"file_changed":"\#(original.path)"}}
                     """#)
@@ -277,21 +284,23 @@ struct TaskResultKindsTests {
         }
     }
 
-    @Test("an end whose use names no query is recorded: the use is answered as not recorded, the task ends and its candidate is built")
+    @Test("an invalid typed use report is refused independently, and the real task still ends with its candidate")
     func aBadUseDoesNotKeepTheTaskOpen() async throws {
         let directory = try W.directory()
         let session = ProcedureMethodTests.session(directory)
         let tools = P.tools(session)
         _ = try await P.task(tools, ProcedureMethodTests.begin("foto_web"))
         try await ProcedureMethodTests.run(tools, session, name: "foto_web", mistakes: false)
-        let ended = try await P.task(tools, #"""
-            {"operation":"end","outcome":"completed","use":[{"query":"no-such-query","need":1,"outcome":"followed"}]}
-            """#)
+        let current = try #require(tools.openTask)
+        let memory = MemoryService.shared(for: directory)
+        await #expect(throws: RecallUseError.self) {
+            try await RecallService.shared(for: memory).report(queryID: "no-such-query", attemptID: current.attemptID,
+                needPosition: 0, declared: "followed", cause: nil, note: nil)
+        }
+        let ended = try await P.task(tools, #"{"outcome":"completed"}"#)
         #expect(ended["status"].string == "ended", "\(ended)")
-        #expect(ended["use_not_recorded"].array?.count == 1, "\(ended)")
-        #expect(ended["candidate"]["id"].string != nil, "\(ended)")
-        let status = try await P.task(tools, #"{"operation":"status"}"#)
-        #expect(status["status"].string == "no open task", "\(status)")
+        #expect(try await P.candidateIDFixture(tools, session).isEmpty == false)
+        #expect(tools.openTask == nil)
         await MemoryService.shared(for: directory).close()
     }
 
@@ -306,7 +315,7 @@ struct TaskResultKindsTests {
         let tools = P.tools(session)
         let id = session.id!.uuidString
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Mark up the image and save it in place","recall":false,
+            {"request":"Mark up the image and save it in place",
              "inputs":[{"name":"file","value":"\#(document.path)","kind":"file","role":"the image"}]}
             """#)
         _ = try await P.call(tools, "open_session", #"{"app":"\#(P.preview)"}"#)
@@ -315,7 +324,7 @@ struct TaskResultKindsTests {
         try Data("dopo".utf8).write(to: document)
         try Data("rtf".utf8).write(to: folder.appendingPathComponent("lavoro_A.png.rtf"))
         let ended = try await P.task(tools, #"""
-            {"operation":"end","outcome":"completed","result_check":{"element":"Salvato: \#(document.path)","present":true}}
+            {"outcome":"completed","result_check":{"element":"Salvato: \#(document.path)","present":true}}
             """#)
         let checks = (ended["result_check"].array ?? []).map { ($0["check"].string ?? "").split(separator: " ").first.map(String.init) ?? "" }
         let verdicts = (ended["result_check"].array ?? []).map { $0["verdict"].string ?? "" }
@@ -332,10 +341,15 @@ struct TaskResultKindsTests {
         let session = ProcedureMethodTests.session(directory)
         let tools = P.tools(session)
         _ = try await P.task(tools, ProcedureMethodTests.begin("foto_web"))
-        let relative = try await P.task(tools, #"{"operation":"end","outcome":"completed","result_check":{"file_written":"foto.png"}}"#)
+        let relative = try await P.task(tools, #"{"outcome":"completed","result_check":{"file_written":"foto.png"}}"#)
         #expect(relative["error"].string == "invalid_task", "\(relative)")
-        let unknown = try await P.task(tools, #"{"operation":"end","outcome":"completed","result_check":{"folder":"/tmp"}}"#)
-        #expect(unknown["error"].string == "invalid_task", "\(unknown)")
+        let open = tools.openTask
+        let recordedBefore = try P.rows("SELECT count(*) FROM memory_task_events", in: session)
+        await #expect(throws: AutomationFailure.self) {
+            try await P.task(tools, #"{"outcome":"completed","result_check":{"folder":"/tmp"}}"#)
+        }
+        #expect(tools.openTask == open)
+        #expect(try P.rows("SELECT count(*) FROM memory_task_events", in: session) == recordedBefore)
         await MemoryService.shared(for: directory).close()
     }
 }
@@ -472,9 +486,9 @@ struct ProcedureResultTemplateTests {
         let session = ProcedureMethodTests.session(directory)
         let memory = MemoryService.shared(for: directory)
         RecallService.install(RecallService(memory: memory, configuration: RecallLifecycleTests.configuration()))
-        let learner = P.tools(session, stream: "learner")
+        let learner = P.tools(session, stream: "learner", profile: SessionProfile.app.replacing(memory: .learn))
         _ = try await P.task(learner, #"""
-            {"operation":"begin","goal":"Rotate the open image and export it as foto_web.jpg in JPEG","recall":false,
+            {"request":"Rotate the open image and export it as foto_web.jpg in JPEG",
              "inputs":[{"name":"output_name","value":"foto_web","role":"name of the exported file without extension"},
                        {"name":"output_folder","value":"\#(folder.path)","kind":"folder","role":"folder of the exported file"}]}
             """#)
@@ -482,12 +496,12 @@ struct ProcedureResultTemplateTests {
         let written = folder.appendingPathComponent("foto_web.jpg")
         try Data("jpeg".utf8).write(to: written)
         let ended = try await P.task(learner, ProcedureMethodTests.end(result: written))
-        let candidate = try #require(ended["candidate"]["id"].string)
+        let candidate = try await P.candidateIDFixture(learner, session)
         var interpretation = ProcedureMethodTests.interpretation(candidate, mistakes: false)
         interpretation = interpretation.replacingOccurrences(
             of: #""parameters":[{"name":"output_name","role":"name of the exported file","kind":"text"}]"#,
             with: #""parameters":[{"name":"output_name","role":"name of the exported file","kind":"text"},{"name":"output_folder","role":"folder of the exported file","kind":"folder"}]"#)
-        let interpreted = try await P.task(learner, interpretation)
+        let interpreted = try await ResultProducerFixture.interpret(learner, session, interpretation)
         let routeID = try #require(interpreted["version"].string, "\(interpreted)")
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
 
@@ -496,25 +510,27 @@ struct ProcedureResultTemplateTests {
         #expect(source.results.map(\.atEnd) == [true])
         #expect(source.resultVerdict == .passed)
 
-        let chooser = P.tools(session, stream: "chooser")
-        let begun = try await P.task(chooser, #"""
-            {"operation":"begin","goal":"Rotate the open image and export it as foto_mail.jpg in JPEG",
+        let chooser = P.tools(session, stream: "chooser", profile: SessionProfile.app.replacing(memory: .learn))
+        let planArguments = #"""
+            {"request":"Rotate the open image and export it as foto_mail.jpg in JPEG",
              "inputs":[{"name":"output_name","value":"foto_mail","role":"name of the exported file without extension"},
                        {"name":"output_folder","value":"\#(folder.path)","kind":"folder","role":"folder of the exported file"}]}
-            """#)
-        let offered = try #require(begun["recall_proposal"]["sources"].array?.first { $0["version"].string == routeID }, "\(begun)")
+            """#
+        _ = try await P.task(chooser, planArguments)
+        let begun = try await ResultProducerFixture.propose(chooser, planArguments)
+        let offered = try #require(begun["sources"].array?.first { $0["version"].string == routeID }, "\(begun)")
         #expect(offered["result"].array?.compactMap(\.string) == ["at the end: file_written {output_folder}/{output_name}.jpg"], "\(offered)")
         #expect(offered["evidence"].string?.contains("result checked by Braus") == true, "\(offered)")
         let key = try #require(offered["source"].string)
-        let proposal = try #require(begun["recall_proposal"]["proposal"].string)
-        #expect(begun["recall_proposal"]["needs"].array?.first?["readyPlan"].string?.contains(#""source":"\#(key)""#) == true,
-                "the need carries the plan item that chooses the first source: \(begun["recall_proposal"]["needs"])")
+        let proposal = try #require(begun["proposal"].string)
+        #expect(begun["needs"].array?.first?["readyPlan"].string?.contains(#""source":"\#(key)""#) == true,
+                "the need carries the plan item that chooses the first source: \(begun["needs"])")
         // The plan declares the need covered as the suggestion covers it: a partial suggestion is no whole need.
-        if let need = begun["recall_proposal"]["needs"].array?.first, let suggested = need["suggested"].string,
+        if let need = begun["needs"].array?.first, let suggested = need["suggested"].string,
            let plan = need["readyPlan"].string {
             #expect(plan.contains(suggested.hasSuffix("(complete)") ? #""covered":"all""# : #""covered":"part""#), "\(need)")
         }
-        let chosen = try await P.task(chooser, RecallChoiceToolTests.choose(proposal, [(key, 1, 5)]))
+        let chosen = try await HistoricalRecallFixture.choose(chooser, RecallChoiceToolTests.choose(proposal, [(key, 1, 5)]))
         let tract = chosen["recall"]["needs"].array?.first?["tracts"].array?.first
         #expect(tract?["resultCheck"].array?.compactMap(\.string) == ["at the end: file_written \(folder.path)/foto_mail.jpg"], "\(chosen)")
         await RecallLifecycleTests.close(session)
@@ -527,27 +543,31 @@ struct ProcedureResultTemplateTests {
         let session = ProcedureMethodTests.session(directory, unknownMarkup: true)
         let memory = MemoryService.shared(for: directory)
         RecallService.install(RecallService(memory: memory, configuration: RecallLifecycleTests.configuration()))
-        let learner = P.tools(session, stream: "learner")
+        let learner = P.tools(session, stream: "learner", profile: SessionProfile.app.replacing(memory: .learn))
         _ = try await P.task(learner, ProcedureMethodTests.begin("foto_web"))
         try await ProcedureMethodTests.run(learner, session, name: "foto_web", mistakes: false)
         let ended = try await P.task(learner, ProcedureMethodTests.end(result: try ProcedureMethodTests.written(directory, "foto_web")))
-        let interpreted = try await P.task(learner, ProcedureMethodTests.interpretation(try #require(ended["candidate"]["id"].string),
+        let interpreted = try await ResultProducerFixture.interpret(learner, session, ProcedureMethodTests.interpretation(try await P.candidateIDFixture(learner, session),
                                                                                          mistakes: false))
         let source = try #require(interpreted["version"].string, "\(interpreted)")
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
 
         // The second run chooses the learned source and then adds a step of its own after the export.
-        let adapter = P.tools(session, stream: "adapter")
-        let begun = try await P.task(adapter, #"""
-            {"operation":"begin","goal":"Rotate the open image and export it as foto_mail.jpg in JPEG, then show the markup bar",
+        let adapter = P.tools(session, stream: "adapter", profile: SessionProfile.app.replacing(memory: .learn))
+        let planArguments = #"""
+            {"request":"Rotate the open image and export it as foto_mail.jpg in JPEG, then show the markup bar",
              "inputs":[{"name":"output_name","value":"foto_mail","role":"name of the exported file without extension"}]}
-            """#)
-        let offered = try #require(begun["recall_proposal"]["sources"].array?.first { $0["version"].string == source }, "\(begun)")
-        let proposal = try #require(begun["recall_proposal"]["proposal"].string)
-        _ = try await P.task(adapter, RecallChoiceToolTests.choose(proposal, [(try #require(offered["source"].string), 1, 5)]))
+            """#
+        _ = try await P.task(adapter, planArguments)
+        // Query the reusable prefix explicitly; the extra markup work is this run's adaptation, not a ranking fixture.
+        let begun = try await ResultProducerFixture.propose(adapter, planArguments,
+            remaining: "Rotate the open image and export it as foto_mail.jpg in JPEG")
+        let offered = try #require(begun["sources"].array?.first { $0["version"].string == source }, "\(begun)")
+        let proposal = try #require(begun["proposal"].string)
+        _ = try await HistoricalRecallFixture.choose(adapter, RecallChoiceToolTests.choose(proposal, [(try #require(offered["source"].string), 1, 5)]))
         try await ProcedureMethodTests.run(adapter, session, name: "foto_mail", mistakes: false, unknownStep: true)
         let adapted = try await P.task(adapter, ProcedureMethodTests.end(result: try ProcedureMethodTests.written(directory, "foto_mail")))
-        let second = try await P.task(adapter, ProcedureMethodTests.interpretation(try #require(adapted["candidate"]["id"].string),
+        let second = try await ResultProducerFixture.interpret(adapter, session, ProcedureMethodTests.interpretation(try await P.candidateIDFixture(adapter, session),
                                                                                    mistakes: false, markup: true))
         let variant = try #require(second["version"].string, "\(second)")
         #expect(second["repeats"] == nil || second["repeats"] == .null, "another method is no repeat: \(second)")
@@ -564,22 +584,24 @@ struct ProcedureResultTemplateTests {
         let session = ProcedureMethodTests.session(directory)
         let memory = MemoryService.shared(for: directory)
         RecallService.install(RecallService(memory: memory, configuration: RecallLifecycleTests.configuration()))
-        let learner = P.tools(session, stream: "learner")
+        let learner = P.tools(session, stream: "learner", profile: SessionProfile.app.replacing(memory: .learn))
         _ = try await P.task(learner, ProcedureMethodTests.begin("foto_web"))
         try await ProcedureMethodTests.run(learner, session, name: "foto_web", mistakes: false)
         let first = try await P.task(learner, ProcedureMethodTests.end(result: try ProcedureMethodTests.written(directory, "foto_web")))
-        let firstCandidate = try #require(first["candidate"]["id"].string)
-        let firstInterpreted = try await P.task(learner, ProcedureMethodTests.interpretation(firstCandidate, mistakes: false))
+        let firstCandidate = try await P.candidateIDFixture(learner, session)
+        let firstInterpreted = try await ResultProducerFixture.interpret(learner, session, ProcedureMethodTests.interpretation(firstCandidate, mistakes: false))
         let firstVersion = try #require(firstInterpreted["version"].string)
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
 
-        let follower = P.tools(session, stream: "follower")
-        let begun = try await P.task(follower, ProcedureMethodTests.begin("foto_mail").replacingOccurrences(of: #""recall":false,"#, with: ""))
-        #expect(begun["recall_proposal"]["sources"].array?.contains { $0["version"].string == firstVersion } == true, "\(begun)")
+        let follower = P.tools(session, stream: "follower", profile: SessionProfile.app.replacing(memory: .learn))
+        let followRequest = ProcedureMethodTests.begin("foto_mail")
+        _ = try await P.task(follower, followRequest)
+        let begun = try await ResultProducerFixture.propose(follower, followRequest)
+        #expect(begun["sources"].array?.contains { $0["version"].string == firstVersion } == true, "\(begun)")
         try await ProcedureMethodTests.run(follower, session, name: "foto_mail", mistakes: false)
         let second = try await P.task(follower, ProcedureMethodTests.end(result: try ProcedureMethodTests.written(directory, "foto_mail")))
-        let secondCandidate = try #require(second["candidate"]["id"].string)
-        let interpreted = try await P.task(follower, ProcedureMethodTests.interpretation(secondCandidate, mistakes: false))
+        let secondCandidate = try await P.candidateIDFixture(follower, session)
+        let interpreted = try await ResultProducerFixture.interpret(follower, session, ProcedureMethodTests.interpretation(secondCandidate, mistakes: false))
         #expect(interpreted["repeats"].string == firstVersion, "\(interpreted)")
         #expect(interpreted["reuse"].string?.contains("without choosing it") == true, "\(interpreted)")
         await RecallLifecycleTests.close(session)
@@ -594,14 +616,14 @@ struct ProcedureResultTemplateTests {
         session.script["act|Show Preview"] = LearningSession.Outcome(kind: .actedUnverified, check: TaskResultKindsTests.unknownEffect, next: off)
         let tools = P.tools(session)
         let id = session.id!.uuidString
-        _ = try await P.task(tools, #"{"operation":"begin","goal":"Turn off Show Preview in Finder","recall":false}"#)
+        _ = try await P.task(tools, #"{"request":"Turn off Show Preview in Finder"}"#)
         _ = try await P.call(tools, "open_session", #"{"app":"\#(P.finder)"}"#)
         _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Show Preview"}"#)
-        _ = try await P.task(tools, #"{"operation":"checkpoint","note":"off","result_check":{"element":"Show Preview","state":"off"}}"#)
+        _ = try await ResultProducerFixture.checkpoint(tools, session, #"{"operation":"checkpoint","note":"off","result_check":{"element":"Show Preview","state":"off"}}"#)
         _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Search"}"#)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed","result_check":{"none":"the window shows the switch only"}}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
-        let interpreted = try await P.task(tools, #"""
+        let ended = try await P.task(tools, #"{"outcome":"completed","result_check":{"none":"the window shows the switch only"}}"#)
+        let candidate = try await P.candidateIDFixture(tools, session)
+        let interpreted = try await ResultProducerFixture.interpret(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"Turn off a Finder switch","outcome":"completed"},
              "steps":[{"step":1,"label":"Turn off Show Preview"},{"step":2,"label":"Click the search field"}]}
             """#)
@@ -611,5 +633,64 @@ struct ProcedureResultTemplateTests {
         #expect(source.results.map(\.afterStep) == [0] && source.results.map(\.atEnd) == [false], "\(source.results)")
         #expect(source.results.first?.line().hasPrefix("after step 1, at a checkpoint") == true)
         await memory.close()
+    }
+}
+
+/// Producer-result fixtures preserve lower-level qualification checks that the model no longer calls.
+/// Task actions and terminal closure above still use the current plan/step/end API.
+@MainActor
+private enum ResultProducerFixture {
+    typealias P = ProcedureLearningTests
+
+    static func checked(_ tools: AutomationTools, _ session: LearningSession,
+                        _ checks: [MemoryTaskTool.ResultCheck], attemptID: String) async throws -> JSONValue {
+        let secrets = ProducerSecrets()
+        let sceneText = SceneTextPolicy()
+        let formatter = ResultFormatter(session: session, secrets: secrets, sceneText: sceneText)
+        let handler = TaskCycleHandler(session: session, secrets: secrets, formatter: formatter)
+        return await handler.check(checks, attemptID: attemptID, producer: try P.fixtureProducer(tools),
+            memory: MemoryService.shared(for: session.directory))
+    }
+
+    static func checkpoint(_ tools: AutomationTools, _ session: LearningSession, _ text: String) async throws -> JSONValue {
+        guard let task = tools.openTask,
+              case .checkpoint(_, _, _, let checks) = try MemoryTaskTool.decode(P.json(text),
+                minimization: ValueMinimization(), messageRef: nil) else { throw P.FixtureFailure("Expected a result checkpoint") }
+        let result = try await checked(tools, session, checks, attemptID: task.attemptID)
+        var answer = try await P.checkpointFixture(tools, session, text).object ?? [:]
+        if !checks.isEmpty { answer["result_check"] = result }
+        return .object(answer)
+    }
+
+    static func interpret(_ tools: AutomationTools, _ session: LearningSession, _ text: String) async throws -> JSONValue {
+        guard case .interpret(let interpretation, _, let checks) = try MemoryTaskTool.decode(P.json(text),
+            minimization: ValueMinimization(), messageRef: nil) else { throw P.FixtureFailure("Expected a result interpretation") }
+        let memory = MemoryService.shared(for: session.directory)
+        let candidate = try #require(try await memory.perform { try await $0.procedures.candidate(interpretation.candidateID) })
+        let existing = try await memory.perform { try await $0.procedures.results(ofAttempt: candidate.attemptID) }
+        let alreadyRead = !existing.isEmpty && existing.contains { $0.expectation.kind != "none" }
+        let onlyNone = !checks.isEmpty && checks.allSatisfy { $0.read.kind == "none" }
+        let result: JSONValue
+        if onlyNone && alreadyRead { result = .object(["status": .string("already checked")]) }
+        else { result = try await checked(tools, session, checks, attemptID: candidate.attemptID) }
+        var answer = try await P.interpretFixture(tools, session, text).object ?? [:]
+        if !checks.isEmpty { answer["result_check"] = result }
+        return .object(answer)
+    }
+
+    /// Inspects a service proposal for an already open real plan, independently of its rendered memory text.
+    static func propose(_ tools: AutomationTools, _ planText: String, remaining: String? = nil) async throws -> JSONValue {
+        let fields = P.json(planText)
+        var request: [String: JSONValue] = ["operation": .string("begin"), "goal": fields["request"]]
+        if fields["inputs"] != .null { request["inputs"] = fields["inputs"] }
+        guard let task = tools.openTask,
+              case .begin(let content, _, _) = try MemoryTaskTool.decode(.object(request),
+                minimization: ValueMinimization(), messageRef: nil),
+              let directory = tools.session.memoryDirectory else { throw P.FixtureFailure("Expected a real open plan") }
+        let query = try RecallRequest(taskID: task.taskID, attemptID: task.attemptID, revision: task.revision,
+            reason: .initial, remainingWork: remaining ?? content.goal, values: content.inputs, constraints: content.constraints)
+        let answer = try await RecallService.shared(for: MemoryService.shared(for: directory)).propose(query,
+            producer: P.fixtureProducer(tools), access: .readLearn, availableChannels: HistoricalRecallFixture.nativeChannels)
+        return try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(answer.delivery))
     }
 }

@@ -7,7 +7,7 @@ import Testing
 
 @MainActor
 struct StoppedTaskNoticeTests {
-    @Test func factsDoNotConsumeTheLegacyNoticeAndV2HasNoIdentity() async throws {
+    @Test func factsDoNotConsumeTheStoppedNoticeAndModelHasNoIdentity() async throws {
         let directory = URL.temporaryDirectory.appending(path: "seat-notice-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { do { try FileManager.default.removeItem(at: directory) } catch { Issue.record(error) } }
@@ -15,26 +15,30 @@ struct StoppedTaskNoticeTests {
         session.memoryDirectory = directory
         session.memoryApplication = "test.synthetic"
         let tools = AutomationTools(session: session)
-        _ = try await tools.call("memory_task", .object([
-            "operation": .string("begin"), "goal": .string("Set a track"), "recall": .bool(false)
-        ]))
+        _ = try await tools.call("plan", .object(["request": .string("Set a track"),
+            "rows": .array([.object(["title": .string("Set a track")])])]))
         let taskID = try #require(tools.openTask).taskID
-        #expect(await tools.taskFacts(for: "test.synthetic") == SeatTaskFacts(isOpen: true))
+        let open = await tools.taskFacts(for: "test.synthetic")
+        #expect(open == SeatTaskFacts(isOpen: true, learnedForApp: 0))
         tools.markTaskInterrupted()
         try await tools.finishInterruptedTask()
-        #expect(await tools.taskFacts(for: "test.synthetic") == SeatTaskFacts())
+        let stopped = await tools.taskFacts(for: "test.synthetic")
+        #expect(stopped == SeatTaskFacts(learnedForApp: 0))
         enum RenderFailure: Error { case insufficientBudget }
         #expect(throws: RenderFailure.insufficientBudget) {
             try tools.withStoppedTaskNotice { _ -> String? in throw RenderFailure.insufficientBudget }
         }
-        let legacy = try #require(tools.withStoppedTaskNotice { $0 })
-        #expect(legacy == "Braus stopped task \(taskID) and closed its attempt as abandoned, not completed. "
-            + "Begin a new task for the current request, including any remaining work toward the same goal. "
-            + "The abandoned task cannot be resumed. Observe current effects first; never repeat an uncertain action.")
+        let notice = try #require(tools.withStoppedTaskNotice { $0 })
+        #expect(notice == "Braus stopped the previous task and closed it as abandoned, not completed. "
+            + "Plan the current request as a new task; plan's answer lists the rows of the stopped task that were done and verified. "
+            + "Observe current effects first; never repeat an uncertain action.")
+        #expect(!notice.contains(taskID))
         let current = ModelText.text(.init(rawValue: "seat_line.stopped.v2"))
         #expect(current == "The previous task was stopped by the person and closed as abandoned. "
             + "Begin a new task for this request. Observe current effects first; never repeat an uncertain action.")
         #expect(!current.contains(taskID))
         #expect(tools.takeStoppedTaskNotice() == nil)
+        await MemoryService.shared(for: directory).close()
+        MemoryService.forget(directory)
     }
 }

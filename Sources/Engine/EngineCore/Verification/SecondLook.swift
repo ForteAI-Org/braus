@@ -1,17 +1,9 @@
 import Foundation
-import Switches
 
 /// SecondLook permits one additional reading of an unknown effect, never another delivery.
 public enum SecondLook: Equatable, Sendable {
     case wait
     case readOnly
-
-    private enum Arm: String, Sendable { case off, on }
-
-    /// Whether second readings are enabled for this call. The historical behavior is the default.
-    public static var isEnabled: Bool {
-        SwitchBoard.current.arm("second_look", default: Arm.off) == .on
-    }
 
     /// Selects a reading only for a sent gesture whose effect is still unknown.
     public static func mode(for check: OperationCheck?, alreadyLooked: Bool) -> SecondLook? {

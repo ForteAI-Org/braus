@@ -1,3 +1,4 @@
+import LocalMCP
 import Foundation
 import ModelTransports
 import Testing
@@ -14,7 +15,7 @@ import Turn
         let usage = ModelUsage(inputTokens: 100, outputTokens: 80, duration: .zero,
             cacheReadTokens: 900, cacheWriteTokens: 200, cacheWriteHourTokens: 50, reasoningTokens: 30)
         let transport = TurnTestTransport([
-            [.toolCall(.init(id: "read", name: "status", arguments: Data("{}".utf8))), .completed(usage)],
+            [.toolCall(.init(id: "read", name: "observe", arguments: Data("{}".utf8))), .completed(usage)],
             [.completed(usage)]
         ])
         let result = try await runner.run(.init(prompt: "Hello", route: .modelLoop(transport: transport, contextWindow: nil))) { _ in }

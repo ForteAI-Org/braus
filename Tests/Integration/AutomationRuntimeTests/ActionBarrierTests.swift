@@ -1,7 +1,6 @@
 import AutomationRuntime
 import LocalMCP
 import Testing
-import Switches
 
 @MainActor
 @Suite("A refusal stops other actions in its context")
@@ -15,7 +14,7 @@ struct ActionBarrierTests {
         #expect(barrier.refusal(of: "act", .object([:])) != nil)
         #expect(barrier.refusal(of: "app_call", arguments) == nil)
         #expect(barrier.refusal(of: "app_call", .object(["verb": .string("delete")])) != nil)
-        for tool in ["status", "close_session", "memory_task"] {
+        for tool in ["status", "close_session", "plan", "end"] {
             #expect(barrier.refusal(of: tool, .object([:])) == nil)
         }
     }
@@ -44,11 +43,9 @@ struct ActionBarrierTests {
 
 extension ActionBarrierTests {
     @Test func refusalCannotBeReportedAsCompleted() {
-        SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2"])) {
-            let barrier = ActionBarrier()
-            barrier.note(.refusedByPerson(.null), of: "act", .object([:]))
-            #expect(barrier.refusal(of: "end", .object(["outcome": .string("completed")])) != nil)
-            #expect(barrier.refusal(of: "end", .object(["outcome": .string("abandoned")])) == nil)
-        }
+        let barrier = ActionBarrier()
+        barrier.note(.refusedByPerson(.null), of: "act", .object([:]))
+        #expect(barrier.refusal(of: "end", .object(["outcome": .string("completed")])) != nil)
+        #expect(barrier.refusal(of: "end", .object(["outcome": .string("abandoned")])) == nil)
     }
 }

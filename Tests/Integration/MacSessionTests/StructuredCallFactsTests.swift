@@ -69,16 +69,24 @@ struct StructuredCallFactsTests {
         return (try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))) ?? .null
     }
 
+    static func plan(_ tools: AutomationTools, request: String) async throws {
+        let result = try await tools.call("plan", .object([
+            "request": .string(request),
+            "rows": .array([.object(["title": .string(request)])])
+        ]))
+        try #require(result["isError"] != .bool(true), "\(result)")
+        try #require(tools.openTask != nil)
+    }
+
     /// One run: a task, a note created and appended to by the identifier it was given, and the task ended.
     func run(_ tools: AutomationTools, _ adapter: NotesFake, title: String) async throws -> (create: JSONValue, append: JSONValue) {
-        _ = try await tools.call("memory_task", .object(["operation": .string("begin"), "goal": .string("Note a title"),
-                                                         "remaining": .string("Note a title")]))
-        let created = try await tools.call("app_call", .object(["app": .string("Notes"), "verb": .string("create_note"),
-                                                                "arguments": .object(["title": .string(title)])]))
+        try await Self.plan(tools, request: "Note a title")
+        let created = try await tools.call("call", .object(["name": .string("notes.create_note"),
+                                                                "arguments": .object(["step": .string("r1"), "title": .string(title)])]))
         let id = try #require(Self.answered(created)["result"]["id"].string)
-        let appended = try await tools.call("app_call", .object(["app": .string("Notes"), "verb": .string("append_to_note"),
-                                                                 "arguments": .object(["id": .string(id), "text": .string("more")])]))
-        _ = try await tools.call("memory_task", .object(["operation": .string("end"), "outcome": .string("completed")]))
+        let appended = try await tools.call("call", .object(["name": .string("notes.append_to_note"),
+                                                                 "arguments": .object(["step": .string("r1"), "id": .string(id), "text": .string("more")])]))
+        _ = try await tools.call("end", .object(["outcome": .string("completed")]))
         return (Self.answered(created), Self.answered(appended))
     }
 
@@ -87,9 +95,8 @@ struct StructuredCallFactsTests {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let session = CallDispatchRecordTests.RouteFake(.desktop, memory: knowledge)
-        let tools = AutomationTools(session: session)
         let adapter = NotesFake()
-        tools.adapters = AppAdapters([adapter])
+        let tools = AutomationTools(session: session, adapters: AppAdapters([adapter]))
         tools.producer = CallProducer(source: .app, streamID: "p202", traceID: "fields")
         let first = try await run(tools, adapter, title: "SYNTH-TITLE-ONE")
         let second = try await run(tools, adapter, title: "SYNTH-TITLE-TWO")
@@ -99,8 +106,9 @@ struct StructuredCallFactsTests {
         let evidence = first.append["evidence"]
         #expect(evidence["command"] == .string("accepted"), "\(first.append)")
         #expect(evidence["effect"]["condition"] == .string("adapter_effect") && evidence["effect"]["verdict"] == .string("passed")
-                && evidence["effect"]["method"] == .string("adapter_read_back") && evidence["effect"]["version"] == .string("adapter-oracle-1"),
+                && evidence["effect"]["method"] == .string("adapter_read_back"),
                 "\(evidence)")
+        #expect(evidence["effect"]["version"] == .null, "The public receipt carries the current check, not implementation versions")
 
         let memory = MemoryService.shared(for: knowledge)
         _ = await memory.flush(within: .seconds(5))
@@ -141,23 +149,24 @@ struct StructuredCallFactsTests {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let session = CallDispatchRecordTests.RouteFake(.desktop, memory: knowledge)
-        let tools = AutomationTools(session: session)
-        tools.adapters = AppAdapters([NotesFake()])
+        let tools = AutomationTools(session: session, adapters: AppAdapters([NotesFake()]))
         tools.producer = CallProducer(source: .app, streamID: "p205", traceID: "account")
+        try await Self.plan(tools, request: "Send synthetic copies")
         let account = "synth.owner@example.invalid"
-        let named = try await tools.call("app_call", .object(["app": .string("Notes"), "verb": .string("send_copy"),
-                                                              "arguments": .object(["id": .string("n1"), "from": .string(account)])]))
-        _ = try await tools.call("app_call", .object(["app": .string("Notes"), "verb": .string("send_copy"),
-                                                      "arguments": .object(["id": .string("n2")])]))
+        let named = try await tools.call("call", .object(["name": .string("notes.send_copy"),
+                                                              "arguments": .object(["step": .string("r1"), "id": .string("n1"), "from": .string(account)])]))
+        _ = try await tools.call("call", .object(["name": .string("notes.send_copy"),
+                                                      "arguments": .object(["step": .string("r1"), "id": .string("n2")])]))
         #expect(Self.answered(named)["evidence"]["command"] == .string("uncertain"))
         let memory = MemoryService.shared(for: knowledge)
         _ = await memory.flush(within: .seconds(5))
-        let calls = try await memory.calls(inTrace: "account")
+        let calls = try await memory.calls(inTrace: "account").filter { $0.request.tool == .appCall }
         let contexts = try await calls.asyncMap { call in try await memory.perform { try await $0.facts.dataContext(of: call.event.eventID) } }
         #expect(contexts[0]?.accountSource == .argument && contexts[0]?.accountRef?.count == 16, "\(String(describing: contexts[0]))")
         #expect(contexts[1]?.accountSource == .default && contexts[1]?.accountRef == nil, "\(String(describing: contexts[1]))")
         let effect = try await memory.perform { try await $0.facts.effect(of: calls[0].event.eventID) }
         #expect(effect?.performed == .uncertain, "an unverified change may have happened")
+        _ = try await tools.call("end", .object(["outcome": .string("completed")]))
         await MemoryService.closeAll()
         let bytes = try FileManager.default.contentsOfDirectory(atPath: knowledge.path).filter { $0.hasPrefix("memory.sqlite") }
             .map { String(decoding: try Data(contentsOf: knowledge.appendingPathComponent($0)), as: UTF8.self) }.joined()

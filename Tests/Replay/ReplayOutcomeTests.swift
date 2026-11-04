@@ -1,7 +1,6 @@
 import EngineCore
 import Foundation
 import LocalMCP
-import Switches
 import Testing
 @testable import AutomationMCP
 
@@ -9,29 +8,21 @@ import Testing
 struct ReplayOutcomeTests {
     @Test(arguments: try ReplayCorpus.load().filter { $0.input != nil })
     func boundedModelAnswer(_ item: ReplayCase) async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["outcome": "v2"])) {
+        do {
             let input = try #require(item.input)
-            let session = ReplaySession()
-            session.id = input.session
-            let secrets = ProducerSecrets()
-            let sceneText = SceneTextPolicy()
-            let formatter = ResultFormatter(session: session, secrets: secrets, sceneText: sceneText)
-            defer { withExtendedLifetime((secrets, sceneText)) {} }
-            var answer = JSONValue.null
-            for value in input.prefix + [input.outcome] {
-                session.observedWindowNumber = value.windowNumber
-                answer = await formatter.outcome(try value.converted())
-            }
-            let result = try formatter.finish(item.tool, answer, notice: nil, output: CallOutput())
+            let result = try await regenerateModelAnswer(input, tool: item.tool)
             let text = try #require(result["content"].array?.first?["text"].string)
             let lines = text.split(separator: "\n")
-            let row = String(try #require(lines.first))
+            let row = String(try #require(lines.first { Outcome.parse(String($0)) != nil }))
             let outcome = try #require(Outcome.parse(row))
-            let message = String(try #require(lines.dropFirst().first))
+            let index = try #require(lines.firstIndex(of: Substring(row)))
+            let message = String(try #require(lines.dropFirst(index + 1).first))
             #expect(message.count <= 160)
             #expect(!MessageContract.mentionsObserve(message) || outcome.recovery == .observe)
             #expect(outcome.recovery != .observe || input.outcome.scene == nil)
-            #expect(result["structuredContent"] == .null)
+            #expect(result["structuredContent"]["gesture"].string == outcome.gesture.rawValue)
+            #expect(result["structuredContent"]["message"].string == message)
+            #expect(result["structuredContent"]["_outcome_message"] == .null)
         }
     }
 }

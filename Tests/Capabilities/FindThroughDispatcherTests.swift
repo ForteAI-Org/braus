@@ -1,13 +1,12 @@
 import AutomationMCP
 import LocalMCP
-import Switches
 import Testing
 
 @Suite
 @MainActor
 struct FindThroughDispatcherTests {
     @Test func facadeExposesFindAfterCatalogueComposition() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2", "task_cycle": "v2"])) {
+        do {
             let tools = AutomationTools(session: DemoSession())
             let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil, call: tools.call)
             let arguments: JSONValue = .object(["query": .string("scroll down the list")])

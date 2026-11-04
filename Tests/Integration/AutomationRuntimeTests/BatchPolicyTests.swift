@@ -66,12 +66,39 @@ import Testing
         #expect(BatchPolicy.beforeStep(0, of: plan, scene: other, target: .notNeeded, commits: false,
                                        earlier: [], elapsed: .zero) == .stop(.otherApp))
     }
-    @Test func expectedAbsenceRequiresPriorEvidence() {
-        let absent = Outcome(gesture: .sent, effect: .absent, recovery: .doNotRepeat)
-        #expect(!BatchPolicy.expectedAbsent(step(), outcome: absent, sceneBefore: scene))
-        #expect(BatchPolicy.expectedAbsent(step(expect: .element(label: "Gone", expect: .absent)), outcome: absent, sceneBefore: scene))
-        #expect(!BatchPolicy.expectedAbsent(step(expect: .element(label: "Gone", expect: .present)), outcome: absent, sceneBefore: scene))
+    @Test func expectedAbsenceRequiresTheOriginalTypedPredicateFact() {
+        let check = OperationCheck(condition: .structuralEffect, method: .sceneDifference,
+            verdict: .failed, performed: .requested)
+        let already = ActOutcome(.actedUnverified, "Unchanged", check: check, noop: .statePresent)
+        #expect(!BatchPolicy.expectedAbsent(step(), outcome: already))
+        #expect(BatchPolicy.expectedAbsent(step(expect: .element(label: "Gone", expect: .absent)), outcome: already))
+        #expect(!BatchPolicy.expectedAbsent(step(expect: .element(label: "Gone", expect: .absent)),
+            outcome: ActOutcome(.actedUnverified, OutcomeText.expectationAlreadySatisfied, check: check)))
+        #expect(!BatchPolicy.expectedAbsent(step(expect: .element(label: "Gone", expect: .absent)),
+            outcome: ActOutcome(.actedUnverified, "Unchanged", noop: .statePresent)))
     }
+
+    @Test func alreadySatisfiedFactMustMatchThePredicateMethodAndFailedCheck() {
+        let cases: [(ScreenExpectation, OperationCheck.Method)] = [
+            (.window(title: "Export", open: false), .windowCensus),
+            (.element(label: "Name", expect: .value("Wanted")), .controlValue),
+            (.element(label: "Enabled", expect: .state(.on)), .controlState),
+            (.element(label: "Gone", expect: .absent), .sceneDifference)
+        ]
+        for (expectation, method) in cases {
+            let facts = step(expect: expectation)
+            let check = OperationCheck(condition: .structuralEffect, method: method, verdict: .failed, performed: .requested)
+            let actual = ActOutcome(.actedUnverified, "Not a new effect", check: check, noop: .statePresent)
+            #expect(BatchPolicy.expectedAbsent(facts, outcome: actual))
+            let wrong = OperationCheck(condition: .structuralEffect, method: .none, verdict: .failed, performed: .requested)
+            #expect(!BatchPolicy.expectedAbsent(facts, outcome: actual.with(check: wrong)))
+            let unknown = OperationCheck(condition: .structuralEffect, method: method, verdict: .unknown, performed: .requested)
+            #expect(!BatchPolicy.expectedAbsent(facts, outcome: actual.with(check: unknown)))
+            let unbound = OperationCheck(condition: .none, method: method, verdict: .failed, performed: .requested)
+            #expect(!BatchPolicy.expectedAbsent(facts, outcome: actual.with(check: unbound)))
+        }
+    }
+
     @Test func expectationLimitAndCommittingKeys() {
         let oversized = BatchPolicy.BatchPlanFacts(steps: [step("Next", expect: .window(
             title: String(repeating: "x", count: Todo.expectedLimit + 1), open: true))], bundleID: scene.bundleID)
@@ -93,5 +120,20 @@ extension BatchPolicyTests {
                                        personInControl: false) == .error)
         #expect(BatchPolicy.stopReason(for: AutomationFailure("Unavailable"), deadlineReached: true,
                                        personInControl: true) == .personInControl)
+    }
+}
+
+extension BatchPolicyTests {
+    @Test func foregroundSceneCannotOverrideTheOriginalWindowCensus() {
+        let check = OperationCheck(condition: .structuralEffect, method: .windowCensus,
+            verdict: .failed, performed: .requested)
+        let step = BatchPolicy.StepFacts(kind: .act, target: "Next", expectation: .window(title: "Export", open: false))
+        let before = Self.scene()
+        #expect(before.windowTitle != "Export")
+        let notSatisfied = ActOutcome(.actedUnverified, "Export remains open", scene: before, check: check)
+        #expect(!BatchPolicy.expectedAbsent(step, outcome: notSatisfied))
+        let alreadySatisfied = ActOutcome(.actedUnverified, "Already closed", scene: before,
+            check: check, noop: .statePresent)
+        #expect(BatchPolicy.expectedAbsent(step, outcome: alreadySatisfied))
     }
 }

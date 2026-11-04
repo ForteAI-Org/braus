@@ -1,4 +1,3 @@
-import Switches
 
 /// Outcome separates gesture delivery, observed effect and the next safe step.
 public struct Outcome: Sendable, Equatable, Hashable {
@@ -59,8 +58,6 @@ public struct Outcome: Sendable, Equatable, Hashable {
         }
     }
 
-    private enum SceneAfterUncertainArm: String, Sendable { case off, on }
-
     /// Converts producer evidence in priority order, then accounts for a scene already attached.
     public static func converting(
         _ kind: ActOutcomeKind,
@@ -71,10 +68,6 @@ public struct Outcome: Sendable, Equatable, Hashable {
     ) -> Outcome {
         if [.foundActed, .actedUnverified].contains(kind),
            check?.performed == .uncertain || check?.limits.contains(.deliveryUncertain) == true {
-            guard SwitchBoard.current.arm("scene_after_uncertain", default: SceneAfterUncertainArm.off) == .on else {
-                return Outcome(gesture: .uncertain, effect: .unknown(.notReadable),
-                               recovery: sceneAttached ? .doNotRepeat : .observe)
-            }
             let limits = check?.limits ?? []
             if check?.verdict == .passed {
                 return Outcome(gesture: .uncertain, effect: .confirmed, recovery: .continue)
@@ -103,7 +96,7 @@ public struct Outcome: Sendable, Equatable, Hashable {
                 gesture = .uncertain
                 effect = .unknown(.notReadable)
                 recovery = .observe
-            } else if SecondLook.isEnabled, check?.verdict == .unknown, limits.contains(.noAfterScene) {
+            } else if check?.verdict == .unknown, limits.contains(.noAfterScene) {
                 // A stopped or failed read has no after-scene. Readable window churn carries settleCapped
                 // without noAfterScene, retaining the stillChanging reason below.
                 effect = .unknown(.notReadable)

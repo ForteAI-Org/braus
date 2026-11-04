@@ -22,9 +22,8 @@ public enum RecallChoice {
     /// an excluded step takes its episode out of every tract, a variant's fixed choice must be settled, and a need can
     /// be answered ambiguous with its alternatives.
     public static let selectorVersion = "recall-agent-choice-2"
-    /// The most versions a proposal shortlists for one need, and for the whole query.
+    /// The most procedure versions a proposal shortlists for one need.
     public static let sourcesPerNeed = 3
-    public static let sourceLimit = 6
     /// How long a proposal can be chosen from, in milliseconds.
     public static let validityMS: Int64 = 30 * 60 * 1000
 
@@ -161,34 +160,33 @@ public enum RecallChoice {
     // MARK: Shortlist
 
     /// The versions to shortlist from what the search read: for each need, the most relevant versions it can select from
-    /// (relevance of their offered parts, above nothing), at most `sourcesPerNeed`, and at most `sourceLimit` distinct
-    /// versions in all, each named once (`s1`, `s2`, … in order of appearance). A version is shortlisted whether or not the
+    /// (relevance of their offered parts or steps above their thresholds), at most `sourcesPerNeed` per need,
+    /// each named once (`s1`, `s2`, … in order of appearance). A version is shortlisted whether or not the
     /// automatic selector names a tract in it; its suggestion, when it made one in that version, is kept beside it.
     public static func shortlist(_ scored: [[ScoredSource]], suggestions: [NeedOutcome],
-                                 v2: Bool = false, trust: [String: RecallTrust] = [:]) -> [Shortlisted] {
+                                 trust: [String: RecallTrust] = [:]) -> [Shortlisted] {
         var keys: [String: String] = [:]
         var shortlisted: [Shortlisted] = []
         for (need, sources) in scored.enumerated() {
             let ranked = sources.compactMap { source -> (ScoredSource, Double)? in
-                let parts = source.source.parts.filter { $0.isOffered && (!v2 || $0.kind != .step) }
+                let parts = source.source.parts.filter { $0.isOffered && $0.kind != .step }
                     .compactMap { source.partRelevance[$0.partID] }
                 let partScore = parts.max() ?? -.infinity
                 let stepScore = source.stepRelevance.values.max() ?? -.infinity
                 let relevance = max(partScore, stepScore)
-                guard v2 ? (partScore >= 0.60 || stepScore >= 0.68) : relevance > 0 else { return nil }
+                guard partScore >= 0.60 || stepScore >= 0.68 else { return nil }
                 return (source, relevance)
             }.sorted {
-                let left = $0.1 * (v2 && trust[$0.0.source.routeID] != nil ? 0.9 : 1)
-                let right = $1.1 * (v2 && trust[$1.0.source.routeID] != nil ? 0.9 : 1)
+                let left = $0.1 * (trust[$0.0.source.routeID] != nil ? 0.9 : 1)
+                let right = $1.1 * (trust[$1.0.source.routeID] != nil ? 0.9 : 1)
                 if left != right { return left > right }
-                if v2, $0.0.source.confirmedUses != $1.0.source.confirmedUses {
+                if $0.0.source.confirmedUses != $1.0.source.confirmedUses {
                     return $0.0.source.confirmedUses > $1.0.source.confirmedUses
                 }
                 return $0.0.source.routeID < $1.0.source.routeID
             }
             for (source, relevance) in ranked.prefix(sourcesPerNeed) {
                 let route = source.source.routeID
-                guard v2 || keys[route] != nil || keys.count < sourceLimit else { continue }
                 let key = keys[route] ?? "s\(keys.count + 1)"
                 keys[route] = key
                 let suggestion = suggestions.indices.contains(need) ? suggestions[need].selected : nil

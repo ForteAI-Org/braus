@@ -55,11 +55,11 @@ struct RecallPerimeterTests {
         try await G.learnGenerated(60, verb: "Export", object: "invoice", qualifier: "now", app: "com.example.Ledger", directory: directory)
         #expect(await service.waitUntilIdle(within: .seconds(120)))
         let text = "Export the invoice for the team with a new name"
-        let unbound = try await service.prepare(try Self.request(text))
+        let unbound = try await service.prepare(try Self.request(text), availableChannels: HistoricalRecallFixture.nativeChannels)
         let others = try #require(service.scored(unbound)).first ?? []
         #expect(!others.contains { $0.source.steps.first?.bundleID == "com.example.Ledger" },
                 "unbound, the Ledger's method is outranked and not read: \(others.count) versions")
-        let prepared = try await service.prepare(try Self.request(text, app: "com.example.Ledger"))
+        let prepared = try await service.prepare(try Self.request(text, app: "com.example.Ledger"), availableChannels: HistoricalRecallFixture.nativeChannels)
         let outcome = try #require(service.outcomes(prepared).first)
         let selected = try #require(outcome.selected, "the Ledger's method, read before any cut: \(outcome)")
         #expect(prepared.sources.first { $0.routeID == selected.routeID }?.steps.first?.bundleID == "com.example.Ledger")
@@ -76,7 +76,7 @@ struct RecallPerimeterTests {
                                        directory: directory)
         }
         #expect(await service.waitUntilIdle(within: .seconds(120)))
-        let prepared = try await service.prepare(try Self.request("Archive the report by date with a new name"))
+        let prepared = try await service.prepare(try Self.request("Archive the report by date with a new name"), availableChannels: HistoricalRecallFixture.nativeChannels)
         let thresholds = service.configuration.thresholds(for: prepared.channel)
         let relevant = service.ranked(prepared, need: 0, limit: 1000).filter { $0.score >= thresholds.absolute }
         #expect(relevant.count < RecallContract.candidateLimit, "\(relevant.count) relevant parts")

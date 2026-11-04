@@ -4,17 +4,14 @@ import Foundation
 import Testing
 
 struct ProviderInvocationTests {
-    private func turn(_ provider: ChatProvider, loading: ToolLoading = .upfront,
-                      web: Bool = false, compact: Bool = false) -> ProviderTurn {
+    private func turn(_ provider: ChatProvider, web: Bool = false, compact: Bool = false) -> ProviderTurn {
         ProviderTurn(provider: provider, model: nil, sessionID: nil, prompt: "p", instructions: "i",
             bridgeExecutable: "/b", connectionFile: "/c", workingDirectory: "/w",
-            isCompaction: compact, allowsWebSearch: web, toolLoading: loading)
+            isCompaction: compact, allowsWebSearch: web)
     }
 
-    @Test func upfrontIsToday() throws {
-        let value = turn(.claude)
-        #expect(value.toolLoading == .upfront)
-        #expect(try ProviderInvocation(value).arguments == [
+    @Test func fixedMCPInvocationHasNoProviderToolSearch() throws {
+        #expect(try ProviderInvocation(turn(.claude)).arguments == [
             "-p", "--output-format", "stream-json", "--verbose", "--strict-mcp-config", "--mcp-config",
             #"{"mcpServers":{"braus":{"args":["mcp-bridge","--connection","\/c"],"command":"\/b"}}}"#,
             "--tools", "", "--allowedTools", "mcp__braus__*", "--permission-mode", "dontAsk",
@@ -22,27 +19,33 @@ struct ProviderInvocationTests {
         ])
     }
 
-    @Test func harnessSearchAddsOnlyToolSearch() throws {
+    @Test func webCapabilityDoesNotEnableNativeToolDiscovery() throws {
         for web in [false, true] {
             for compact in [false, true] {
-                let args = try ProviderInvocation(turn(.claude, loading: .harnessSearch, web: web, compact: compact)).arguments
+                let invocation = try ProviderInvocation(turn(.claude, web: web, compact: compact))
+                let args = invocation.arguments
+                let enabled = web && !compact
                 let tools = args[try #require(args.firstIndex(of: "--tools")) + 1]
                 let allowed = args[try #require(args.firstIndex(of: "--allowedTools")) + 1]
-                let suffix = web && !compact ? ",WebSearch,WebFetch" : ""
-                #expect(tools == (compact ? "" : "ToolSearch") + suffix)
-                #expect(allowed == "mcp__braus__*" + (compact ? "" : ",ToolSearch") + suffix)
+                #expect(tools == (enabled ? "WebSearch,WebFetch" : ""))
+                #expect(allowed == "mcp__braus__*" + (enabled ? ",WebSearch,WebFetch" : ""))
+                #expect(!args.contains { $0.contains("ToolSearch") })
                 let config = args[try #require(args.firstIndex(of: "--mcp-config")) + 1]
                 let json = try JSONDecoder().decode(JSONValueForConfig.self, from: Data(config.utf8))
-                #expect(json.mcpServers["braus"]?.alwaysLoad == (compact ? nil : false))
+                #expect(json.mcpServers["braus"]?.alwaysLoad == nil)
+                #expect(invocation.standardInput == (compact ? "/compact" : "p"))
             }
         }
     }
 
-    @Test func codexIgnoresToolLoading() throws {
+    @Test func codexKeepsTheSingleExplicitMCPServerAndWebPermission() throws {
         for web in [false, true] {
             for compact in [false, true] {
-                #expect(try ProviderInvocation(turn(.codex, loading: .upfront, web: web, compact: compact)).arguments
-                    == ProviderInvocation(turn(.codex, loading: .harnessSearch, web: web, compact: compact)).arguments)
+                let args = try ProviderInvocation(turn(.codex, web: web, compact: compact)).arguments
+                #expect(args.filter { $0.hasPrefix("mcp_servers.") }.count == 1)
+                #expect(args.contains { $0.hasPrefix("mcp_servers.braus=") })
+                #expect(args.contains("web_search=\"\(web && !compact ? "live" : "disabled")\""))
+                #expect(!args.contains { $0.contains("ToolSearch") || $0.contains("alwaysLoad") })
             }
         }
     }

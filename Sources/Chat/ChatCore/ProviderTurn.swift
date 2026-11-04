@@ -1,10 +1,5 @@
 import Foundation
 
-/// ToolLoading selects immediate tool loading or discovery by the provider harness.
-public enum ToolLoading: String, Sendable, Codable {
-    case upfront, harnessSearch
-}
-
 /// ProviderTurn names the exact conversation to resume. Nil means a new conversation.
 /// The composition layer supplies paths; this value reads neither environment nor filesystem.
 public struct ProviderTurn: Sendable {
@@ -27,13 +22,11 @@ public struct ProviderTurn: Sendable {
     /// Whether the command line may search the web and read pages with its own tools, besides Braus's.
     /// A compaction turn never does, whatever this says.
     public let allowsWebSearch: Bool
-    /// How the provider harness loads the supplied MCP tools.
-    public let toolLoading: ToolLoading
 
     public init(provider: ChatProvider, model: String?, sessionID: String?, prompt: String,
                 instructions: String, bridgeExecutable: String, connectionFile: String,
                 workingDirectory: String, effort: String? = nil, environment: [String: String]? = nil,
-                isCompaction: Bool = false, allowsWebSearch: Bool = false, toolLoading: ToolLoading = .upfront) {
+                isCompaction: Bool = false, allowsWebSearch: Bool = false) {
         self.provider = provider
         self.model = model
         self.sessionID = sessionID
@@ -46,6 +39,5 @@ public struct ProviderTurn: Sendable {
         self.environment = environment
         self.isCompaction = isCompaction
         self.allowsWebSearch = allowsWebSearch
-        self.toolLoading = toolLoading
     }
 }

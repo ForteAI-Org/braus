@@ -25,6 +25,9 @@ public struct OutcomeKey: Sendable, Hashable {
 
 /// OutcomeText supplies bounded messages and quotes application data as text.
 public enum OutcomeText {
+    /// Local producer diagnosis; model-facing messages are selected from structural outcome codes.
+    public static let deliveryFailure = "delivery failed: "
+
     /// Fixed observations shared by screen predicates and their model catalogue.
     public static let expectationApplicationAbsent = "the application is not running"
     public static let expectationWindowOpen = "a window with that title is open"

@@ -5,16 +5,12 @@ import Foundation
 import LocalMCP
 import Memory
 import PerceptionCore
-import Switches
 #if BRAUS_PHASES
 import PhaseSignposts
 #endif
 
 /// ResultFormatter renders tool answers and transcripts using the producer and scene state it borrows.
 final class ResultFormatter {
-    nonisolated enum OutcomeArm: String, Sendable { case v1, v2 }
-    static var usesOutcomeV2: Bool { SwitchBoard.current.arm("outcome", default: OutcomeArm.v1) == .v2 }
-
     struct RefusalContext {
         let sessionID: UUID
         let windowNumber: Int
@@ -75,7 +71,6 @@ final class ResultFormatter {
     }
 
     func noteScene(_ scene: SceneSnapshot, sessionID: UUID, windowNumber: Int) {
-        guard Self.usesOutcomeV2 else { return }
         useSession(sessionID)
         let content = SceneContent(scene: scene)
         if let prior = contents[windowNumber], prior != content { refusals[windowNumber] = nil }
@@ -110,15 +105,14 @@ final class ResultFormatter {
         notice: String?,
         output: CallOutput,
         surface: ToolSurface = ToolCatalogue.currentSurface,
-        guideHead: GuideHead? = nil,
-        guideIndex: GuideIndex? = nil
+        guideHead: GuideHead? = nil
     ) throws -> JSONValue {
         #if BRAUS_PHASES
         let rendering = PhaseInterval.begin("render.result")
         defer { rendering.end() }
         #endif
         var value = value
-        if Self.usesOutcomeV2, case .object(var fields) = value,
+        if case .object(var fields) = value,
            let status = fields["status"]?.string, let kind = ActOutcomeKind(rawValue: status) {
             let outcome = Outcome.converting(kind, check: output.lastCheck, notSent: nil,
                                             noop: nil, sceneAttached: fields["observation"] != nil)
@@ -139,37 +133,40 @@ final class ResultFormatter {
         }
         let shown = secrets.shownMinimization
         if !shown.knowsNoText { answered = ProducerSecrets.minimized(answered, by: shown) }
-        let outcomeText = Self.usesOutcomeV2 && surface == .v1
-            ? try Self.outcomeText(answered) : nil
         var transcribed = answered
         if case .object(var object) = answered, !output.transcriptOmits.isEmpty || !output.contentTexts.isEmpty {
             object["result"] = object["result"].map { Self.withholding(Set(output.transcriptOmits), in: $0) }
             let minimization = ValueMinimization(secrets: output.contentTexts)
             transcribed = Self.mappingTexts(.object(object)) { minimization.minimize(text: $0).0 }
         }
-        if Self.usesOutcomeV2 { transcribed = Self.transcriptOutcome(transcribed) }
+        transcribed = Self.transcriptOutcome(transcribed)
         try transcribe("← \(name)", transcribed)
-        if surface == .v2, Self.hasScene(answered), output.modelText == nil {
-            return MCPRouter.answerResult(try textAnswer(answered, notice: nil, guideHead: guideHead, guideIndex: guideIndex))
-                .adding("structuredContent", answered)
-        }
-        if let outcomeText {
-            return MCPRouter.textResult(Self.appendingGuide(
-                to: outcomeText + (notice.map { "\nmemory: \($0)" } ?? ""),
-                head: guideHead, index: guideIndex, surface: surface))
+        if (Self.hasScene(answered) || answered["gesture"].string != nil), output.modelText == nil {
+            return MCPRouter.answerResult(try textAnswer(answered, notice: nil, guideHead: guideHead))
+                .adding("structuredContent", Self.modelValue(answered))
         }
         if let modelText = output.modelText {
             return MCPRouter.textResult(Self.appendingGuide(
                 to: shown.minimize(text: modelText).0 + (notice.map { "\nmemory: \($0)" } ?? ""),
-                head: guideHead, index: guideIndex, surface: surface))
-                .adding("structuredContent", answered)
+                head: guideHead, surface: surface))
+                .adding("structuredContent", Self.modelValue(answered))
         }
-        let guide = Self.guideText(head: guideHead, index: guideIndex, surface: surface)
+        let guide = Self.guideText(head: guideHead, surface: surface)
         if !guide.isEmpty {
             let text = String(decoding: try JSONValue.canonicalEncoder().encode(answered), as: UTF8.self)
             return MCPRouter.textResult(text + "\n\n" + guide)
         }
         return MCPRouter.toolResult(answered)
+    }
+
+    /// Keeps host-readable structure consistent with the bounded text sent to the model.
+    private static func modelValue(_ value: JSONValue) -> JSONValue {
+        guard var fields = value.object else { return value }
+        if fields["gesture"]?.string != nil, let message = fields.removeValue(forKey: "_outcome_message") {
+            fields["message"] = message
+        }
+        if let steps = fields["steps"]?.array { fields["steps"] = .array(steps.map(modelValue)) }
+        return .object(fields)
     }
 
     private static func hasScene(_ value: JSONValue) -> Bool {
@@ -179,12 +176,12 @@ final class ResultFormatter {
 
     /// Renders outcome and scene blocks while retaining variable non-scene payload in canonical order.
     func textAnswer(_ value: JSONValue, notice: String?,
-                    guideHead: GuideHead? = nil, guideIndex: GuideIndex? = nil) throws -> String {
-        try Self.renderAnswer(value, notice: notice, guideHead: guideHead, guideIndex: guideIndex)
+                    guideHead: GuideHead? = nil) throws -> String {
+        try Self.renderAnswer(value, notice: notice, guideHead: guideHead)
     }
 
     static func renderAnswer(_ value: JSONValue, notice: String?,
-                             guideHead: GuideHead? = nil, guideIndex: GuideIndex? = nil) throws -> String {
+                             guideHead: GuideHead? = nil) throws -> String {
         var fields = value.object ?? ["result": value]
         let memory = fields.removeValue(forKey: "memory")?.string
         let rows = fields.removeValue(forKey: "steps")?.array
@@ -206,7 +203,7 @@ final class ResultFormatter {
             for (index, step) in steps.enumerated() {
                 parts.append(ModelText.render(.init(rawValue: "answer.surface.v2.step"),
                                               ["count": .count(index + 1)]))
-                let blocks = try answerBlocks(usesOutcomeV2 ? batchOutcome(step) : step)
+                let blocks = try answerBlocks(batchOutcome(step))
                 if !blocks.isEmpty { parts.append(blocks) }
             }
             var stop: [String] = []
@@ -219,7 +216,7 @@ final class ResultFormatter {
                 stop.append(ModelText.text(.init(rawValue: "answer.surface.v2.reason")) + (try display(reason)))
             }
             for row in (rows ?? []).dropFirst(steps.count) {
-                let detail = try answerBlocks(usesOutcomeV2 ? batchOutcome(row) : row)
+                let detail = try answerBlocks(batchOutcome(row))
                 if !detail.isEmpty { parts.append(detail) }
             }
             if !stop.isEmpty { parts.append(block(.outcome, stop.joined(separator: ModelText.text(.init(rawValue: "answer.surface.v2.rowSeparator"))))) }
@@ -227,22 +224,21 @@ final class ResultFormatter {
         if let notice = notice ?? memory, !notice.isEmpty {
             parts.append(block(.outcome, ModelText.text(.init(rawValue: "answer.surface.v2.memory")) + notice))
         }
-        let guide = guideText(head: guideHead, index: guideIndex, surface: .v2)
+        let guide = guideText(head: guideHead, surface: .tagged)
         if !guide.isEmpty { parts.append(guide) }
         return parts.joined(separator: ModelText.text(.init(rawValue: "answer.surface.v2.blockSeparator")))
     }
 
-    private static func appendingGuide(to text: String, head: GuideHead?, index: GuideIndex?,
+    private static func appendingGuide(to text: String, head: GuideHead?,
                                        surface: ToolSurface) -> String {
-        let guide = guideText(head: head, index: index, surface: surface)
+        let guide = guideText(head: head, surface: surface)
         return guide.isEmpty ? text : text + "\n\n" + guide
     }
 
     /// Formats prepared guide values without consulting sources or the guide selector.
-    static func guideText(head: GuideHead?, index: GuideIndex?, surface: ToolSurface) -> String {
-        let content = ModelText.guideContent(head: head, index: index)
+    static func guideText(head: GuideHead?, surface: ToolSurface) -> String {
+        let content = ModelText.guideContent(head: head)
         guard !content.isEmpty else { return "" }
-        guard surface == .v2 else { return content }
         let escaped = content.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
         return ModelText.text(.init(rawValue: "guide.open")) + escaped
@@ -494,7 +490,7 @@ final class ResultFormatter {
         surface: ToolSurface = ToolCatalogue.currentSurface
     ) -> JSONValue? {
         guard let legacy = legacyEvidence(check, kind: kind) else { return nil }
-        guard surface == .v2, var fields = legacy.object,
+        guard var fields = legacy.object,
               var effect = fields["effect"]?.object else { return legacy }
         fields.removeValue(forKey: "goal")
         effect.removeValue(forKey: "version")
@@ -528,6 +524,25 @@ final class ResultFormatter {
         refusal: RefusalContext? = nil,
         surface: ToolSurface = ToolCatalogue.currentSurface
     ) async -> JSONValue {
+        await renderedOutcome(outcome, refusal: refusal, surface: surface, includesScene: true)
+    }
+
+    /// Renders a batch step's outcome without advancing a scene baseline the model has not received.
+    /// Refusal memory and typed outcome conversion still use the original outcome and scene facts.
+    func outcomeSummary(
+        _ outcome: ActOutcome,
+        refusal: RefusalContext? = nil,
+        surface: ToolSurface = ToolCatalogue.currentSurface
+    ) async -> JSONValue {
+        await renderedOutcome(outcome, refusal: refusal, surface: surface, includesScene: false)
+    }
+
+    private func renderedOutcome(
+        _ outcome: ActOutcome,
+        refusal: RefusalContext?,
+        surface: ToolSurface,
+        includesScene: Bool
+    ) async -> JSONValue {
         if let scene = outcome.scene, let id = session.id, let window = session.observedWindowNumber {
             noteScene(scene, sessionID: id, windowNumber: window)
         }
@@ -535,41 +550,36 @@ final class ResultFormatter {
             "status": .string(outcome.kind.rawValue), "message": .string(outcome.message),
             "session": session.id.map { .string($0.uuidString) } ?? .null
         ]
-        if let scene = outcome.scene { values["observation"] = await sceneText.answer(scene, changesOnly: true, nested: true,
+        if includesScene, let scene = outcome.scene { values["observation"] = await sceneText.answer(scene, changesOnly: true, nested: true,
                                                                                           session: session, shown: secrets.shownMinimization).observation(nested: true) }
-        if Self.usesOutcomeV2 {
-            values.removeValue(forKey: "status")
-            var typed = outcome.outcome
-            var cause = outcome.cause
-            if let refusal {
-                useSession(refusal.sessionID)
-                if typed.gesture == .notSent {
-                    let key = Refusal(tool: refusal.tool, arguments: Self.gestureArguments(refusal.arguments), cause: cause)
-                    if typed.recovery != .continue, outcome.noop != .substituted {
-                        if refusals[refusal.windowNumber] == key {
-                            typed = Outcome(gesture: .notSent, effect: .notApplicable, recovery: .doNotRepeat)
-                            cause = "already_refused"
-                        }
-                        refusals[refusal.windowNumber] = key
+        values.removeValue(forKey: "status")
+        var typed = outcome.outcome
+        var cause = outcome.cause
+        if let refusal {
+            useSession(refusal.sessionID)
+            if typed.gesture == .notSent {
+                let key = Refusal(tool: refusal.tool, arguments: Self.gestureArguments(refusal.arguments), cause: cause)
+                if typed.recovery != .continue, outcome.noop != .substituted {
+                    if refusals[refusal.windowNumber] == key {
+                        typed = Outcome(gesture: .notSent, effect: .notApplicable, recovery: .doNotRepeat)
+                        cause = "already_refused"
                     }
-                } else if typed.gesture == .sent {
-                    refusals[refusal.windowNumber] = nil
+                    refusals[refusal.windowNumber] = key
                 }
+            } else if typed.gesture == .sent {
+                refusals[refusal.windowNumber] = nil
             }
-            if cause == nil && typed.gesture == .uncertain { cause = "seat_error" }
-            if outcome.noop == .listing && outcome.scene == nil {
-                values["observation"] = .string(outcome.message)
-            }
-            values["gesture"] = .string(typed.gesture.rawValue)
-            values["effect"] = .string(typed.effect.text)
-            values["recovery"] = .string(typed.recovery.text)
-            values["_outcome_message"] = .string(OutcomeText.message(
-                OutcomeKey(outcome: typed, verb: refusal?.tool ?? "", cause: cause, noop: outcome.noop), label: nil
-            ))
-            return .object(values)
         }
-        // P2-03: what the operation's own oracle found, apart from the command's acceptance and the task's goal.
-        if let evidence = Self.evidence(outcome.withStatedCheck.check, kind: outcome.kind, surface: surface) { values["evidence"] = evidence }
+        if cause == nil && typed.gesture == .uncertain { cause = "seat_error" }
+        if outcome.noop == .listing && outcome.scene == nil {
+            values["observation"] = .string(outcome.message)
+        }
+        values["gesture"] = .string(typed.gesture.rawValue)
+        values["effect"] = .string(typed.effect.text)
+        values["recovery"] = .string(typed.recovery.text)
+        values["_outcome_message"] = .string(OutcomeText.message(
+            OutcomeKey(outcome: typed, verb: refusal?.tool ?? "", cause: cause, noop: outcome.noop), label: nil
+        ))
         return .object(values)
     }
 
@@ -645,9 +655,7 @@ final class ResultFormatter {
             return false
         }
         if request.tool.takesSession {
-            return session.id.map {
-                surface == .v2 || arguments["session"].string == $0.uuidString
-            } == true
+            return session.id != nil
         }
         return true
     }
@@ -670,10 +678,7 @@ final class ResultFormatter {
             OutcomeKey(outcome: outcome, verb: tool, cause: cause), label: nil
         )
         if !mayHaveActed, let minimized { text += "\n" + minimized }
-        if surface == .v2 {
-            return MCPRouter.answerResult(Self.block(.outcome, text), isError: true)
-        }
-        return MCPRouter.textResult(text).adding("isError", .bool(true))
+        return MCPRouter.answerResult(Self.block(.outcome, text), isError: true)
     }
 
     /// Every text of a JSON value, however nested: what a call the schema will refuse may carry anywhere.

@@ -134,10 +134,14 @@ struct CallRungRecordTests {
         return actuator.lastDelivery(in: 9)
     }
 
-    static func sessionID(_ answer: JSONValue) -> String? {
-        guard let text = answer["content"].array?.first?["text"].string,
-              let value = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)) else { return nil }
-        return value["session"].string
+    /// Uses the current implicit session and delegates capabilities outside the initial list through call.
+    static func call(_ tools: AutomationTools, _ name: String, _ arguments: JSONValue) async throws -> JSONValue {
+        var fields = arguments.object ?? [:]
+        if tools.openTask != nil && ["act", "select", "type_text"].contains(name) { fields["step"] = .string("r1") }
+        if tools.toolDefinitions.contains(where: { $0["name"].string == name }) {
+            return try await tools.call(name, .object(fields))
+        }
+        return try await tools.call("call", .object(["name": .string(name), "arguments": .object(fields)]))
     }
 
     static func text(_ answer: JSONValue) -> String { answer["content"].array?.first?["text"].string ?? "" }
@@ -147,11 +151,12 @@ struct CallRungRecordTests {
         let inputs = secrets.enumerated().map { index, secret -> JSONValue in
             .object(["name": .string("code\(index)"), "value": .string(secret), "secret": .bool(true)])
         }
-        let begun = try await tools.call("memory_task", .object([
-            "operation": .string("begin"), "goal": .string("Name the note"), "remaining": .string("Name the note"),
+        let begun = try await Self.call(tools, "plan", .object([
+            "request": .string("Name the note"),
+            "rows": .array([.object(["title": .string("Name the note")])]),
             "inputs": .array(inputs),
         ]))
-        return try #require((try? JSONDecoder().decode(JSONValue.self, from: Data(text(begun).utf8)))?["task"].string, "\(text(begun))")
+        return try #require(tools.openTask?.taskID, "\(text(begun))")
     }
 
     /// Every row's words, the transcript and every file of the archive, open and then closed, searched for `secrets`.
@@ -177,13 +182,18 @@ struct CallRungRecordTests {
         let reader = TreeStub(Self.form)
         let transcript = Transcript()
         let tools = Self.tools(reader, delivery: NoDelivery(), knowledge: knowledge, trace: "r1", transcript: transcript)
-        let id = try #require(Self.sessionID(try await tools.call("open_session", .object(["app": .string("Notes")]))))
+        _ = try await Self.call(tools, "open_session", .object(["app": .string("Notes")]))
+        #expect(tools.session.id != nil)
         let task = try await Self.begin(tools, secrets: [Self.typedSecret])
-        _ = try await tools.call("act", .object(["session": .string(id), "target": .string("Save"), "verb": .string("click")]))
-        _ = try await tools.call("type_text", .object(["session": .string(id), "target": .string("Name"), "text": .string(Self.typedSecret)]))
-        _ = try? await tools.call("act", .object(["session": .string(id), "target": .string("Nowhere"), "verb": .string("click")]))
-        _ = try await tools.call("memory_task", .object(["operation": .string("end"), "outcome": .string("completed")]))
-        _ = try await tools.call("act", .object(["session": .string(id), "target": .string("Save"), "verb": .string("click")]))
+        _ = try await Self.call(tools, "act", .object(["target": .string("Save"), "verb": .string("click")]))
+        _ = try await Self.call(tools, "type_text", .object(["target": .string("Name"), "text": .string(Self.typedSecret)]))
+        _ = try? await Self.call(tools, "act", .object(["target": .string("Nowhere"), "verb": .string("click")]))
+        _ = try await Self.call(tools, "end", .object(["outcome": .string("completed")]))
+        let unplanned = try? await Self.call(tools, "act", .object(["target": .string("Save"), "verb": .string("click")]))
+        #expect(unplanned == nil || unplanned?["isError"].bool == true)
+        let nextTask = try await Self.begin(tools, secrets: [])
+        #expect(nextTask != task)
+        _ = try await Self.call(tools, "act", .object(["target": .string("Save"), "verb": .string("click")]))
         #expect(reader.steps.withLock { $0 }.filter { $0.hasPrefix("perform AXPress") }.count == 2, "\(reader.steps.withLock { $0 })")
 
         let calls = try await Self.recorded("r1", in: knowledge)
@@ -196,7 +206,7 @@ struct CallRungRecordTests {
         #expect(calls[3].rung == nil && calls[3].performed == OperationCheck.Performed.none, "a refusal before any gesture: \(calls[3])")
         #expect(calls[4].rung?.rung == .accessibility, "\(String(describing: calls[4].rung))")
         #expect(calls[0].rung == nil, "an open sends no gesture")
-        #expect(calls[1...3].allSatisfy { $0.task == task } && calls[4].task == nil && calls[0].task == nil, "\(calls.map(\.task))")
+        #expect(calls[1...3].allSatisfy { $0.task == task } && calls[4].task == nextTask && calls[0].task == nil, "\(calls.map(\.task))")
         #expect(calls.allSatisfy { $0.status == .completed }, "\(calls)")
         try await Self.nothingKeeps([Self.typedSecret], calls: calls, transcript: transcript, knowledge: knowledge, "R1")
     }
@@ -258,9 +268,10 @@ struct CallRungRecordTests {
                 "the actuator's own note carries the answer: \(String(describing: raw))")
         let transcript = Transcript()
         let tools = Self.tools(uncertain, delivery: counting, knowledge: uncertainKnowledge, trace: "r1s", transcript: transcript)
-        let id = try #require(Self.sessionID(try await tools.call("open_session", .object(["app": .string("Notes")]))))
+        _ = try await Self.call(tools, "open_session", .object(["app": .string("Notes")]))
+        #expect(tools.session.id != nil)
         let task = try await Self.begin(tools, secrets: [Self.answerSecret, Self.actionSecret])
-        _ = try? await tools.call("act", .object(["session": .string(id), "target": .string("Save"), "verb": .string("click")]))
+        _ = try? await Self.call(tools, "act", .object(["target": .string("Save"), "verb": .string("click")]))
         #expect(uncertain.performs.withLock { $0 } == 2 && counting.sent.withLock { $0 } == 0, "one request each (the raw note's and the call's), no rung 2")
         let doubted = try await Self.recorded("r1s", in: uncertainKnowledge)
         try #require(doubted.count == 2, "\(doubted)")
@@ -281,9 +292,10 @@ struct CallRungRecordTests {
                 "the actuator's own note names the action: \(String(describing: rawSkipped))")
         let listedTranscript = Transcript()
         let listedTools = Self.tools(unlisted, delivery: posting, knowledge: listedKnowledge, trace: "r1a", transcript: listedTranscript)
-        let listedID = try #require(Self.sessionID(try await listedTools.call("open_session", .object(["app": .string("Notes")]))))
+        _ = try await Self.call(listedTools, "open_session", .object(["app": .string("Notes")]))
+        #expect(listedTools.session.id != nil)
         _ = try await Self.begin(listedTools, secrets: [Self.actionSecret])
-        _ = try? await listedTools.call("act", .object(["session": .string(listedID), "target": .string("Save"), "verb": .string("click")]))
+        _ = try? await Self.call(listedTools, "act", .object(["target": .string("Save"), "verb": .string("click")]))
         #expect(posting.sent.withLock { $0 } == 2, "rung 2 posted once for the raw note and once for the call")
         let passedOver = try await Self.recorded("r1a", in: listedKnowledge)
         try #require(passedOver.count == 2, "\(passedOver)")
@@ -302,17 +314,20 @@ struct CallRungRecordTests {
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let reader = TreeStub(Self.form)
         let tools = Self.tools(reader, delivery: FailingDelivery(), knowledge: knowledge, trace: "r2")
-        let id = try #require(Self.sessionID(try await tools.call("open_session", .object(["app": .string("Notes")]))))
+        _ = try await Self.call(tools, "open_session", .object(["app": .string("Notes")]))
+        #expect(tools.session.id != nil)
+        _ = try await Self.begin(tools, secrets: [])
         let selected: String
-        do { selected = Self.text(try await tools.call("select", .object(["session": .string(id), "control": .string("Picker"), "item": .string("Nowhere")]))) }
+        do { selected = Self.text(try await Self.call(tools, "select", .object(["control": .string("Picker"), "item": .string("Nowhere")]))) }
         catch { selected = "thrown: \(error)" }
         #expect(reader.steps.withLock { $0 }.filter { $0.hasPrefix("perform AXPress") }.count == 1, "the pop-up pressed once on rung 1: \(reader.steps.withLock { $0 }); the call answered \(selected)")
         // A typed text on the MacDriver sends its keys on rung 2, and the delivery fails: no gesture was noted, the
         // record has no rung for it and its effect is uncertain, never zero gestures claimed.
         let typed: String
-        do { typed = Self.text(try await tools.call("type_text", .object(["session": .string(id), "target": .string("Name"), "text": .string("hello")]))) }
+        do { typed = Self.text(try await Self.call(tools, "type_text", .object(["target": .string("Name"), "text": .string("hello")]))) }
         catch { typed = "thrown: \(error)" }
-        #expect(typed.contains("delivery failed") && typed.contains("acted_unverified"), "\(typed)")
+        #expect(typed.contains("uncertain") && typed.contains("unknown(not_readable)") && typed.contains("do_not_repeat"), "\(typed)")
+        #expect(!typed.contains("the events could not be posted"), "Transport details stay out of the model's result")
         let partial = try await Self.recorded("r2", in: knowledge)
         try #require(partial.count == 3, "\(partial)")
         #expect(partial[1].tool == "select" && partial[1].rung?.rung == .accessibility && partial[1].rung?.how.contains("AXPopUpButton") == true,
@@ -330,20 +345,30 @@ struct CallRungRecordTests {
             store: SQLiteMemoryStore.Configuration(lockBudget: .milliseconds(100), retryPause: .milliseconds(5),
                                                    maximumRetryPause: .milliseconds(10)),
             essentialAttempts: 1, essentialCycles: 1)))
-        let lockedID = try #require(Self.sessionID(try await lockedTools.call("open_session", .object(["app": .string("Notes")]))))
+        _ = try await Self.call(lockedTools, "open_session", .object(["app": .string("Notes")]))
+        #expect(lockedTools.session.id != nil)
+        _ = try await Self.begin(lockedTools, secrets: [])
         let lock = FilesThroughTheToolsTests.ArchiveLock()
         let memory = MemoryService.shared(for: lockedKnowledge)
         try #require(await memory.flush(within: .seconds(5)))
         try lock.hold(lockedKnowledge)
-        let refusal: String
+        // The row transition is durable before a gesture starts. A locked archive rejects that write,
+        // before a call recorder or actuator runs, with the store's typed contention contract.
+        var contention: MemoryStoreError?
         do {
-            _ = try await lockedTools.call("act", .object(["session": .string(lockedID), "target": .string("Save"), "verb": .string("click")]))
-            refusal = "answered"
+            _ = try await Self.call(lockedTools, "act", .object(["target": .string("Save"), "verb": .string("click")]))
+            Issue.record("The locked row transition unexpectedly succeeded")
+        } catch let error as MemoryStoreError {
+            contention = error
         } catch {
-            refusal = String(describing: error)
+            Issue.record("Expected typed memory contention, received \(error)")
         }
         lock.release()
-        #expect(refusal.contains("did not confirm"), "\(refusal)")
+        guard case .contention(let fault, let attempts, let waited) = try #require(contention) else {
+            Issue.record("The lock did not report contention: \(String(describing: contention))")
+            return
+        }
+        #expect(fault.phase == .begin && fault.code.primary == 5 && attempts > 0 && waited > .zero)
         #expect(lockedReader.steps.withLock { $0 }.isEmpty, "nothing was sent")
         let locked = try await Self.recorded("r2l", in: lockedKnowledge)
         #expect(locked.map(\.tool) == ["open_session"], "\(locked)")

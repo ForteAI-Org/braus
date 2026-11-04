@@ -2,7 +2,6 @@ import EngineCore
 import SeatCore
 import SeatInput
 import SeatSession
-import Switches
 import Testing
 @testable import SeatDriving
 
@@ -20,19 +19,17 @@ struct ElioCausesTests {
         #expect(SeatActuator.unsent(RemoteContentActuationRefusal.selectedNotOpened(code: nil)) == nil)
     }
 
-    @Test(arguments: ["v1", "v2"])
-    func postedCommandsStayInterrupted(_ arm: String) {
-        SwitchBoard.$testing.withValue(SwitchBoard(values: ["outcome": arm])) {
-            let receipt = InputReceipt(eventCount: 2, route: InputRoute(
-                poster: .publicProcess, routedEventCount: 0, windowNumber: 1, ownerConnectionID: 2))
-            let sequence = InputSequenceFailure(completedReceipts: [receipt],
-                                                cause: InputFailure.inputPaused([.humanIntervention]))
-            let native = NativeTextInputFailure(cause: sequence, cleanup: .notRequired)
-            for failure: any Error in [sequence, native] {
-                #expect(pauseReasons(of: failure).isEmpty)
-                #expect(SeatActuator.unsent(failure) == nil)
-                #expect(SeatActuator.deliveryError(failure) is GestureInterrupted)
-            }
+    @Test
+    func postedCommandsStayInterrupted() {
+        let receipt = InputReceipt(eventCount: 2, route: InputRoute(
+            poster: .publicProcess, routedEventCount: 0, windowNumber: 1, ownerConnectionID: 2))
+        let sequence = InputSequenceFailure(completedReceipts: [receipt],
+                                            cause: InputFailure.inputPaused([.humanIntervention]))
+        let native = NativeTextInputFailure(cause: sequence, cleanup: .notRequired)
+        for failure: any Error in [sequence, native] {
+            #expect(pauseReasons(of: failure).isEmpty)
+            #expect(SeatActuator.unsent(failure) == nil)
+            #expect(SeatActuator.deliveryError(failure) is GestureInterrupted)
         }
     }
 

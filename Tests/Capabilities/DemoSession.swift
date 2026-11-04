@@ -7,6 +7,11 @@ import PerceptionCore
 @MainActor
 final class DemoSession: AutomationSessionOperating {
     var id: UUID? = UUID()
+    var memoryDirectory: URL?
+
+    init(memoryDirectory: URL? = nil) {
+        self.memoryDirectory = memoryDirectory
+    }
 
     func open(application: String, window: String?) async throws -> SceneSnapshot {
         throw SessionError.unexpectedCall

@@ -7,7 +7,7 @@ extension ModelText {
             owner: "AutomationMCP",
             delivery: .refusal(tool: "unknown"),
             budgetCharacters: 65,
-            text: "Use status and list current windows before opening a new session.",
+            text: "Open the application with open_session, then observe.",
             legacy: true
         ),
         Entry(
@@ -182,8 +182,8 @@ extension ModelText {
             key: .init(rawValue: "call_dispatcher.repeats.v1.4"),
             owner: "AutomationMCP",
             delivery: .refusal(tool: "unknown"),
-            budgetCharacters: 92,
-            text: "whether it happened, then memory_task reconcile {call, finding, evidence}; nothing was sent.",
+            budgetCharacters: 164,
+            text: "whether it happened. Read the affected resource with its adapter, then find reconcile_call and use the read's recorded_call as evidence; nothing was sent.",
             legacy: true
         ),
         Entry(
@@ -206,8 +206,8 @@ extension ModelText {
             key: .init(rawValue: "call_dispatcher.repeats.v1.7"),
             owner: "AutomationMCP",
             delivery: .refusal(tool: "unknown"),
-            budgetCharacters: 71,
-            text: "then memory_task reconcile {call, finding, evidence}; nothing was sent.",
+            budgetCharacters: 106,
+            text: "then find reconcile_call and use the adapter read's recorded_call as evidence; nothing was sent.",
             legacy: true
         ),
         Entry(
@@ -263,7 +263,7 @@ extension ModelText {
             owner: "AutomationMCP",
             delivery: .refusal(tool: "unknown"),
             budgetCharacters: 90,
-            text: "Session ID is missing or stale. Use status; open a session if necessary and observe again.",
+            text: "No current session. Open the application with open_session, then observe.",
             legacy: true
         ),
         Entry(
@@ -375,7 +375,7 @@ extension ModelText {
             owner: "AutomationMCP",
             delivery: .refusal(tool: "unknown"),
             budgetCharacters: 89,
-            text: "Earlier effects remain. Use status and list current windows before opening a new session.",
+            text: "Earlier effects remain. Open the application with open_session, then observe.",
             legacy: true
         ),
         Entry(

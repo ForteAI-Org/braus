@@ -115,9 +115,9 @@ struct MCPTests {
 
 extension JSONValue {
 
-    /// A tool result's value as the model reads it: the JSON text of its one content item, or null
-    /// when that text is missing or is not JSON.
+    /// Reads the structured result when present, otherwise the JSON text of its first content item.
     var payload: JSONValue {
+        if self["structuredContent"] != .null { return self["structuredContent"] }
         guard let text = self["content"].array?.first?["text"].string,
               let value = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
         else { return .null }

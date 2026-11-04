@@ -1,4 +1,4 @@
-/// SeatFacts separates Braus's own structured seat facts from the original legacy rendering.
+/// SeatFacts carries Braus's structured seat facts.
 /// Structured fields contain no session identifier, window title or document name.
 nonisolated public struct SeatFacts: Sendable, Equatable {
     /// Application identifies the current or last application, never a window or document.
@@ -18,19 +18,15 @@ nonisolated public struct SeatFacts: Sendable, Equatable {
     public let session: Bool
     public let application: Application?
     public let missingPermissions: [String]
-    /// The original seat line, preserved byte for byte for v1.
-    public let legacyText: String
 
     public init(
         session: Bool = false,
         application: Application? = nil,
-        missingPermissions: [String] = [],
-        legacyText: String
+        missingPermissions: [String] = []
     ) {
         self.session = session
         self.application = application
         self.missingPermissions = missingPermissions
-        self.legacyText = legacyText
     }
 }
 
@@ -52,9 +48,4 @@ nonisolated public struct SeatTaskFacts: Sendable, Equatable {
         self.rowsTotal = rowsTotal
         self.learnedForApp = learnedForApp
     }
-}
-
-/// SeatLineArm selects the original text by default or the bounded facts block.
-nonisolated public enum SeatLineArm: String, Sendable {
-    case v1, v2
 }

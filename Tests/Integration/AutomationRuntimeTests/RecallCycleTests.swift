@@ -16,10 +16,10 @@ import PerceptionCore
 @testable import SQLiteMemory
 import Testing
 
-/// RecallCycleTests prove the D3 cycle through the product's own entry, with the chosen configuration, over the
+/// RecallCycleTests prove the D3 cycle through current plan/action entries plus an explicit typed selector contract, with the chosen configuration, over the
 /// session double that replaces only the operating system and the applications: the quality corpus learned through
 /// the tools (D2's producers, qualification and archive), the archive closed and opened again, a new request with
-/// other values whose `memory_task begin` searches the index and selects the export tract of the learned photo
+/// other values whose explicit service query searches the index and selects the export tract of the learned photo
 /// export without the search and the rotation already done, the operations carried out through the tools, and the
 /// calls linked to the delivered steps. Nothing is inserted by hand. With `BRAUS_RECALL_MODELS` the hybrid channel runs
 /// on the real local model too; without it that case is skipped, saying so. These are integration proofs, not a live
@@ -61,15 +61,15 @@ struct RecallCycleTests {
     static func learn(_ session: LearningSession, channel: RecallConfiguration.Channel) async throws -> String {
         let memory = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: memory, configuration: configuration(channel)))
-        let tools = P.tools(session)
+        let tools = P.tools(session, profile: SessionProfile.app.replacing(memory: .learn))
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
+            {"request":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
              "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
             """#)
         try await P.runPhotoExport(tools, session)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
-        let interpreted = try await P.task(tools, P.photoInterpretation(candidate))
+        let ended = try await P.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await P.candidateIDFixture(tools, session)
+        let interpreted = try await P.interpretFixture(tools, session, P.photoInterpretation(candidate))
         #expect(interpreted["parts"].array?.allSatisfy { $0["admitted"].bool == true } == true, "\(interpreted)")
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
         return ProcedureAssembly.routeID(candidateID: candidate, revision: 1)
@@ -131,7 +131,7 @@ struct RecallCycleTests {
 
         // A new task: the photo is ready in Preview; only the export remains, with other values.
         let tools = P.tools(session, stream: "worker-2")
-        let begun = try await P.task(tools, exportRequest)
+        let begun = try await HistoricalRecallFixture.beginPlannedQuery(tools, exportRequest)
         let recall = begun["recall"]
         #expect(recall["search"]["status"].string == "completed", "\(recall)")
         #expect(recall["coverage"].string == "complete", "\(recall)")
@@ -155,7 +155,7 @@ struct RecallCycleTests {
         _ = try await P.call(tools, "select", #"{"session":"\#(id)","control":"Format","item":"PNG"}"#)
         _ = try await P.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
         let query = try #require(recall["query"].string)
-        let ended = try await P.task(tools, #"""
+        let ended = try await HistoricalRecallFixture.end(tools, #"""
             {"operation":"end","outcome":"completed","outputs":[{"name":"exported","value":"foto_mail.png","kind":"file"}],
              "use":[{"query":"\#(query)","need":1,"outcome":"followed"}]}
             """#)
@@ -166,7 +166,7 @@ struct RecallCycleTests {
 
         // Independent check of the rows: the query, its selection, the links to the new calls, the declared use.
         let file = session.directory.appendingPathComponent("memory.sqlite")
-        #expect(try rawRows("SELECT reason || ':' || coverage || ':' || delivery FROM memory_recall_queries", at: file)
+        #expect(try rawRows("SELECT reason || ':' || coverage || ':' || delivery FROM memory_recall_queries WHERE query_id = '\(query)'", at: file)
                 == ["initial:complete:delivered"])
         #expect(try rawRows("SELECT first_position || '-' || last_position FROM memory_recall_selections WHERE role = 'selected'", at: file)
                 == ["3-6"])
@@ -201,7 +201,7 @@ struct RecallCycleTests {
         let session = P.photoSession(try W.directory())
         _ = try await Self.learn(session, channel: channel)
         let memory = await Self.reopen(session, channel: channel)
-        let begun = try await P.task(P.tools(session, stream: "worker-2"), request)
+        let begun = try await HistoricalRecallFixture.beginQuery(P.tools(session, stream: "worker-2"), request)
         await memory.close()
         RecallService.forget(memory)
         MemoryService.forget(session.directory)

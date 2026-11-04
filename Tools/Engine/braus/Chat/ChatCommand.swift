@@ -9,7 +9,6 @@ import LocalMCP
 import Memory
 import ModelTransports
 import PrivateSymbols
-import Switches
 
 /// ChatCommand composes the terminal, provider adapter, transcript store and one ephemeral MCP host (`ChatSession`).
 /// Provider processes may exit between turns; the Seat belongs to this process until release or shutdown. With
@@ -18,11 +17,6 @@ enum ChatCommand {
     static func run(arguments: [String]) async throws {
         let options = try ChatOptions(arguments: arguments)
         if options.help { print(ChatOptions.usage); return }
-        if !options.sessionProfile.options.switches.isEmpty {
-            try SessionProfileFile.validateSwitches(options.sessionProfile.options.switches)
-            let values = SwitchBoard.current.values.merging(options.sessionProfile.options.switches) { _, value in value }
-            SwitchBoard.install(SwitchBoard(values: values))
-        }
         // The Braus support folder, `BRAUS_APP_SUPPORT_DIR` when set.
         let support = KnowledgeLocation.support()
         let history = options.historyDirectory.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
@@ -122,13 +116,14 @@ enum ChatCommand {
                         continue
                     }
                     if message == "/status" {
-                        let result = try await session.tools.call("status", .object([:]))
+                        let result = try await session.tools.call("call", .object([
+                            "name": .string("status"), "arguments": .object([:])]))
                         print(ChatScript.text(ChatScript.payload(of: result)))
                         continue
                     }
                     if message == "/memory" {
                         // The archive this process records into and the Recall it runs, as the process resolved them.
-                        let result = try await session.tools.call("memory_task", .object(["operation": .string("status")]))
+                        let result = try await session.tools.runtimeIdentity()
                         print(ChatScript.text(ChatScript.payload(of: result)))
                         continue
                     }
@@ -222,7 +217,7 @@ enum ChatCommand {
                         try evidence.record(number: number, request: request.text, continues: request.continuesPrevious,
                                             transcript: transcript, started: started, ended: Date(), failure: nil, signal: signal,
                                             abandonment: closed, toolCalls: calls, agentEntries: agentEntries,
-                                            memoryFlushed: flushed, archive: archive)
+                                            memoryFlushed: flushed, archive: archive, configuration: session.tools.configurationEvidence)
                     } catch {
                         fputs("braus: evidence of the stopped request not written: \(error)\n", stderr)
                     }
@@ -269,7 +264,7 @@ enum ChatCommand {
                     try evidence.record(number: number, request: request.text, continues: request.continuesPrevious, transcript: transcript,
                                         started: started, ended: ended, failure: failure, abandonment: abandonment,
                                         brausInterpreted: brausInterpreted, toolCalls: agentCalls, agentEntries: agentEntries,
-                                        memoryFlushed: flushed, archive: archive)
+                                        memoryFlushed: flushed, archive: archive, configuration: session.tools.configurationEvidence)
                 }
                 session.interruption = nil
                 print("[\(number)/\(requests.count)] \(failure == nil ? "done" : "failed") in \(Int(ended.timeIntervalSince(started))) s")
@@ -364,14 +359,14 @@ enum ChatCommand {
         var exitStatus: Int32 { provider ? 3 : 1 }
     }
 
-    /// Compares what this process answers to `memory_task status` with the identity a preflight file expects, before
+    /// Compares the host runtime identity with the expectation before
     /// any turn; the answer and the verdict go to the evidence when there is one. A difference stops the chat before
     /// it touches anything.
     private static func preflight(_ options: ChatOptions, _ session: ChatSession, evidence: ChatEvidence?) async throws {
         guard let path = options.preflight else { return }
         let file = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let expected = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file))
-        let found = ChatScript.payload(of: try await session.tools.call("memory_task", .object(["operation": .string("status")])))
+        let found = try await session.tools.runtimeIdentity()
         let differences = ChatScript.differences(expected: expected, found: found)
         try evidence?.preflight(found: found, differences: differences)
         print("preflight: " + (differences.isEmpty ? "the process matches \(file.path)" : "\(differences.count) differences from \(file.path)"))

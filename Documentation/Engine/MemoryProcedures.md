@@ -1,5 +1,8 @@
 # Memory procedures and the functional Brain
 
+> Current model contract: `plan` offers compact procedure parts for its rows, a gesture's `step` selects its row, and `end` closes the task. Completed candidates are interpreted internally by the procedure producer. `memory_task` is neither advertised nor callable. The query/choice and declaration formats below describe persisted data and typed library contracts; older tool-call examples are historical fixtures, not instructions for the current model. See [current runtime](README.md#current-runtime-contract) and [CLI preflight](Chat.md).
+
+
 What the living memory learns from the facts of a task since G76 plan D2 (October 2026): the candidate
 procedure the system segments from an attempt's calls, the agent's interpretation of it, the versions
 built from it with their parts, parameters and contracts, the operational qualification A of every part,

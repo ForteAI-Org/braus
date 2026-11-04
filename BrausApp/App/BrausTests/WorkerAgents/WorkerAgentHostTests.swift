@@ -172,14 +172,14 @@ struct WorkerAgentHostTests {
         let root = URL.temporaryDirectory.appending(path: "braus-seat-\(UUID().uuidString)")
         defer { remove(root) }
         let (standIn, received) = try codexStandIn(in: root)
-        let seat = "Braus seat: no session is open. The last one was on Safari (com.apple.Safari)."
+        let seat = "<braus_state>\nsession: closed\napp: {\"name\":\"Safari\",\"bundle\":\"com.apple.Safari\",\"state\":\"last\"}\ntask: none\n</braus_state>"
 
         let host = WorkerAgentHost(
             workingDirectory: root.appending(path: "work"),
             bridgeExecutable: standIn,
             session         : { DesktopUnavailableSession() },
             agents          : { _ in (.codex, standIn) },
-            seatLine        : { SeatFacts(legacyText: seat) }
+            seatLine        : { SeatFacts(application: .init(name: "Safari", bundleID: "com.apple.Safari")) }
         )
         let selection = ModelSelection(provider: .codex, model: "", effort: .medium)
         var events    = [WorkerAgentEvent]()

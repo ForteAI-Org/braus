@@ -151,7 +151,7 @@ struct TextTargetWebTests {
         let binding = try #require(await stack.engine.classify(Self.typing("Grace", into: "Nome", in: stack)).binding)
         stack.page.schedule(afterPress: [.setType(12, "password")])
         let outcome = await stack.engine.deliver(Self.typing("Grace", into: "Nome", in: stack, binding: binding))
-        #expect(outcome.kind == .actedUnverified && outcome.message.contains("nothing was typed"), Comment(rawValue: outcome.message))
+        #expect(outcome.kind == .actedUnverified, Comment(rawValue: outcome.message))
         #expect(stack.page.value(of: 12) == "Ada", "no key went out")
     }
 

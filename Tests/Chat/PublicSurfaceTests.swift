@@ -30,8 +30,6 @@ struct PublicSurfaceTests {
         #expect(AutomationTools.elementReference("id:'field'") == "field")
         tools.producer = CallProducer(source: .app, streamID: "public-surface")
         tools.record = { _ in }
-        tools.adapters = nil
-        tools.router = nil
         #expect(tools.producer.streamID == "public-surface")
         #expect(tools.adapters == nil)
         #expect(tools.router == nil)
@@ -49,7 +47,7 @@ struct PublicSurfaceTests {
         tools.markTaskInterrupted()
         try await tools.finishInterruptedTask()
         #expect(tools.takeStoppedTaskNotice() == nil)
-        let result = try await tools.call("observe", .object(["session": .string(try #require(session.id).uuidString)]))
+        let result = try await tools.call("observe", .object([:]))
         #expect(result["content"].array?.isEmpty == false)
     }
 }

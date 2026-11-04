@@ -80,15 +80,15 @@ struct LiveR01CorrectionTests {
     static func learnFolder(_ session: LearningSession, _ folder: String) async throws -> (JSONValue, String) {
         let memory = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
-        let tools = P.tools(session)
+        let tools = P.tools(session, profile: SessionProfile.app.replacing(memory: .learn))
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Open the folder of the input image in Finder","recall":false,
+            {"request":"Open the folder of the input image in Finder",
              "inputs":[{"name":"source_folder","value":"\#(folder)","kind":"folder","role":"folder holding the input image"}]}
             """#)
         try await goToFolder(tools, session, folder)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string, "\(ended)")
-        let interpreted = try await P.task(tools, Self.interpretation(candidate))
+        let ended = try await P.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await P.candidateIDFixture(tools, session)
+        let interpreted = try await P.interpretFixture(tools, session, Self.interpretation(candidate))
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
         return (interpreted, ProcedureAssembly.routeID(candidateID: candidate, revision: 1))
     }
@@ -116,7 +116,7 @@ struct LiveR01CorrectionTests {
 
             // A new task in another folder: the proposal binds the source's parameter to its own folder, never to R01's.
             let tools = P.tools(session, stream: "second")
-            let begun = try await P.task(tools, #"""
+            let begun = try await HistoricalRecallFixture.beginProposal(tools, #"""
                 {"operation":"begin","goal":"Open the folder of the new image in Finder","recall_mode":"propose",
                  "needs":[{"text":"Open the folder of the input image in Finder","app":"com.apple.finder"}],
                  "inputs":[{"name":"source_folder","value":"\#(Self.folderB)","kind":"folder","role":"folder holding the input image"}]}
@@ -125,7 +125,7 @@ struct LiveR01CorrectionTests {
             let source = try #require(proposal["sources"].array?.first { $0["version"].string == routeID }, "\(proposal)")
             let parameters = "\(source["parameters"])"
             #expect(parameters.contains(Self.folderB) && !parameters.contains(Self.folderA), "\(parameters)")
-            let chosen = try await P.task(tools, RecallChoiceToolTests.choose(try #require(proposal["proposal"].string),
+            let chosen = try await HistoricalRecallFixture.choose(tools, RecallChoiceToolTests.choose(try #require(proposal["proposal"].string),
                                                                              [(try #require(source["source"].string), 1, 3)]))
             let tract = try #require(chosen["recall"]["needs"].array?.first?["tracts"].array?.first, "\(chosen)")
             let bound = (tract["parameters"].array ?? []).first { $0["name"].string == "source_folder" }
@@ -162,10 +162,10 @@ struct LiveR01CorrectionTests {
         let memory = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
         let tools = P.tools(session)
-        _ = try await P.task(tools, #"{"operation":"begin","goal":"Open the folder","recall":false}"#)
+        _ = try await P.task(tools, #"{"request":"Open the folder"}"#)
         session.id = nil
         let error = await #expect(throws: AutomationFailure.self) {
-            try await tools.call("menu", P.json(#"{"session":"\#(UUID().uuidString)","path":"Go > Go to Folder…"}"#))
+            try await P.call(tools, "menu", #"{"path":"Go > Go to Folder…"}"#)
         }
         let text = error.map { "\($0)" } ?? ""
         #expect(text.contains("needs an open session") && !text.contains("memory"), "\(text)")
@@ -185,18 +185,18 @@ struct LiveR01CorrectionTests {
     static func learnFailedPhoto(_ session: LearningSession) async throws -> String {
         let memory = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
-        let tools = P.tools(session)
+        let tools = P.tools(session, profile: SessionProfile.app.replacing(memory: .learn))
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG","recall":false,
+            {"request":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
              "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
             """#)
         try await P.runPhotoExport(tools, session)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"failed","note":"the export did not reach the folder"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string, "\(ended)")
+        let ended = try await P.task(tools, #"{"outcome":"failed","note":"the export did not reach the folder"}"#)
+        let candidate = try await P.candidateIDFixture(tools, session)
         let interpretation = P.photoInterpretation(candidate)
             .replacingOccurrences(of: #"rotate it in Preview and export it as <name>.<extension>"}"#,
                                   with: #"rotate it in Preview and export it as <name>.<extension>","outcome":"failed"}"#)
-        let interpreted = try await P.task(tools, interpretation)
+        let interpreted = try await P.interpretFixture(tools, session, interpretation)
         let parts = interpreted["parts"].array ?? []
         #expect(parts.first { $0["part"].string == "procedure" }?["admitted"].bool == false, "\(interpreted)")
         #expect(parts.contains { $0["part"].string?.hasPrefix("s") == true && $0["admitted"].bool == true }, "\(interpreted)")
@@ -215,18 +215,18 @@ struct LiveR01CorrectionTests {
     /// Proposes for the export of the photo with the need bound to `app`; answers the proposal and the search note recorded.
     static func propose(_ session: LearningSession, app: String, stream: String) async throws -> (JSONValue, String?) {
         let tools = P.tools(session, stream: stream)
-        let begun = try await P.task(tools, #"""
+        let begun = try await HistoricalRecallFixture.beginProposal(tools, #"""
             {"operation":"begin","goal":"Rotate the photo right and export it","recall_mode":"propose",
              "needs":[{"text":"Rotate the image right and export it","app":"\#(app)"}],
              "inputs":[{"name":"output_name","value":"foto_mail"},{"name":"output_extension","value":"png"}]}
             """#)
         let id = begun["recall_proposal"]["proposal"].string ?? ""
         let note = try rawRows("SELECT ifnull(search_note, '') FROM memory_recall_proposals WHERE proposal_id = '\(id)'", at: L.url(session)).first
-        _ = try await P.task(tools, #"{"operation":"end","outcome":"abandoned"}"#)
+        _ = try await HistoricalRecallFixture.end(tools, #"{"operation":"end","outcome":"abandoned"}"#)
         return (begun["recall_proposal"], note.flatMap { $0.isEmpty ? nil : $0 })
     }
 
-    @Test("live R01 LV03: the steps of a failed task are offered whether the need names the application by name, by its localized name or by bundle ID",
+    @Test("live R01 LV03: the admitted parts of a failed task are offered for its app by name, localized name or bundle ID",
           arguments: ["Preview", "preview", "Anteprima", "com.apple.Preview", "COM.APPLE.PREVIEW", "Preview.app"])
     func partialMemoryByAnyName(_ app: String) async throws {
         do {
@@ -234,7 +234,7 @@ struct LiveR01CorrectionTests {
             session.offered = Self.offered
             let routeID = try await Self.learnFailedPhoto(session)
             let (proposal, note) = try await Self.propose(session, app: app, stream: "lv03")
-            #expect((proposal["sources"].array ?? []).contains { $0["version"].string == routeID }, "app=\(app), proposal=\(proposal)")
+            #expect((proposal["sources"].array ?? []).contains { $0["version"].string == routeID }, "Admitted parts remain reusable: app=\(app), proposal=\(proposal)")
             #expect(proposal["needs"].array?.first?["app"].string == "Preview", "the need records the resolved application")
             #expect(note == nil || !(note ?? "").contains("could not be resolved"), "\(note ?? "")")
             #expect(try rawRows("SELECT ifnull(bundle_id, '') FROM memory_recall_proposal_needs", at: L.url(session)).allSatisfy { $0 == P.preview })
@@ -265,7 +265,7 @@ struct LiveR01CorrectionTests {
         }
     }
 
-    @Test("live R01 LV03: R01's own Finder steps, learned again through the tools in a failed task, are found by Finder and by com.apple.finder",
+    @Test("live R01 LV03: R01's own Finder steps in a failed task remain reusable for Finder and com.apple.finder",
           arguments: ["Finder", "com.apple.finder"])
     func failedFinderTask(_ app: String) async throws {
         do {
@@ -273,26 +273,26 @@ struct LiveR01CorrectionTests {
             session.offered = Self.offered
             let memory = MemoryService.shared(for: session.directory)
             RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
-            let tools = P.tools(session)
+            let tools = P.tools(session, profile: SessionProfile.app.replacing(memory: .learn))
             _ = try await P.task(tools, #"""
-                {"operation":"begin","goal":"Open the folder of the input image in Finder","recall":false,
+                {"request":"Open the folder of the input image in Finder",
                  "inputs":[{"name":"source_folder","value":"\#(Self.folderA)","kind":"folder"}]}
                 """#)
             try await Self.goToFolder(tools, session, Self.folderA)
-            let ended = try await P.task(tools, #"{"operation":"end","outcome":"failed"}"#)
-            let candidate = try #require(ended["candidate"]["id"].string)
+            let ended = try await P.task(tools, #"{"outcome":"failed"}"#)
+            let candidate = try await P.candidateIDFixture(tools, session)
             let interpretation = Self.interpretation(candidate).replacingOccurrences(of: #""label":"Open <source_folder> in Finder","outcome":"completed"},"parts""#,
                                                                                      with: #""label":"Open <source_folder> in Finder","outcome":"failed"},"parts""#)
-            _ = try await P.task(tools, interpretation)
+            _ = try await P.interpretFixture(tools, session, interpretation)
             #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
             let routeID = ProcedureAssembly.routeID(candidateID: candidate, revision: 1)
             let second = P.tools(session, stream: "lv03-finder")
-            let begun = try await P.task(second, #"""
+            let begun = try await HistoricalRecallFixture.beginProposal(second, #"""
                 {"operation":"begin","goal":"Open the folder of the new image","recall_mode":"propose",
                  "needs":[{"text":"Open the Go to Folder sheet and type the folder","app":"\#(app)"}],
                  "inputs":[{"name":"source_folder","value":"\#(Self.folderB)","kind":"folder"}]}
                 """#)
-            #expect((begun["recall_proposal"]["sources"].array ?? []).contains { $0["version"].string == routeID }, "\(begun)")
+            #expect((begun["recall_proposal"]["sources"].array ?? []).contains { $0["version"].string == routeID }, "Admitted Finder parts are reusable: \(begun)")
             await L.close(session)
         }
     }

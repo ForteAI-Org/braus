@@ -2,7 +2,6 @@ import EngineCore
 import Foundation
 import Memory
 import PerceptionCore
-import Switches
 import Testing
 @testable import AutomationMCP
 
@@ -15,7 +14,7 @@ struct SceneContextHoldTests {
         let hold = policy.contextHolds(after: .compaction, keeping: first.revision)
         #expect(hold.firstHeldRevision == first.revision + 1)
         let kept = await policy.answer(Self.scene(1), changesOnly: true, session: session, shown: ValueMinimization())
-        #expect(kept.form == .changes(since: first.revision, base: .last))
+        #expect(kept.form == .changes(since: first.revision, base: .anchor))
         let dropped = policy.contextHolds(after: .compaction)
         #expect(dropped.firstHeldRevision == policy.revision + 1)
         let whole = await policy.answer(Self.scene(2), changesOnly: true, session: session, shown: ValueMinimization())
@@ -33,7 +32,7 @@ struct SceneContextHoldTests {
             #expect(first.form == .whole(because: .personHadApp))
             #expect(first.text.hasPrefix("Whole scene: the person used the application since your last reading.\n"))
             let second = await policy.answer(Self.scene(1), changesOnly: true, session: session, shown: ValueMinimization())
-            #expect(second.form == .changes(since: first.revision, base: .last))
+            #expect(second.form == .changes(since: first.revision, base: .anchor))
             #expect(policy.latest?.revision == first.revision)
             #expect(policy.latest?.text.contains("the person used") == false)
             let whole = await policy.answer(Self.scene(2), session: session, shown: ValueMinimization())
@@ -65,39 +64,33 @@ struct SceneContextHoldTests {
 @MainActor
 struct HybridRuleTests {
     @Test func alternatesAnchorAndLastAndNewWindowIsWhole() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_text_policy": "hybrid75", "scene_text": "v2"])) {
-            let policy = SceneTextPolicy()
-            let session = SceneContextHoldTests.session()
-            for value in 0..<6 {
-                let answer = await policy.answer(SceneContextHoldTests.scene(value), changesOnly: true,
-                                                session: session, shown: ValueMinimization())
-                if value == 0 { #expect(answer.form == .whole(because: nil)) }
-                else {
-                    let base: SceneAnswer.Base = value % 2 == 1 ? .anchor : .last
-                    let since = base == .anchor ? 1 : value
-                    #expect(answer.form == .changes(since: since, base: base))
-                    #expect(answer.text.hasPrefix("r\(value + 1) since r\(since) (\(base.rawValue))\n"))
-                }
-            }
-            session.observedWindowNumber = 2
-            let whole = await policy.answer(SceneContextHoldTests.scene(6), changesOnly: true,
+        let policy = SceneTextPolicy()
+        let session = SceneContextHoldTests.session()
+        for value in 0..<6 {
+            let answer = await policy.answer(SceneContextHoldTests.scene(value), changesOnly: true,
                                             session: session, shown: ValueMinimization())
-            #expect(whole.form == .whole(because: nil))
+            if value == 0 { #expect(answer.form == .whole(because: nil)) }
+            else {
+                let base: SceneAnswer.Base = value % 2 == 1 ? .anchor : .last
+                let since = base == .anchor ? 1 : value
+                #expect(answer.form == .changes(since: since, base: base))
+                #expect(answer.text.hasPrefix("r\(value + 1) since r\(since)\n"))
+            }
         }
+        session.observedWindowNumber = 2
+        let whole = await policy.answer(SceneContextHoldTests.scene(6), changesOnly: true,
+                                        session: session, shown: ValueMinimization())
+        #expect(whole.form == .whole(because: nil))
     }
 
-    @Test func thresholdAndChainedBoundaryAreStrict() {
+    @Test func thresholdIncludes75PercentAndReanchorsAboveIt() {
         let scene = SceneContextHoldTests.scene()
         let baseline = SceneWindowBaselines.Reading(revision: 1, scene: scene)
         let baselines = SceneWindowBaselines(key: .init(session: nil, windowNumber: 1, bundleID: scene.bundleID),
                                             anchor: baseline, last: baseline, lastBase: nil)
-        #expect(SceneDifferenceRule.chained.choose(baselines: baselines, wholeCharacters: 100, changes: { _ in 49 })
-                == .changes(since: 1, base: .last))
-        #expect(SceneDifferenceRule.chained.choose(baselines: baselines, wholeCharacters: 100, changes: { _ in 50 })
-                == .whole(because: nil))
-        #expect(SceneDifferenceRule.hybrid75.choose(baselines: baselines, wholeCharacters: 100, changes: { _ in 75 })
+        #expect(SceneDifferenceRule.choose(baselines: baselines, wholeCharacters: 100, changes: { _ in 75 })
                 == .changes(since: 1, base: .anchor))
-        #expect(SceneDifferenceRule.hybrid75.choose(baselines: baselines, wholeCharacters: 100, changes: { _ in 76 })
+        #expect(SceneDifferenceRule.choose(baselines: baselines, wholeCharacters: 100, changes: { _ in 76 })
                 == .whole(because: nil))
     }
 }
@@ -163,29 +156,27 @@ extension SceneContextHoldTests {
                                             keptRevision: whole.revision, reason: .sessionSwitch))
         policy.restore(checkpoint)
         let next = await policy.answer(Self.scene(2), changesOnly: true, session: session, shown: ValueMinimization())
-        #expect(next.form == .changes(since: whole.revision, base: .last))
+        #expect(next.form == .changes(since: whole.revision, base: .anchor))
     }
 }
 
 extension HybridRuleTests {
     @Test func largeDifferenceReanchorsAndUnchangedHasRevisionHeader() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_text_policy": "hybrid75", "scene_text": "v2"])) {
-            let policy = SceneTextPolicy()
-            let session = SceneContextHoldTests.session()
-            let first = SceneContextHoldTests.scene()
-            _ = await policy.answer(first, session: session, shown: ValueMinimization())
-            var replaced = first
-            replaced.elements = replaced.elements.map { element in
-                var changed = element
-                changed.label = "Replacement " + changed.label
-                return changed
-            }
-            let whole = await policy.answer(replaced, changesOnly: true, session: session, shown: ValueMinimization())
-            #expect(whole.form == .whole(because: nil))
-            let unchanged = await policy.answer(replaced, changesOnly: true, session: session, shown: ValueMinimization())
-            #expect(unchanged.form == .unchanged(since: whole.revision))
-            #expect(unchanged.text == "r3 unchanged since r2")
+        let policy = SceneTextPolicy()
+        let session = SceneContextHoldTests.session()
+        let first = SceneContextHoldTests.scene()
+        _ = await policy.answer(first, session: session, shown: ValueMinimization())
+        var replaced = first
+        replaced.elements = replaced.elements.map { element in
+            var changed = element
+            changed.label = "Replacement " + changed.label
+            return changed
         }
+        let whole = await policy.answer(replaced, changesOnly: true, session: session, shown: ValueMinimization())
+        #expect(whole.form == .whole(because: nil))
+        let unchanged = await policy.answer(replaced, changesOnly: true, session: session, shown: ValueMinimization())
+        #expect(unchanged.form == .unchanged(since: whole.revision))
+        #expect(unchanged.text == "r3 unchanged since r2")
     }
 }
 
@@ -199,7 +190,7 @@ extension SceneContextHoldTests {
         _ = await policy.answer(Self.scene(2), changesOnly: true, session: session, shown: ValueMinimization())
         policy.contextHolds(SceneContextHold(firstHeldRevision: 3, keptRevision: 1, reason: .sessionSwitch))
         let next = await policy.answer(Self.scene(3), changesOnly: true, session: session, shown: ValueMinimization())
-        #expect(next.form == .changes(since: 1, base: .last))
+        #expect(next.form == .changes(since: 1, base: .anchor))
     }
 }
 
@@ -219,5 +210,25 @@ extension SceneContextHoldTests {
         #expect(again.form == .whole(because: nil))
         #expect(!again.text.contains("the person used"))
         #expect(policy.latest?.parts.last?.utf8.upperBound == policy.latest?.text.utf8.count)
+    }
+}
+
+extension HybridRuleTests {
+    @Test func longTaskKeepsEveryDifferenceChainWithinTwoReadings() async throws {
+        let policy = SceneTextPolicy()
+        let session = SceneContextHoldTests.session()
+        var depth: [Int: Int] = [:]
+        for value in 0..<200 {
+            let answer = await policy.answer(SceneContextHoldTests.scene(value), changesOnly: true,
+                                            session: session, shown: ValueMinimization())
+            switch answer.form {
+            case .whole: depth[answer.revision] = 0
+            case .changes(let since, _), .unchanged(let since):
+                let before = try #require(depth[since])
+                depth[answer.revision] = before + 1
+                #expect(before + 1 <= 2)
+            }
+            #expect(policy.seen.allSatisfy { $0.lastDependencies.count <= 2 })
+        }
     }
 }

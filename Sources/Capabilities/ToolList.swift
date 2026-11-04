@@ -1,7 +1,5 @@
-import ChatCore
-
 /// ToolList freezes the attendance and authority level chosen by a composition.
-/// It describes the v2 surface without changing a transport, session or feature switch.
+/// It describes the canonical core without selecting an implementation or transport.
 public struct ToolList: Sendable, Equatable {
     /// Attendance identifies who can answer a request for help.
     public enum Attendance: String, Sendable, Codable {
@@ -33,13 +31,10 @@ public struct ToolList: Sendable, Equatable {
     /// Observe permits opening explicitly; the dispatcher must restrict delegated calls to read effects.
     public static func names(
         attendance: Attendance,
-        level: Level,
-        loading: ToolLoading = .upfront
+        level: Level
     ) -> [CapabilityID] {
-        let names = level == .observe
+        return level == .observe
             ? core.filter { ["open_session", "observe", "find", "call"].contains($0.rawValue) }
             : core
-        return loading == .harnessSearch
-            ? names.filter { !["find", "call"].contains($0.rawValue) } : names
     }
 }

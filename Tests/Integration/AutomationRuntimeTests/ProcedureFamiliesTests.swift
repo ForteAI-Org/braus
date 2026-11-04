@@ -56,17 +56,18 @@ struct ProcedureFamiliesTests {
         _ = try await P.task(first, ProcedureMethodTests.begin("foto_web"))
         try await ProcedureMethodTests.run(first, session, name: "foto_web", mistakes: false)
         let ended = try await P.task(first, ProcedureMethodTests.end(result: try ProcedureMethodTests.written(directory, "foto_web")))
-        let firstCandidate = try #require(ended["candidate"]["id"].string)
-        let interpreted = try await P.task(first, ProcedureMethodTests.interpretation(firstCandidate, mistakes: false))
+        let firstCandidate = try await P.candidateIDFixture(first, session)
+        let interpreted = try await P.interpretFixture(first, session, ProcedureMethodTests.interpretation(firstCandidate, mistakes: false))
         #expect((interpreted["parts"].array ?? []).allSatisfy { $0["admitted"].bool == true }, "\(interpreted)")
-        #expect(ended["candidate"]["known_phases"] == .null, "nothing was learned before the first task")
+        #expect((try await P.candidateFixture(first, session))["known_phases"] == .null, "nothing was learned before the first task")
 
         let second = P.tools(session, stream: "second")
         _ = try await P.task(second, ProcedureMethodTests.begin("foto_mail"))
         try await ProcedureMethodTests.run(second, session, name: "foto_mail", mistakes: false)
         let secondEnd = try await P.task(second, ProcedureMethodTests.end(result: try ProcedureMethodTests.written(directory, "foto_mail")))
-        let known = secondEnd["candidate"]["known_phases"].array ?? []
-        #expect(known.count == 1, "\(secondEnd["candidate"])")
+        let secondCandidate = try await P.candidateFixture(second, session)
+        let known = secondCandidate["known_phases"].array ?? []
+        #expect(known.count == 1, "\(secondCandidate)")
         #expect(RecallCycleTests.int(known.first?["from"] ?? .null) == 2 && RecallCycleTests.int(known.first?["to"] ?? .null) == 5)
         #expect(known.first?["label"].string == "Export it as <name>.jpg in JPEG")
 

@@ -11,7 +11,6 @@ import EngineCore
 import Foundation
 import PerceptionCore
 import Testing
-import Switches
 
 /// The act cycle over doubles that honor the roles: a scene source that answers a scripted sequence,
 /// an actuator that records gestures, a window list that answers a scripted census, a control reader
@@ -636,14 +635,12 @@ struct ActionEngineTests {
 
     @Test("delivery failure is reported, never hidden")
     func deliveryFailure() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "off"])) {
-            let actuator = RecordingActuator(); actuator.failure = Unavailable()
-            let outcome = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator).act(request("Export"))
-            #expect(outcome.kind == .actedUnverified)
-            #expect(outcome.outcome.gesture == .uncertain)
-            #expect(outcome.message.contains("delivery failed"))
-            #expect(actuator.confirmations == [.unknown], "a failed delivery is still closed, as unknown")
-        }
+        let actuator = RecordingActuator(); actuator.failure = Unavailable()
+        let outcome = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator).act(request("Export"))
+        #expect(outcome.kind == .actedUnverified)
+        #expect(outcome.outcome.gesture == .uncertain)
+        #expect(outcome.check?.limits.contains(.deliveryUncertain) == true)
+        #expect(actuator.confirmations.first == .unknown, "a failed delivery is closed before reading its effect")
     }
 
     // MARK: Format toggles
@@ -798,18 +795,16 @@ struct ActionEngineTests {
 
     @Test("a refusal after an earlier gesture of the same input went out stays a delivery whose effect is unknown")
     func refusalAfterAnEarlierGesture() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "off"])) {
-            let actuator = RecordingActuator()
-            actuator.failure = GestureNotSent(reason: "endpoint_refused", sentence: "No control.")
-            actuator.failsFrom = 1
-            let outcome = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator)
-                .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
-                                      input: .pressKey(KeyChord(.return), times: 2)))
-            #expect(actuator.gestures.count == 1)
-            #expect(outcome.kind == .actedUnverified, "the first Return went out: its effect is unknown")
-            #expect(outcome.outcome.gesture == .uncertain)
-            #expect(outcome.message.contains("delivery failed"))
-        }
+        let actuator = RecordingActuator()
+        actuator.failure = GestureNotSent(reason: "endpoint_refused", sentence: "No control.")
+        actuator.failsFrom = 1
+        let outcome = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator)
+            .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                                  input: .pressKey(KeyChord(.return), times: 2)))
+        #expect(actuator.gestures.count == 1)
+        #expect(outcome.kind == .actedUnverified, "the first Return went out: its effect is unknown")
+        #expect(outcome.outcome.gesture == .uncertain)
+        #expect(outcome.check?.limits.contains(.deliveryUncertain) == true)
     }
 
     @Test("a key that changed nothing in a file panel the system draws bounds the retries and says when to stop")
@@ -893,21 +888,19 @@ struct ActionEngineTests {
 
     @Test("the person first: a refusal after part of an input went out stays uncertain and says why")
     func personActedMidInput() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "off"])) {
-            let field = SceneElement(id: "field|name", kind: .control, label: "Name", bounds: rect(0.2, 0.2), role: "AXTextField")
-            let actuator = RefusingActuator(refusesFrom: 2)
-            let engine = ActionEngine(ActionEngine.Dependencies(
-                scenes: ScriptedScenes([scene([field])]), actuator: actuator, windows: ScriptedWindows([[mainWindow]])
-            ), pause: { _ in })
-            let outcome = await engine.deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
-                                                            input: .typeText("Braus", into: "Name", replacing: false)))
-            #expect(outcome.kind == .actedUnverified)
-            #expect(outcome.outcome.gesture == .uncertain)
-            #expect(outcome.message.contains("delivery failed"), Comment(rawValue: outcome.message))
-            #expect(outcome.message.contains("The person changed the app; read it again."), Comment(rawValue: outcome.message))
-            #expect(actuator.gestures.count == 1)
-            #expect(actuator.attempts == 2, "no retry")
-        }
+        let field = SceneElement(id: "field|name", kind: .control, label: "Name", bounds: rect(0.2, 0.2), role: "AXTextField")
+        let actuator = RefusingActuator(refusesFrom: 2)
+        let engine = ActionEngine(ActionEngine.Dependencies(
+            scenes: ScriptedScenes([scene([field])]), actuator: actuator, windows: ScriptedWindows([[mainWindow]])
+        ), pause: { _ in })
+        let outcome = await engine.deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                                                        input: .typeText("Braus", into: "Name", replacing: false)))
+        #expect(outcome.kind == .actedUnverified)
+        #expect(outcome.outcome.gesture == .uncertain)
+        #expect(outcome.check?.limits.contains(.deliveryUncertain) == true)
+        #expect(outcome.scene != nil, "the failed delivery is followed by a read, never a replay")
+        #expect(actuator.gestures.count == 1)
+        #expect(actuator.attempts == 2, "no retry")
     }
 
     // MARK: set_toggle
@@ -1240,31 +1233,28 @@ struct ActionEngineTests {
 }
 
 extension ActionEngineTests {
-    @Test func escapeRefusalOffStillJudgesClosure() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "off"])) {
-            let actuator = RecordingActuator()
-            actuator.failure = GestureNotSent(reason: "endpoint_refused", sentence: "No control.")
-            let result = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator,
-                windows: ScriptedWindows([[popupWindow, mainWindow], [mainWindow]]))
-                .act(request("Export"))
-            #expect(result.notSent == nil)
-            #expect(result.message.contains("closed the menu instead"))
-            #expect(result.check?.performed == .uncertain)
-        }
+    @Test func escapeRefusalDoesNotClaimClosure() async {
+        let actuator = RecordingActuator()
+        actuator.failure = GestureNotSent(reason: "endpoint_refused", sentence: "No control.")
+        let result = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator,
+            windows: ScriptedWindows([[popupWindow, mainWindow], [mainWindow]]))
+            .act(request("Export"))
+        #expect(result.notSent == .targetUnreachable)
+        #expect(result.outcome.gesture == .notSent)
+        #expect(!result.message.contains("closed the menu instead"))
+        #expect(actuator.gestures.isEmpty)
     }
 
     @Test func missingContextItemKeepsReasonAfterUncertainEscape() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "on"])) {
-            let actuator = RecordingActuator()
-            actuator.failsFrom = 1
-            actuator.failure = Unavailable()
-            let result = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator,
-                windows: ScriptedWindows([[mainWindow], [popupWindow, mainWindow], [mainWindow]]))
-                .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
-                    input: .contextMenu(on: "Export", item: "Missing")))
-            #expect(result.message.contains("no item 'Missing' in the contextual menu"))
-            #expect(result.check?.performed == .uncertain)
-            #expect(actuator.gestures.count == 1)
-        }
+        let actuator = RecordingActuator()
+        actuator.failsFrom = 1
+        actuator.failure = Unavailable()
+        let result = await engine(scenes: ScriptedScenes([scene([export])]), actuator: actuator,
+            windows: ScriptedWindows([[mainWindow], [popupWindow, mainWindow], [mainWindow]]))
+            .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
+                input: .contextMenu(on: "Export", item: "Missing")))
+        #expect(result.message.contains("no item 'Missing' in the contextual menu"))
+        #expect(result.check?.performed == .uncertain)
+        #expect(actuator.gestures.count == 1)
     }
 }

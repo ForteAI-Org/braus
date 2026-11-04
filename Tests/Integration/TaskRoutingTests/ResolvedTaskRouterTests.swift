@@ -29,7 +29,7 @@ struct ResolvedTaskRouterTests {
             return
         }
         #expect(route == .adapter(adapter) && route.address == "app_call(\(adapter))")
-        #expect(message.hasPrefix("Calendario: use app_call with app \"\(adapter)\""), "\(message)")
+        #expect(message.hasPrefix("Calendario: use find for \"\(adapter)\""), "\(message)")
         #expect(message.contains(SharedRoutes.openOnlyIfNamed("Calendario")))
         #expect(message.contains("When none of its verbs does the task, call open_session again with named true"))
         #expect(!message.contains("is not known"), "a ready adapter says nothing of its grant")

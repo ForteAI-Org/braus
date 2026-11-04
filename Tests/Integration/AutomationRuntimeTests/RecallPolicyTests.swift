@@ -55,16 +55,16 @@ struct RecallPolicyTests {
     func recalledSendUnderTheCurrentPolicy() async throws {
         let (session, memory) = try await RecallScopeTests.learned()
         let tools = P.tools(session, stream: "r10")
-        let begun = try await P.task(tools, #"""
+        let begun = try await HistoricalRecallFixture.beginProposal(tools, #"""
             {"operation":"begin","goal":"Find report_q4.pdf and send it by email to Marco with subject Report Q4",
              "remaining":"Find report_q4.pdf and send it by email to Marco with subject Report Q4",
              "inputs":[{"name":"file_name","value":"report_q4.pdf"},{"name":"recipient","value":"marco@example.com"},
                        {"name":"subject","value":"Report Q4"}]}
             """#)
-        // The product's path: the memory proposes, the agent chooses its ready plan, and the memory delivers it.
+        // The service contract: propose and choose independently of the model's plan surface.
         let proposal = try #require(begun["recall_proposal"]["proposal"].string, "\(begun)")
         let plan = try #require(begun["recall_proposal"]["needs"].array?.first?["readyPlan"].string, "\(begun)")
-        let chosen = try await P.task(tools, #"{"operation":"choose","proposal":"\#(proposal)","plan":[\#(plan)]}"#)
+        let chosen = try await HistoricalRecallFixture.choose(tools, #"{"operation":"choose","proposal":"\#(proposal)","plan":[\#(plan)]}"#)
         let steps = (chosen["recall"]["needs"].array?.first?["tracts"].array ?? []).flatMap { $0["steps"].array ?? [] }
         let send = try #require(steps.first { step in
             step["tool"].string == "act" && (step["arguments"].array ?? []).contains { $0["value"].string == "Send" }

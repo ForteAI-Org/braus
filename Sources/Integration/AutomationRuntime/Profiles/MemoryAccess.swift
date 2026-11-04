@@ -1,4 +1,3 @@
-import Switches
 
 /// MemoryAccess carries immutable session permissions to each request and recorder.
 public nonisolated struct MemoryAccess: Sendable, Equatable {
@@ -18,6 +17,3 @@ public nonisolated struct MemoryAccess: Sendable, Equatable {
     /// Carries the caller's permissions through session adapters without changing shared memory state.
     @TaskLocal public static var current: MemoryAccess = .readLearn
 }
-
-/// BrainEnrichmentArm changes scene enrichment only; recording permissions remain the profile's.
-public nonisolated enum BrainEnrichmentArm: String, Sendable { case on, off }

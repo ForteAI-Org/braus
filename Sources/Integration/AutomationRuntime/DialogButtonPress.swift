@@ -234,7 +234,7 @@ public enum DialogButtonPress {
             case .press(let button, let title):
                 let before = MenuBarCommand.windowSignature(of: processID)
                 let error  = AXUIElementPerformAction(button, kAXPressAction as CFString)
-                // A button that opens a modal can keep the reply past the timeout: it was pressed.
+                // A modal can outlive the reply timeout; preserve uncertainty independently of its observed effect.
                 guard error == .success || error == .cannotComplete else {
                     return ActOutcome(
                         .actedUnverified,
@@ -242,43 +242,12 @@ public enum DialogButtonPress {
                         check: MenuBarCommand.windowCheck(.unknown, limits: [.deliveryUncertain], performed: .uncertain)
                     )
                 }
-                if SecondLook.isEnabled {
-                    return try await MenuBarCommand.observedOutcome("'\(title)'",
-                        outcome: ActOutcome(.foundActed, "pressed '\(title)'"), processID: processID,
-                        before: before, observe: observe)
-                }
-                try? await Task.sleep(for: .milliseconds(400))
-                return try await observed(title, observe: observe) { MenuBarCommand.windowSignature(of: processID) != before }
+                let check = error == .cannotComplete
+                    ? MenuBarCommand.windowCheck(.unknown, limits: [.deliveryUncertain], performed: .uncertain) : nil
+                return try await MenuBarCommand.observedOutcome("'\(title)'",
+                    outcome: ActOutcome(.foundActed, "pressed '\(title)'", check: check), processID: processID,
+                    before: before, observe: observe)
         }
-    }
-
-    /// What a press that was dispatched says once the window after it is perceived: whether the
-    /// application's windows changed, with the scene. A perception that fails leaves the press made and
-    /// its effect unknown (`no_after_scene`), with no scene and no error text: nothing says it worked,
-    /// failed or changed nothing, and it is not pressed again. A cancellation, or any error once the task
-    /// was cancelled, is no failed perception: it is thrown, the gesture made, and the call ends cancelled.
-    package static func observed(
-        _ title       : String,
-        observe       : () async throws -> SceneSnapshot,
-        windowsChanged: () -> Bool
-    ) async throws -> ActOutcome {
-        let scene: SceneSnapshot
-        do {
-            scene = try await observe()
-        } catch {
-            if error is CancellationError || Task.isCancelled { throw error }
-            return ActOutcome(.actedUnverified, "pressed '\(title)', but the window could not be perceived after it, so whether "
-                + "it took effect is unknown. Do not press it again; observe the session before further input.",
-                check: MenuBarCommand.windowCheck(.unknown, limits: [.noAfterScene]))
-        }
-        let changed = windowsChanged()
-        let check   = MenuBarCommand.windowCheck(changed ? .passed : .unknown)
-        return changed
-            ? ActOutcome(.foundActed, "pressed '\(title)': a window of the application opened, closed or "
-                + "was retitled", scene: scene, check: check)
-            : ActOutcome(.actedUnverified, "pressed '\(title)'" + MenuBarCommand.unchangedWindows + "; "
-                + "the scene shows whether it took effect. Do not press it again blind.",
-                scene: scene, check: check)
     }
 
     /// The application's dialog, the focused window first and then its windows and their sheets.

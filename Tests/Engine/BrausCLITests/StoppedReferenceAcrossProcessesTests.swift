@@ -6,7 +6,6 @@ import FileConversations
 import Foundation
 import LocalMCP
 import Memory
-import Switches
 import Testing
 @testable import SQLiteMemory
 @testable import braus
@@ -17,7 +16,7 @@ import Testing
 struct StoppedReferenceAcrossProcessesTests {
     @Test(arguments: [true, false])
     func resumedOnceRestoresOnlyAnExplicitStop(_ stopped: Bool) async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2", "tool_surface": "v2"])) {
+        do {
             let root = URL.temporaryDirectory.appending(path: "tu6-chat-\(UUID().uuidString)")
             let knowledge = root.appending(path: "Knowledge")
             try FileManager.default.createDirectory(at: knowledge, withIntermediateDirectories: true)
@@ -91,7 +90,7 @@ struct StoppedReferenceAcrossProcessesTests {
 @MainActor
 struct StopUnifiedTests {
     @Test func cliUsesTheSameIdentityFreeNoticeInV2() {
-        SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2"])) {
+        do {
             let line = ChatSession.line(for: .init(task: "private-task-id", closed: true, problem: nil))
             #expect(line == "Braus stopped the previous task and closed it as abandoned, not completed. "
                 + "Plan the current request as a new task; plan's answer lists the rows of the stopped task "

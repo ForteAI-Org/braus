@@ -3,24 +3,10 @@ import EngineCore
 import Memory
 import PerceptionCore
 
-/// BatchSequence executes in order, once per step, stopping on any unverified or failed outcome.
+/// BatchSequence executes each step once under the shared admission and continuation policy.
 /// Its caller owns the shared Seat and cleanup. Earlier effects are never rolled back or replayed.
 enum BatchSequence {
 
-    static func run(
-        _ steps: [BatchStep],
-        perform: (Int, BatchStep) async throws -> ActOutcome
-    ) async throws {
-        for (index, step) in steps.enumerated() {
-            do {
-                try Task.checkCancellation()
-                let result = try await perform(index + 1, step)
-                guard step.accepts(step.outcome(of: result)) else { throw ActFailure(result.kind) }
-            } catch {
-                throw BatchFailure(step: index + 1, total: steps.count, cause: error)
-            }
-        }
-    }
     struct PolicyResult {
         let conclusion: BatchConclusion
         let attempted: Int
@@ -53,11 +39,13 @@ enum BatchSequence {
                          verified: earlier.filter { $0.effect == .confirmed }.count, failure: failure)
         }
         for (index, step) in steps.enumerated() {
+            if Task.isCancelled { return result(.stopped(at: index, reason: .error), failure: CancellationError()) }
             if AutomationCallInterruption.current?.wasInterrupted == true { decision = .stop(.personInControl) }
             else if InterruptibleWait.current?.stopRequested == true { decision = .stop(.timeCap) }
             if case .stop(let reason) = decision { return result(.stopped(at: index, reason: reason)) }
             do {
                 let scene = try await prepare(index + 1, step)
+                try Task.checkCancellation()
                 let target = BatchPolicy.resolveTarget(of: index, in: plan, entryScene: entryScene, scene: scene)
                 decision = BatchPolicy.beforeStep(index, of: plan, scene: scene, target: target,
                     commits: BatchPolicy.stepCommits(facts[index], target: target.element, scene: scene),
@@ -68,27 +56,31 @@ enum BatchSequence {
                 attempted += 1
                 let rawResult = try await BatchStepBoundary.perform(until: deadline) {
                     try await ScreenExpectation.$current.withValue(facts[index].expectation) {
-                        try await perform(index + 1, step)
+                        try Task.checkCancellation()
+                        return try await perform(index + 1, step)
                     }
                 }
                 let done = rawResult.withStatedCheck
                 earlier.append(done.outcome)
+                if Task.isCancelled { return result(.stopped(at: index, reason: .error), failure: CancellationError()) }
                 let next = done.scene.map {
                     BatchPolicy.resolveTarget(of: index + 1, in: plan, entryScene: entryScene, scene: $0).isPresent
                 } ?? false
                 let announced: Bool
                 if case .window? = facts[index].expectation { announced = true } else { announced = false }
                 decision = BatchPolicy.afterStep(done.outcome,
-                    expectedAbsent: BatchPolicy.expectedAbsent(facts[index], outcome: done.outcome, sceneBefore: scene),
+                    expectedAbsent: BatchPolicy.expectedAbsent(facts[index], outcome: done),
                     unexpectedSurface: beforeWindow != windowNumber() && !announced, nextTargetPresent: next, isLastStep: index == steps.count - 1)
                 if AutomationCallInterruption.current?.wasInterrupted == true { decision = .stop(.personInControl) }
                 else if ContinuousClock.now >= deadline || InterruptibleWait.current?.stopRequested == true
                     || done.notSent == .humanIntervention { decision = .stop(.timeCap) }
                 if case .stop(let reason) = decision { return result(.stopped(at: index, reason: reason)) }
             } catch {
+                if Task.isCancelled { return result(.stopped(at: index, reason: .error), failure: CancellationError()) }
                 let reason: BatchStopReason = BatchPolicy.stopReason(for: error, deadlineReached: ContinuousClock.now >= deadline,
                     personInControl: AutomationCallInterruption.current?.wasInterrupted == true)
-                return result(.stopped(at: index, reason: reason), failure: reason == .error ? error : nil)
+                return result(.stopped(at: index, reason: reason), failure: reason == .error
+                    ? BatchFailure(step: index + 1, total: steps.count, cause: error) : nil)
             }
         }
         return result(.ranToEnd)

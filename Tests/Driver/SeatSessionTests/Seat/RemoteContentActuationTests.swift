@@ -537,7 +537,7 @@ struct RemoteContentActuationTests {
         #expect(unreadable.reason == "endpoint_refused")
         #expect(!unreadable.sentence.contains("WindowIdentity"), "the model reads words, never a type")
         let remote = try #require(SeatActuator.unsent(RemoteContentActuationRefusal.unreadable))
-        #expect(remote.reason == "remote_content_refused")
+        #expect(remote.reason == "remote_content_refused.unreadable")
         #expect(SeatActuator.unsent(RemoteContentActuationRefusal.selectedNotOpened(code: -25205)) == nil,
                 "a refusal after an action that may have taken effect stays a delivery whose effect is unknown")
         #expect(SeatActuator.unsent(SeatDrivingFailure.pointOutsideTarget(CGPoint(x: 1, y: 1)))?.reason == "point_outside_window")

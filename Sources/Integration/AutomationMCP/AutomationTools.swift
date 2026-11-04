@@ -7,7 +7,6 @@ import CryptoKit
 import AutomationRuntime
 import EngineCore
 import Foundation
-import Switches
 import LocalMCP
 import Memory
 import PerceptionCore
@@ -41,8 +40,7 @@ public struct CallProducer: Sendable, Equatable {
 /// for the transcript.
 public final class AutomationTools {
     public let profile: SessionProfile
-    private let switches: SwitchBoard
-    public let toolLoading: ToolLoading
+    private var observedToolAttempts: [String: Int] = [:]
     public private(set) var guides: AppGuides?
     private var guidesPrepared = false
     public let session: any AutomationSessionOperating
@@ -54,18 +52,12 @@ public final class AutomationTools {
     /// The app adapters `app_capabilities` and `app_call` reach, without a session or a seat; nil
     /// without `.adapters`, where those tools are refused. Irreversible verbs are refused unless the host
     /// built them with a per-call approver.
-    public var adapters: AppAdapters? {
-        get { dispatcher.adapters }
-        set { dispatcher.adapters = newValue }
-    }
+    public var adapters: AppAdapters? { dispatcher.adapters }
 
     /// The routing rules `open_session` asks before any session opens (spec 2026-10-14-mac-driver-design,
     /// section 2); nil opens every app as asked. Set with `.web` or `.adapters`, the routes it can offer: a web page
     /// only with a web session (its context says whether there is one), an adapter only with the adapters (R02).
-    public var router: TaskRouter? {
-        get { dispatcher.router }
-        set { dispatcher.router = newValue }
-    }
+    public var router: TaskRouter? { dispatcher.router }
 
     public var record: ((String) throws -> Void)? {
         get { formatter.record }
@@ -79,7 +71,7 @@ public final class AutomationTools {
         set { taskCycle.producer = newValue }
     }
 
-    /// The task the agent declared through `memory_task` and has not ended: its calls are attributed to it.
+    /// The task declared through `plan` and not yet ended: its calls are attributed to it.
     public var openTask: OpenTask? { taskCycle.openTask }
 
     /// The candidate the last checkpoint or end answered that no interpretation has taken yet: until one does,
@@ -91,7 +83,6 @@ public final class AutomationTools {
     private let formatter: ResultFormatter
     private let taskCycle: TaskCycleHandler
     let dispatcher: CallDispatcher
-    private let harnessDefinitions: [JSONValue]?
     private var cataloguePreparation: Task<Void, Never>?
 
     /// Retains providers and keeps capability contracts aligned with the adapters and routes served.
@@ -100,13 +91,12 @@ public final class AutomationTools {
         session: any AutomationSessionOperating,
         channels: AutomationChannels = [],
         adapters: AppAdapters? = nil,
+        router requestedRouter: TaskRouter? = nil,
         offersWeb: Bool = false,
         capabilities: [any CapabilityProviding]? = nil,
         profile requestedProfile: SessionProfile? = nil,
         recording: (any CapabilityRecording)? = nil,
         guardThreshold: GuardThreshold = .init(),
-        memoryAccess: MemoryAccess? = nil,
-        list: ToolList? = nil,
         guides: AppGuides? = nil,
         guideApp: (@MainActor (String) -> OpenedApp)? = nil,
         resolveGuideApp: @escaping @MainActor @Sendable (String) -> OpenedApp = {
@@ -118,20 +108,20 @@ public final class AutomationTools {
         var composed = channels
         if adapters != nil { composed.insert(.adapters) }
         if offersWeb { composed.insert(.web) }
+        let guides = profile.catalogue == .open ? nil : guides
         self.guides = guides
         self.profile = profile
-        self.switches = SwitchBoard(values: SwitchBoard.current.values.merging(profile.options.switches) { _, selected in selected })
         self.session = session
         self.channels = composed
         let adapters = adapters ?? (composed.contains(.adapters) ? AppAdapters.standard() : nil)
-        let router: TaskRouter? = composed.isDisjoint(with: [.web, .adapters]) ? nil : TaskRouter()
+        let router: TaskRouter? = requestedRouter ?? (composed.isDisjoint(with: [.web, .adapters]) ? nil : TaskRouter())
         let secrets = ProducerSecrets()
         let sceneText = SceneTextPolicy()
         let formatter = ResultFormatter(session: session, secrets: secrets, sceneText: sceneText)
         let taskCycle = TaskCycleHandler(session: session, secrets: secrets, formatter: formatter,
             profile: profile, reportsProfile: requestedProfile != nil)
         taskCycle.guardThreshold = guardThreshold
-        taskCycle.memoryAccess = memoryAccess ?? profile.memoryAccess
+        taskCycle.memoryAccess = profile.memoryAccess
         taskCycle.appGuides = guides
         taskCycle.resolveGuideApp = guideApp ?? resolveGuideApp
         self.producerSecrets = secrets
@@ -141,25 +131,20 @@ public final class AutomationTools {
         let recording = recording ?? MemoryAccess.$current.withValue(taskCycle.memoryAccess) {
             session.memoryDirectory.map { CapabilityCallRecorder(memory: .shared(for: $0)) }
         }
-        let loading = switches.arm("tool_loading", default: ToolLoading.upfront)
-        self.toolLoading = loading
-        let dispatcher = SwitchBoard.$testing.withValue(switches) { CallDispatcher(session: session, channels: composed, adapters: adapters, router: router,
+        let dispatcher = CallDispatcher(session: session, channels: composed, adapters: adapters, router: router,
                                          secrets: secrets, sceneText: sceneText, taskCycle: taskCycle, formatter: formatter,
                                          capabilities: profile.catalogue == .open ? [] : (capabilities ?? RegisteredProviders.make()),
-                                         recording: recording, loading: loading,
-                                         list: list ?? ToolList(attendance: profile.attendance, level: profile.level), guides: guides,
-                                         resolveGuideApp: guideApp ?? resolveGuideApp) }
+                                         recording: recording,
+                                         list: ToolList(attendance: profile.attendance, level: profile.level), guides: guides,
+                                         resolveGuideApp: guideApp ?? resolveGuideApp)
         self.dispatcher = dispatcher
-        self.harnessDefinitions = loading == .harnessSearch ? ToolCatalogue.harnessDefinitions(
-            core: dispatcher.toolDefinitions, entries: dispatcher.entries, list: dispatcher.toolList
-        ) : nil
         taskCycle.availableRecallChannels = { [weak dispatcher] in dispatcher?.registry.channelKeys ?? [] }
         prepareCapabilitySearch()
     }
 
     private func prepareCapabilitySearch() {
         cataloguePreparation?.cancel()
-        if switches.arm("tool_surface", default: ToolSurface.v1) == .v2, let directory = session.memoryDirectory {
+        if let directory = session.memoryDirectory {
             let entries = dispatcher.entries
             let dispatcher = self.dispatcher
             cataloguePreparation = MemoryAccess.$current.withValue(taskCycle.memoryAccess) {
@@ -178,21 +163,82 @@ public final class AutomationTools {
 
     /// Resolves a delegated name before a host applies its admission policy.
     public func resolvedCall(_ name: String, arguments: JSONValue) throws -> (name: String, arguments: JSONValue) {
-        try SwitchBoard.$testing.withValue(switches) { try dispatcher.resolvedCall(name, arguments: arguments) }
+        try dispatcher.resolvedCall(name, arguments: arguments)
     }
 
     /// Runs one tool call. Before anything of it is written (its transcript line, its record), the texts it would
     /// type are classified on a fresh perception (`scope(of:_:)`, W1): what the call withholds and the field each
     /// text step is bound to are its `CallScope`, bound from there to its last output, the error it throws included.
     public func call(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
-        try await SwitchBoard.$testing.withValue(switches) {
-            try await MemoryAccess.$current.withValue(taskCycle.memoryAccess) {
+        recordToolAttempt(name)
+        return try await callRecorded(name, arguments)
+    }
+
+    /// Counts one request at its host boundary, including requests refused before dispatch.
+    public func recordToolAttempt(_ name: String) {
+        let key = toolDefinitions.contains(where: { $0["name"].string == name }) || name == "memory_task"
+            ? name : "<unlisted>"
+        observedToolAttempts[key, default: 0] += 1
+    }
+
+    /// Applies the same admission and execution rules after the host has counted this attempt.
+    public func callRecorded(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
+        return try await MemoryAccess.$current.withValue(taskCycle.memoryAccess) {
                 if profile.level == .observe, name != "open_session", effectClass(of: name, arguments: arguments) != .read {
                     throw AutomationFailure(ModelText.text(.init(rawValue: "profile.observe_only.v1")))
                 }
                 try await prepareGuides()
-                return try await dispatcher.call(name, arguments)
-            }
+                let result = try await dispatcher.call(name, arguments)
+                var metadata = result["_meta"].object ?? [:]
+                metadata["braus/content-complete"] = .bool(true)
+                return result.adding("_meta", .object(metadata))
+        }
+    }
+
+    /// Carries this instance's memory permissions through asynchronous host work.
+    package func withRuntimeConfiguration<T>(_ body: @MainActor () async throws -> T) async throws -> T {
+        try await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { try await body() }
+    }
+
+    /// Reports wired capabilities and attempts, independently of successful functional acceptance.
+    public var configurationEvidence: JSONValue {
+        .object([
+            "contract": .string("braus-t2-single-path"),
+            "features": .array(Self.runtimeFeatures.map(JSONValue.string)),
+            "pending_experiments": .array([]),
+            "tool_schema_sha256": (try? toolSchemaDigest()).map(JSONValue.string) ?? .null,
+            "served_tools": .array(toolDefinitions.compactMap { $0["name"].string }.map(JSONValue.string)),
+            "tool_loading": .string("upfront"),
+            "tool_attempts_scope": .string("session"),
+            "tool_attempts": .object(observedToolAttempts.mapValues { .number(Double($0)) }),
+            "guide_scope": .string("private-only")
+        ])
+    }
+
+    /// Hashes the actual served schema using the same canonical JSON as model requests.
+    private func toolSchemaDigest() throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let bytes = try encoder.encode(JSONValue.array(toolDefinitions))
+        return SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static let runtimeFeatures = ["batch_policy", "batch_tool", "brain_enrichment", "capability_find_call",
+        "committing_input", "compact_outcome", "compact_recall", "compact_tool_surface", "internal_task_state",
+        "plan_step_end", "qualified_seen_effect", "safe_scene_text", "scene_after_uncertain", "second_look",
+        "structured_seat_state", "task_prompt"]
+
+    /// The host preflight reads identity without exposing or calling a removed model tool.
+    public func runtimeIdentity() async throws -> JSONValue {
+        _ = try toolSchemaDigest()
+        guard let directory = session.memoryDirectory else {
+            throw MemoryTaskTool.Failure(code: "no_memory",
+                message: ModelText.text(.init(rawValue: "task_cycle_handler__answer.directory.v1")))
+        }
+        return await MemoryAccess.$current.withValue(taskCycle.memoryAccess) {
+            await taskCycle.statusAnswer(memory: MemoryService.shared(for: directory))
+                .adding("profile", profile.status)
+                .adding("runtime", configurationEvidence)
         }
     }
 
@@ -203,19 +249,13 @@ public final class AutomationTools {
     /// Replaces only the search engine, retaining the frozen catalogue and authority.
     public func installCapabilitySearch(_ search: CapabilitySearch) { dispatcher.installSearch(search) }
 
-    /// The fixed v2 list, or the legacy channel definitions in v1.
-    public var toolDefinitions: [JSONValue] { harnessDefinitions ?? dispatcher.toolDefinitions }
+    /// The fixed initial list for the composed profile and transport.
+    public var toolDefinitions: [JSONValue] {
+        dispatcher.toolDefinitions
+    }
 
     /// This instance's instructions: those of the channels it serves, as `toolDefinitions`.
-    public var instructions: String { instructions(seatLine: .v1) }
-
-    /// Freezes the seat text arm supplied by the runner for this turn.
-    public func instructions(seatLine arm: SeatLineArm) -> String {
-        SwitchBoard.$testing.withValue(switches) {
-            let fixed = ToolCatalogue.currentSurface == .v2 && TaskCycleArm.current == .v2
-            return Self.instructions(for: fixed ? channels : dispatcher.served, seatLine: arm)
-        }
-    }
+    public var instructions: String { Self.instructions(for: channels) }
 
     /// Marks an explicit Stop, not a temporary human suspension. The host drains admitted calls
     /// before finishing this task, so a call already in flight retains its original attribution.
@@ -224,16 +264,12 @@ public final class AutomationTools {
     /// Closes the stopped attempt without claiming success or interpreting a candidate.
     /// A failed write keeps both the task and the interruption pending for a later retry.
     public func finishInterruptedTask() async throws {
-        try await SwitchBoard.$testing.withValue(switches) {
-            try await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { try await taskCycle.finishInterruptedTask() }
-        }
+        try await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { try await taskCycle.finishInterruptedTask() }
     }
 
     /// Closes an explicitly stopped task through the shared application and command line path.
     public func closeStoppedTask(_ cause: StopCause) async throws -> StoppedTask? {
-        try await SwitchBoard.$testing.withValue(switches) {
-            try await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { try await taskCycle.closeStoppedTask(cause) }
-        }
+        try await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { try await taskCycle.closeStoppedTask(cause) }
     }
 
     /// Retains one sink. Committed changes are delivered synchronously on the main actor.
@@ -247,17 +283,15 @@ public final class AutomationTools {
     }
 
     public func afterTurn() async {
-        await SwitchBoard.$testing.withValue(switches) {
-            await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { await taskCycle.afterTurn() }
-        }
+        await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { await taskCycle.afterTurn() }
     }
 
     /// Prepares profile guide files before calls use their indices and catalogue entry.
     public func prepareGuides() async throws {
         guard !guidesPrepared else { return }
+        guard profile.catalogue != .open else { guidesPrepared = true; return }
         if guides == nil, !profile.options.guides.isEmpty {
             let prepared = try await AppGuides.load(sources: [GuideFiles(urls: profile.options.guides)],
-                arm: switches.arm("guide_delivery", default: GuideDeliveryArm.attached),
                 estimateTokens: { ($0.count + 3) / 4 }, similarity: { left, right in left == right ? 1 : 0 })
             try dispatcher.installProfileGuides(prepared)
             guides = prepared
@@ -290,13 +324,10 @@ public final class AutomationTools {
     /// candidate, so nothing of a completed task was learned (canary of 14/10/2026).
     public func takeInterpretationReminder() -> String? { taskCycle.takeInterpretationReminder() }
 
-    /// Interprets, as Braus, the candidate of a completed task the agent left uninterpreted after its reminder
-    /// (`ProcedureProducer.brausInterpretation`), through the same `memory_task interpret` as the agent's, so the
-    /// transcript shows it. Answers the candidate and the answer, or nil when nothing was left or the task did not complete.
+    /// Interprets a completed task's candidate internally through the procedure producer.
+    /// Returns nil when no completed candidate remains; this is not a model tool.
     public func interpretLeftCandidate() async -> (candidate: String, answer: JSONValue)? {
-        await SwitchBoard.$testing.withValue(switches) {
-            await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { await taskCycle.interpretLeftCandidate(call: call) }
-        }
+        await MemoryAccess.$current.withValue(taskCycle.memoryAccess) { await taskCycle.interpretLeftCandidate() }
     }
 
     /// Forgets the candidate the last conversation left uninterpreted, so a new conversation is reminded only of its
@@ -338,8 +369,7 @@ public final class AutomationTools {
     /// The base instructions every provider turn over these tools runs with, in the CLI and the app alike, for the
     /// channels composed (R09): where an app or a page is driven and how the web is reached say only what those
     /// channels do, in the words `open_session`'s description uses too (`routes(for:)`, `web(for:)`).
-    public static func instructions(for channels: AutomationChannels, seatLine arm: SeatLineArm = .v1) -> String {
-        guard arm == .v2 else { return ToolCatalogue.instructions(for: channels) }
+    public static func instructions(for channels: AutomationChannels) -> String {
         return ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1"))
             + ToolCatalogue.routes(for: channels)
             + ModelText.text(.init(rawValue: "seat_line.general.v2"))
@@ -475,12 +505,4 @@ public final class AutomationTools {
     }
 
     static func collection(_ collected: PostCollection) -> JSONValue { ResultFormatter.collection(collected) }
-}
-
-extension AutomationTools {
-    /// Reports invalid switch selections once at the composition root's startup.
-    public static func reportInvalidSwitches() {
-        _ = ResultFormatter.usesOutcomeV2
-        SwitchBoard.reportInvalidValues()
-    }
 }

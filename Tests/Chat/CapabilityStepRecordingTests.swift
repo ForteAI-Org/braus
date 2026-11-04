@@ -6,7 +6,6 @@ import Foundation
 import LocalMCP
 import Memory
 @testable import SQLiteMemory
-import Switches
 import Testing
 
 @MainActor
@@ -50,7 +49,7 @@ struct CapabilityStepRecordingTests {
             let observer = CapabilityObserver(fails: fails)
             let provider = RecordedRead(observer: observer)
             let tools = AutomationTools(session: ToolResultSession(), capabilities: [provider], recording: observer)
-            let answer = try await tools.call("demo.read", .object([:]))
+            let answer = try await tools.call("call", .object(["name": .string("demo.read"), "arguments": .object([:])]))
             #expect(await observer.events == (fails ? ["begin", "effect"] : ["begin", "effect", "end"]))
             if fails {
                 #expect(answer["content"].array?.first?["text"].string?.contains("not recorded") == true)
@@ -64,10 +63,10 @@ struct CapabilityStepRecordingTests {
         session.memoryDirectory = directory
         let observer = CapabilityObserver(fails: false)
         let read = AutomationTools(session: session, capabilities: [RecordedRead(observer: observer)])
-        let answer = try await read.call("demo.read", .object([:]))
+        let answer = try await read.call("call", .object(["name": .string("demo.read"), "arguments": .object([:])]))
         #expect(answer["isError"].bool != true)
         let write = AutomationTools(session: session, capabilities: [RecordedRead(observer: observer, writes: true)])
-        let written = try await write.call("demo.read", .object([:]))
+        let written = try await write.call("call", .object(["name": .string("demo.read"), "arguments": .object([:])]))
         #expect(written["isError"].bool != true)
         #expect(await observer.events == ["effect", "effect"])
         let memory = MemoryService.shared(for: directory)
@@ -125,7 +124,7 @@ struct CapabilityStepRecordingTests {
         }
         let session = ToolResultSession()
         let tools = AutomationTools(session: session, capabilities: [provider], recording: recorder)
-        await #expect(throws: AutomationFailure.self) { try await tools.call("demo.read", .object([:])) }
+        await #expect(throws: AutomationFailure.self) { try await tools.call("call", .object(["name": .string("demo.read"), "arguments": .object([:])])) }
         #expect(await observer.events.isEmpty)
         await memory.close()
         try FileManager.default.removeItem(at: directory)
@@ -135,7 +134,7 @@ struct CapabilityStepRecordingTests {
         let observer = CapabilityObserver(fails: true)
         let provider = RecordedRead(observer: observer, memory: .notRecorded(reason: "diagnostic"))
         let tools = AutomationTools(session: ToolResultSession(), capabilities: [provider], recording: observer)
-        let result = try await tools.call("demo.read", .object([:]))
+        let result = try await tools.call("call", .object(["name": .string("demo.read"), "arguments": .object([:])]))
         #expect(await observer.events == ["effect"])
         #expect(result["content"].array?.first?["text"].string?.contains("not recorded") == false)
     }
@@ -144,7 +143,7 @@ struct CapabilityStepRecordingTests {
         let observer = CapabilityObserver(fails: true)
         let provider = RecordedRead(observer: observer, writes: true)
         let tools = AutomationTools(session: ToolResultSession(), capabilities: [provider], recording: observer)
-        await #expect(throws: AutomationFailure.self) { try await tools.call("demo.read", .object([:])) }
+        await #expect(throws: AutomationFailure.self) { try await tools.call("call", .object(["name": .string("demo.read"), "arguments": .object([:])])) }
         #expect(await observer.events == ["begin"])
     }
 }

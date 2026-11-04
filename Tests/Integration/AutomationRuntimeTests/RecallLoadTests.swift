@@ -143,7 +143,7 @@ struct RecallLoadTests {
                                                                LearningSession.row("Item \(index)", y: 0.3, in: "items")], title: "App")
         let tools = P.tools(session, stream: "act-sample-\(tag)-\(index)")
         let id = session.id!.uuidString
-        _ = try await P.task(tools, #"{"operation":"begin","goal":"\#(verb) the \#(object) \#(qualifier)","recall":false}"#)
+        _ = try await P.task(tools, #"{"request":"\#(verb) the \#(object) \#(qualifier)"}"#)
         _ = try await P.call(tools, "open_session", #"{"app":"\#(app)"}"#)
         let reported = Mutex<[MemoryService.EssentialTiming]>([])
         await memory.probeEssentials { timing in reported.withLock { $0.append(timing) } }
@@ -165,7 +165,7 @@ struct RecallLoadTests {
                                  writes: mine.map { ($0.label, G.milliseconds($0.total), G.milliseconds($0.inside)) }))
         }
         await memory.probeEssentials(nil)
-        _ = try await P.task(tools, #"{"operation":"end","outcome":"abandoned"}"#)
+        _ = try await P.task(tools, #"{"outcome":"abandoned"}"#)
         return calls
     }
 
@@ -240,7 +240,7 @@ struct RecallLoadTests {
                                             values: [try TaskValue(name: "output_name", kind: .text, content: .text("x_1"), source: .request)])
             let started = ContinuousClock.now
             timeline.append(G.milliseconds(timelineOrigin.duration(to: started)) / 1000)
-            let prepared = try await service.prepare(request)
+            let prepared = try await service.prepare(request, availableChannels: HistoricalRecallFixture.nativeChannels)
             let selecting = ContinuousClock.now
             let outcome = service.outcomes(prepared).first
             phases["selection"]!.append(G.milliseconds(selecting.duration(to: .now)))
@@ -257,18 +257,19 @@ struct RecallLoadTests {
         return phases
     }
 
-    /// Whole queries through `memory_task begin`: the task's revision, the search, the shortlist, the proposal's record and
-    /// its text (the product's one path, the agent's choice), as an agent waits for them.
+    /// Whole current plan requests: revision, row search, proposal records and bounded memory text, as an agent waits for them.
     static func toolQueries(_ directory: URL, queries: [(text: String, app: String)], stage: Int) async throws -> [Double] {
         var durations: [Double] = []
         for (position, query) in queries.enumerated() {
             let tools = P.tools(LearningSession(directory: directory), stream: "load-query-\(stage)-\(position)")
             let started = ContinuousClock.now
             let answer = try await P.task(tools, #"""
-                {"operation":"begin","goal":"\#(query.text)","inputs":[{"name":"output_name","value":"x_1"}]}
+                {"request":"\#(query.text)","rows":[{"title":"\#(query.text)","app":"\#(query.app)"}],"inputs":[{"name":"output_name","value":"x_1"}]}
                 """#)
             durations.append(G.milliseconds(started.duration(to: .now)))
-            #expect(answer["recall_proposal"] != .null, "\(answer)")
+            #expect(answer["status"].string == "planned" && answer["rows"].array?.count == 1, "\(answer)")
+            #expect(answer["recall_error"] == .null, "\(answer)")
+            #expect(answer["memory"] == .null || answer["memory"].string != nil)
         }
         return durations
     }

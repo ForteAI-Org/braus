@@ -1,5 +1,5 @@
 import AppAdapters
-import AutomationMCP
+@testable import AutomationMCP
 import AutomationRuntime
 import EngineCore
 import Foundation
@@ -7,15 +7,14 @@ import LocalMCP
 import PerceptionCore
 import Synchronization
 import Testing
-import Switches
 
 @Suite("The app adapters through the tools")
 @MainActor
 struct AppAdapterToolsTests {
 
-    @Test(arguments: ["v1", "v2"])
-    func keepsToolSurfaceCuratedAdapterAnswers(_ surface: String) async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": surface])) {
+    @Test
+    func keepsCuratedAdapterAnswers() async throws {
+        do {
             try await contentParametersWithheld()
             try await contentResultsWithheldFromTheTranscriptOnly()
             try await capabilitiesAsText()
@@ -23,7 +22,7 @@ struct AppAdapterToolsTests {
     }
 
     @Test func discoveredAdapterUsesItsRealName() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2", "task_cycle": "v2"])) {
+        do {
             let tools = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([ScribeAdapter()]))
             var lines: [String] = []
             tools.record = { lines.append($0) }
@@ -36,7 +35,7 @@ struct AppAdapterToolsTests {
         }
     }
 
-    private static let adapterTools: Set<String> = ["app_capabilities", "app_call"]
+    private static let adapterTools: Set<String> = ["scribe.read", "scribe.write"]
     /// The memory's marker for a withheld value (`ValueMinimization.marker`).
     private static let marker = "[withheld]"
 
@@ -50,83 +49,89 @@ struct AppAdapterToolsTests {
         let with    = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([ScribeAdapter()]))
         #expect(Self.names(without.toolDefinitions).isDisjoint(with: Self.adapterTools))
         #expect(without.toolDefinitions == AutomationTools.definitions)
-        #expect(Self.names(with.toolDefinitions).subtracting(Self.names(without.toolDefinitions)) == Self.adapterTools)
+        #expect(Self.names(with.toolDefinitions) == Self.names(without.toolDefinitions))
+        #expect(Set(with.dispatcher.entries.map { $0.contract.id.rawValue }).isSuperset(of: Self.adapterTools))
+        #expect(Set(without.dispatcher.entries.map { $0.contract.id.rawValue }).isDisjoint(with: Self.adapterTools))
         #expect(without.instructions == AutomationTools.instructions)
         #expect(!AutomationTools.instructions.contains("app_capabilities"))
-        #expect(with.instructions.contains("prefer a verb there over driving the app's interface"))
+        #expect(with.instructions.contains("prefer that verb over driving the app's interface"))
         #expect(with.instructions.contains("never through Finder, TextEdit"))
+        #expect(with.instructions.contains("use find") && with.instructions.contains("through call"))
+        #expect(!with.instructions.contains("app_capabilities") && !with.instructions.contains("use app_call"))
     }
 
     @Test("without adapters an app_call is refused and reaches nothing")
     func refusedWithoutAdapters() async {
         let tools = AutomationTools(session: AdapterOnlySession())
         await #expect(throws: AutomationFailure.self) {
-            try await tools.call("app_call", .object(["app": .string("scribe"), "verb": .string("write")]))
+            try await tools.capabilityCall("scribe.write", .object([
+                "path": .string("notes.txt"), "text": .string("draft")]))
         }
     }
 
-    @Test("an app_call needs no session; its content parameters are withheld from the transcript, not from the verb")
+    @Test("a discovered adapter verb needs no session and withholds content only from its records")
     func contentParametersWithheld() async throws {
-        let scribe  = ScribeAdapter()
-        let tools   = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([scribe]))
-        var records = [String]()
+        let scribe = ScribeAdapter()
+        let tools = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([scribe]))
+        var records: [String] = []
         tools.record = { records.append($0) }
-        let answer = try await tools.call("app_call", .object([
-            "app"      : .string("scribe"),
-            "verb"     : .string("write"),
-            "arguments": .object(["path": .string("notes.txt"), "text": .string("Zoë's private draft")]),
-        ]))
+        let answer = try await tools.capabilityCall("scribe.write", .object([
+            "path": .string("notes.txt"), "text": .string("Zoë's private draft")]))
         #expect(answer.answerText == "ok Wrote notes.txt.")
         #expect(await scribe.written == ["Zoë's private draft"])
         #expect(records.count == 2)
         #expect(records.allSatisfy { !$0.contains("private draft") }, "\(records)")
-        #expect(records[0].contains("notes.txt") && records[0].contains(Self.marker))
+        #expect(records[0].hasPrefix("→ scribe.write") && records[0].contains("notes.txt") && records[0].contains(Self.marker))
     }
 
     @Test("a verb's content result reaches the model whole, as text, and its transcript line as the marker in JSON")
     func contentResultsWithheldFromTheTranscriptOnly() async throws {
-        let tools   = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([ScribeAdapter()]))
-        var records = [String]()
+        let tools = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([ScribeAdapter()]))
+        var records: [String] = []
         tools.record = { records.append($0) }
-        let answer = try await tools.call("app_call", .object([
-            "app": .string("scribe"), "verb": .string("read"), "arguments": .object(["path": .string("notes.txt")]),
-        ]))
+        let answer = try await tools.capabilityCall("scribe.read", .object(["path": .string("notes.txt")]))
         #expect(answer.answerText == "ok Read it.\nsize: 19\ntext: the file's own words")
         let line = try #require(records.last)
-        #expect(line.hasPrefix("← app_call") && !line.contains("the file's own words"))
+        #expect(line.hasPrefix("← scribe.read") && !line.contains("the file's own words"))
         #expect(line.contains(Self.marker) && line.contains("\"size\""))
     }
 
-    @Test("app_capabilities answers the model in text lines and keeps its JSON in the transcript")
+    @Test("find delivers adapter schemas without executing any adapter")
     func capabilitiesAsText() async throws {
-        let tools   = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([ScribeAdapter()]))
-        var records = [String]()
+        let scribe = ScribeAdapter()
+        let tools = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([scribe]))
+        var records: [String] = []
         tools.record = { records.append($0) }
-        let answer = try await tools.call("app_capabilities", .object(["app": .string("Scribe")]))
-        #expect(answer.answerText == """
-            scribe (Scribe): ready
-            path: path
-            text: text
-            scribe.write path text — Write a text. [write]
-            scribe.read path — Read a text. [read]
-            """)
-        #expect(records.last?.hasPrefix(#"← app_capabilities {"#) == true, "\(records)")
+        let answer = try await tools.call("find", .object(["query": .string("scribe read write")]))
+        let payload = try JSONDecoder().decode(JSONValue.self, from: Data(answer.answerText.utf8))
+        let capabilities = try #require(payload["capabilities"].array)
+        let names = Set(capabilities.compactMap { $0["name"].string })
+        #expect(names.isSuperset(of: Self.adapterTools))
+        let write = try #require(capabilities.first { $0["name"].string == "scribe.write" })
+        #expect(write["inputSchema"]["properties"]["path"]["type"].string == "string")
+        #expect(write["inputSchema"]["properties"]["text"]["type"].string == "string")
+        #expect(write["strict"] == .bool(true))
+        #expect(await scribe.invocationCount == 0)
+        #expect(records.first?.hasPrefix("→ find") == true && records.last?.hasPrefix("← find") == true)
     }
 
-    @Test("an app_call whose verb cannot be resolved withholds every text of its arguments")
+    @Test("an unlisted adapter name is refused without exposing its unclassified arguments")
     func unresolvedVerbWithholdsEveryText() async throws {
-        let tools   = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([ScribeAdapter()]))
-        var records = [String]()
+        let scribe = ScribeAdapter()
+        let tools = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([scribe]))
+        var records: [String] = []
         tools.record = { records.append($0) }
-        _ = try? await tools.call("app_call", .object([
-            "app"      : .string("scribe"),
-            "verb"     : .string("erase"),
-            "arguments": .object(["text": .string("never shown"), "nested": .array([.string("nor this")]),
-                                  "count": .number(2)]),
-        ]))
-        let call = try #require(records.first)
-        #expect(call.hasPrefix("→ app_call") && call.contains("erase") && call.contains("\"count\":2"), "\(call)")
-        #expect(records.allSatisfy { !$0.contains("never shown") && !$0.contains("nor this") }, "\(records)")
+        let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil, call: tools.call)
+        let answer = try #require(await router.handle(.object([
+            "jsonrpc": .string("2.0"), "id": .number(1), "method": .string("tools/call"),
+            "params": .object(["name": .string("call"), "arguments": .object([
+                "name": .string("scribe.erase"), "arguments": .object([
+                    "text": .string("never shown"), "nested": .array([.string("nor this")]), "count": .number(2)])])])])))
+        #expect(answer["result"]["isError"] == .bool(true))
+        let encoded = String(decoding: try JSONEncoder().encode(answer), as: UTF8.self)
+        #expect(!encoded.contains("never shown") && !encoded.contains("nor this"))
+        #expect(records.isEmpty, "The unknown name is refused before recording unclassified arguments")
+        #expect(await scribe.invocationCount == 0)
     }
 
     @Test("an app_call runs off the main actor, after its call line and before its answer line")
@@ -142,45 +147,41 @@ struct AppAdapterToolsTests {
             adapter.release()
             return during
         }
-        let answer = try await tools.call("app_call", .object(["app": .string("blocking"), "verb": .string("wait")]))
+        let answer = try await tools.capabilityCall("blocking.wait", .object([:]))
         let during = await probe.value
         #expect(answer.answerText == "ok Waited.\nreleased: true", "the main actor waited for the verb")
-        #expect(during.count == 1 && during.first?.hasPrefix("→ app_call") == true, "\(during)")
-        #expect(transcript.lines.count == 2 && transcript.lines.last?.hasPrefix("← app_call") == true)
+        #expect(during.count == 1 && during.first?.hasPrefix("→ blocking.wait") == true, "\(during)")
+        #expect(transcript.lines.count == 2 && transcript.lines.last?.hasPrefix("← blocking.wait") == true)
     }
 
     @Test("an app_call on the app the session holds on the seat is refused, and reaches nothing")
     func refusedOnTheHeldApp() async throws {
-        let scribe  = ScribeAdapter()
+        let scribe = ScribeAdapter()
         let session = RoutingSession()
-        let tools   = AutomationTools(session: session, adapters: AppAdapters([scribe]))
-        let call: JSONValue = .object([
-            "app"      : .string("scribe"),
-            "verb"     : .string("write"),
-            "arguments": .object(["path": .string("notes.txt"), "text": .string("draft")]),
-        ])
+        let tools = AutomationTools(session: session, adapters: AppAdapters([scribe]))
+        let arguments: JSONValue = .object(["path": .string("notes.txt"), "text": .string("draft")])
         session.held = "test.scribe"
-        let refused = try await tools.call("app_call", call).answerText
+        let refused = try await tools.capabilityCall("scribe.write", arguments).answerText
         #expect(refused.hasPrefix("refused The seat is driving Scribe"))
         #expect(refused.contains("close_session first, or do the whole task through one route"))
         #expect(await scribe.written.isEmpty)
         session.held = "com.apple.iCal"
-        #expect(try await tools.call("app_call", call).answerText.hasPrefix("ok "))
+        #expect(try await tools.capabilityCall("scribe.write", arguments).answerText.hasPrefix("ok "))
         #expect(await scribe.written == ["draft"])
     }
 
     @Test("an app_call on an app another session holds on the seat is refused, and reaches nothing")
     func refusedOnAnAppHeldElsewhere() async throws {
         let ledger = LedgerAdapter()
-        let tools  = AutomationTools(session: RoutingSession(), adapters: AppAdapters([ledger]))
-        let call: JSONValue = .object(["app": .string("ledger"), "verb": .string("touch")])
+        let tools = AutomationTools(session: RoutingSession(), adapters: AppAdapters([ledger]))
         let other = UUID()
         SeatHolds.set("TEST.LEDGER", for: other)
-        let refused = try await tools.call("app_call", call).answerText
+        defer { SeatHolds.set(nil, for: other) }
+        let refused = try await tools.capabilityCall("ledger.touch", .object([:])).answerText
         #expect(refused.hasPrefix("refused Another session is driving Ledger"), "\(refused)")
         #expect(ledger.touches == 0)
         SeatHolds.set(nil, for: other)
-        #expect(try await tools.call("app_call", call).answerText.hasPrefix("ok "))
+        #expect(try await tools.capabilityCall("ledger.touch", .object([:])).answerText.hasPrefix("ok "))
         #expect(ledger.touches == 1)
     }
 
@@ -204,7 +205,9 @@ struct AppAdapterToolsTests {
         let answer  = try await Self.open(tools, "Calendario")
         #expect(answer["opened"] == .bool(false))
         #expect(answer["route"].string == "app_call(calendar)")
-        #expect(answer["message"].string?.hasPrefix("Calendario: use app_call with app \"calendar\"") == true)
+        #expect(answer["message"].string?.contains("use find") == true)
+        #expect(answer["message"].string?.contains("then call") == true)
+        #expect(answer["message"].string?.contains("app_capabilities") == false)
         #expect(session.resolved == ["Calendario"] && session.opened.isEmpty)
         #expect(Self.namedProperty(of: tools)["type"].string == "boolean")
     }
@@ -226,7 +229,11 @@ struct AppAdapterToolsTests {
         let tools   = AutomationTools(session: session)
         _ = try await Self.open(tools, "Calendario")
         #expect(session.opened == ["Calendario"] && session.resolved.isEmpty)
-        await #expect(throws: AutomationFailure.self) { try await Self.open(tools, "Calendario", named: false) }
+        await #expect(throws: AutomationFailure.self) {
+            _ = try await tools.call("open_session", .object([
+                "app": .string("Calendario"), "named": .bool(false)]))
+        }
+        #expect(session.opened == ["Calendario"])
         #expect(Self.namedProperty(of: tools) == .null)
     }
 
@@ -324,10 +331,12 @@ private actor ScribeAdapter: AppAdapting {
     ]
 
     private(set) var written: [String] = []
+    private(set) var invocationCount = 0
 
     func availability() async -> AdapterAvailability { .ready }
 
     func call(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async throws -> AdapterOutcome {
+        invocationCount += 1
         if verb == "write" {
             written.append(arguments["text"].string ?? "")
             return .confirmed("Wrote \(arguments["path"].string ?? "").")
@@ -409,4 +418,31 @@ private final class AdapterOnlySession: AutomationSessionOperating {
         throw AutomationFailure("unused")
     }
     func close() async {}
+}
+
+@MainActor
+private extension AutomationTools {
+    func capabilityCall(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
+        try await call("call", .object(["name": .string(name), "arguments": arguments]))
+    }
+}
+
+
+extension AppAdapterToolsTests {
+    @Test func removedGenericAdapterNamesCannotReachAComposedAdapter() async throws {
+        let scribe = ScribeAdapter()
+        let tools = AutomationTools(session: AdapterOnlySession(), adapters: AppAdapters([scribe]))
+        for name in ["app_call", "app_capabilities"] {
+            do {
+                _ = try await tools.capabilityCall(name, .object([
+                    "app": .string("scribe"), "verb": .string("write"),
+                    "arguments": .object(["path": .string("notes.txt"), "text": .string("never written")])]))
+                Issue.record("A removed generic adapter name was accepted")
+            } catch let failure as AutomationFailure {
+                #expect(failure.cause == "unknown_tool")
+            }
+        }
+        #expect(await scribe.invocationCount == 0)
+        #expect(await scribe.written.isEmpty)
+    }
 }

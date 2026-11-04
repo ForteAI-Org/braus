@@ -8,7 +8,6 @@ import Foundation
 import Dispatch
 import LocalMCP
 import ModelTransports
-import Switches
 
 /// TurnRunner owns turn execution, private endpoints and suspension independently of host UI and storage.
 /// The host is borrowed weakly and retained for admitted calls. Transitions are serialized on the main actor.
@@ -38,7 +37,6 @@ public final class TurnRunner {
 
     private var cleanup: Task<Void, Never>?
     private var runEndWaiters: [CheckedContinuation<Void, Never>] = []
-    private var seatLineArm = SeatLineArm.v1
     private var isCompacting = false
     private var isStopRequested = false
     private var onEvent: (@MainActor (TurnRunEvent) -> Void)?
@@ -54,7 +52,7 @@ public final class TurnRunner {
     public private(set) var currentTaskState: TaskState?
     public private(set) var taskStateProblems: [TaskStateProblem] = []
     var latestScene: LatestSceneProviding = { nil }
-    private var taskStateEnabled = false
+    private let taskStateEnabled = true
     private var taskStateTurn = 0
     public private(set) var contextState = ContextState()
     public private(set) var toolCalls = 0
@@ -66,7 +64,8 @@ public final class TurnRunner {
 
     private lazy var router = MCPRouter(
         tools: tools.toolDefinitions,
-        instructions: AutomationTools.mcpInstructions(.firstLine)
+        instructions: AutomationTools.mcpInstructions(.firstLine),
+        rejectedToolAttempt: { [tools] name in tools.recordToolAttempt(name) }
     ) { [unowned self] name, arguments in
         try await call(name, arguments)
     }
@@ -108,15 +107,18 @@ public final class TurnRunner {
         _ request: TurnRequest,
         onEvent: @escaping @MainActor (TurnRunEvent) -> Void
     ) async throws -> TurnOutcome {
-        let arm = SwitchBoard.current.arm("seat_line", default: SeatLineArm.v1)
-        let surface = SwitchBoard.current.arm("tool_surface", default: RequiredToolSurfaceArm.v1)
-        guard arm != .v2 || surface == .v2 else { throw SeatLineError.incompatibleSurface }
-        try BatchMode.validateConfiguration()
+        try await tools.withRuntimeConfiguration {
+            try await runConfigured(request, onEvent: onEvent)
+        }
+    }
+
+    private func runConfigured(
+        _ request: TurnRequest,
+        onEvent: @escaping @MainActor (TurnRunEvent) -> Void
+    ) async throws -> TurnOutcome {
         try admit()
-        seatLineArm = arm
         guard hosting != nil else { throw CancellationError() }
         self.onEvent = onEvent
-        taskStateEnabled = SwitchBoard.current.arm("task_state", default: TaskStateArm.on) == .on
         if taskStateEnabled {
             tools.observeTaskState { [weak self] input in
                 guard self?.isRunning == true else { return }
@@ -151,16 +153,11 @@ public final class TurnRunner {
         if case .modelLoop = request.route { reset(.compaction) }
         let facts = hosting?.seatFacts()
         let seat: String?
-        if arm == .v1 {
-            seat = SeatLine.legacy(notice: tools.takeStoppedTaskNotice(), seat: facts,
-                                   reviewing: request.reviewingHumanIntervention)
-        } else {
-            let task = await tools.taskFacts(for: facts?.application?.bundleID)
-            seat = try tools.withStoppedTaskNotice { notice in
-                var pieces: [SeatLine.Piece] = notice == nil ? [] : [.stoppedTask]
-                if request.reviewingHumanIntervention { pieces.append(.reviewAfterPerson) }
-                return try SeatLine.render(pieces: pieces, seat: facts, task: task)
-            }
+        let task = await tools.taskFacts(for: facts?.application?.bundleID)
+        seat = try tools.withStoppedTaskNotice { notice in
+            var pieces: [SeatLine.Piece] = notice == nil ? [] : [.stoppedTask]
+            if request.reviewingHumanIntervention { pieces.append(.reviewAfterPerson) }
+            return try SeatLine.render(pieces: pieces, seat: facts, task: task)
         }
         switch request.route {
         case .modelLoop(let transport, let window):
@@ -170,9 +167,10 @@ public final class TurnRunner {
                 call: { [unowned self] in try await call($0, $1) },
                 reminder: takeReminder,
                 definitions: AutomationTools.definitions,
-                instructions: TurnLoopInstructions(arm: seatLineArm, toolNames: promptToolNames,
+                instructions: TurnLoopInstructions(toolNames: promptToolNames,
                     groupIndex: tools.groupIndex, guidesEnabled: tools.guidesEnabled),
-                parallelSafe: { [tools] in tools.isParallelSafe($0, arguments: $1) }
+                parallelSafe: { [tools] in tools.isParallelSafe($0, arguments: $1) },
+                rejectedToolAttempt: { [tools] in tools.recordToolAttempt($0) }
             )
             self.loop = loop
             defer { self.loop = nil }
@@ -185,7 +183,7 @@ public final class TurnRunner {
                     seat: seat,
                     contextWindow: window,
                     baseTools: tools.toolDefinitions,
-                    instructions: tools.instructions(seatLine: seatLineArm)
+                    instructions: tools.instructions
                 ) { event in
                     if case .usage(let reported) = event {
                         self.lastReported = reported
@@ -343,6 +341,7 @@ public final class TurnRunner {
     }
 
     private func call(_ name: String, _ arguments: JSONValue) async throws -> JSONValue {
+        tools.recordToolAttempt(name)
         guard episode == nil, !isStopRequested else { throw CancellationError() }
         guard let hosting else { throw CancellationError() }
         let requestedName = name
@@ -356,7 +355,7 @@ public final class TurnRunner {
         let task = Task {
             try await AutomationCallInterruption.$current.withValue(interruption) {
                 try await interruption.withWait {
-                    try await hosting.withinCallScope { try await self.tools.call(requestedName, requestedArguments) }
+                    try await hosting.withinCallScope { try await self.tools.callRecorded(requestedName, requestedArguments) }
                 }
             }
         }
@@ -490,7 +489,7 @@ public final class TurnRunner {
         return ToolList.names(attendance: tools.toolList.attendance, level: tools.toolList.level).map(\.rawValue)
     }
 
-    /// Composes the complete legacy text before selecting the shared prompt for every entry.
+    /// Composes the shared prompt for every entry.
     public static func systemPrompt(
         role: String?,
         hasTools: Bool = true,
@@ -498,18 +497,14 @@ public final class TurnRunner {
         offersWeb: Bool = false,
         tools: String = AutomationTools.instructions,
         toolNames: [String],
-        seatLine: SeatLineArm = .v1,
         groupIndex: String? = nil,
         guidesEnabled: Bool = false
     ) -> String {
-        let legacy = TurnInstructions.compose(role: role, hasTools: hasTools, searchesWeb: searchesWeb,
-            offersWeb: offersWeb, tools: tools, seatLine: seatLine)
-        guard hasTools else { return legacy }
-        let board = SwitchBoard.current
-        return ModelText.systemPrompt(board.arm("prompt", default: PromptVersion.v1), legacyText: legacy,
-            dataFormat: board.arm("tool_surface", default: RequiredToolSurfaceArm.v1) == .v2 ? .tagged : .plain,
-            compactOutcome: board.arm("outcome", default: RequiredOutcomeArm.v1) == .v2,
-            toolNames: toolNames, groupIndex: groupIndex, searchesWeb: searchesWeb, role: role, guidesEnabled: guidesEnabled)
+        guard hasTools else {
+            return TurnInstructions.compose(role: role, hasTools: false, searchesWeb: searchesWeb, offersWeb: offersWeb)
+        }
+        return ModelText.systemPrompt(toolNames: toolNames, groupIndex: groupIndex,
+            searchesWeb: searchesWeb, role: role, guidesEnabled: guidesEnabled)
     }
 
     private func instructions(for request: TurnRequest) -> String {
@@ -517,8 +512,8 @@ public final class TurnRunner {
         if case .commandLine(_, _, _, _, _, let allowed) = request.route { searchesWeb = allowed }
         else { searchesWeb = false }
         return Self.systemPrompt(role: request.role, searchesWeb: searchesWeb,
-            tools: tools.instructions(seatLine: seatLineArm),
-            toolNames: promptToolNames, seatLine: seatLineArm,
+            tools: tools.instructions,
+            toolNames: promptToolNames,
             groupIndex: tools.groupIndex, guidesEnabled: tools.guidesEnabled)
     }
 
@@ -534,13 +529,12 @@ public final class TurnRunner {
         return ProviderTurn(provider: provider, model: model, sessionID: session, prompt: prompt,
                             instructions: Self.systemPrompt(role: request.role,
                                 searchesWeb: web && !compaction, offersWeb: compaction && tools.offersWeb,
-                                tools: tools.instructions(seatLine: seatLineArm),
-                                toolNames: promptToolNames, seatLine: seatLineArm,
+                                tools: tools.instructions,
+                                toolNames: promptToolNames,
                                 groupIndex: tools.groupIndex, guidesEnabled: tools.guidesEnabled),
                             bridgeExecutable: configuration.bridgeExecutable.path, connectionFile: connection.path,
                             workingDirectory: configuration.workingDirectory.path, effort: effort,
-                            environment: environment, isCompaction: compaction, allowsWebSearch: web && !compaction,
-                            toolLoading: tools.toolLoading)
+                            environment: environment, isCompaction: compaction, allowsWebSearch: web && !compaction)
     }
 
     private struct DeliveredInstructions: Codable {
@@ -625,18 +619,14 @@ public final class TurnRunner {
     }
 }
 
-private enum TaskStateArm: String, Sendable { case off, on }
-private enum RequiredToolSurfaceArm: String, Sendable { case v1, v2 }
-private enum RequiredOutcomeArm: String, Sendable { case v1, v2 }
 
 private struct TurnLoopInstructions: LoopInstructionComposing {
-    let arm: SeatLineArm
     let toolNames: [String]
     let groupIndex: String?
     let guidesEnabled: Bool
 
     func systemText(role: String?, hasTools: Bool, tools: String) -> String {
-        TurnRunner.systemPrompt(role: role, hasTools: hasTools, tools: tools, toolNames: toolNames, seatLine: arm,
+        TurnRunner.systemPrompt(role: role, hasTools: hasTools, tools: tools, toolNames: toolNames,
             groupIndex: groupIndex, guidesEnabled: guidesEnabled)
     }
 }
@@ -644,6 +634,10 @@ private struct TurnLoopInstructions: LoopInstructionComposing {
 extension TurnRunner {
     /// Compacts without tools, under the same admission and cleanup rules as a normal turn.
     public func compact(_ request: TurnRequest, trigger: CompactionTrigger) async throws -> CompactionOutcome {
+        try await tools.withRuntimeConfiguration { try await compactConfigured(request, trigger: trigger) }
+    }
+
+    private func compactConfigured(_ request: TurnRequest, trigger: CompactionTrigger) async throws -> CompactionOutcome {
         try admit()
         onEvent = { _ in }
         isStopRequested = false
@@ -655,7 +649,7 @@ extension TurnRunner {
             let loop = ModelToolLoop(
                 call: { _, _ in throw AutomationFailure("A summary calls no tool.") },
                 definitions: AutomationTools.definitions,
-                instructions: TurnLoopInstructions(arm: seatLineArm, toolNames: promptToolNames,
+                instructions: TurnLoopInstructions(toolNames: promptToolNames,
                     groupIndex: tools.groupIndex, guidesEnabled: tools.guidesEnabled)
             )
             self.loop = loop

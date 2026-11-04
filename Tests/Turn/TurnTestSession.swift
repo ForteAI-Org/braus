@@ -1,3 +1,4 @@
+import LocalMCP
 import AutomationRuntime
 import EngineCore
 import Foundation

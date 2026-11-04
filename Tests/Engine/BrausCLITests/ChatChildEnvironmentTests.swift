@@ -36,7 +36,8 @@ struct ChatChildEnvironmentTests {
 enum ChatChildProcess {
     static let fakeValue = "FAKE-CHILD-CREDENTIAL-Q7z9"
 
-    static func run(provider: String, options: [String] = [], messages: String? = nil) async throws
+    static func run(provider: String, options: [String] = [], messages: String? = nil,
+                    prompt: String = "Reply briefly") async throws
         -> (output: String, status: Int32, arguments: [[String]]) {
         let root = URL.temporaryDirectory.appending(path: "braus-child-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -73,7 +74,7 @@ enum ChatChildProcess {
         if let messages { try Data(messages.utf8).write(to: root.appending(path: "requests.txt")) }
         process.arguments = ["chat", "--provider", provider, "--history-dir", root.appending(path: "history").path,
                              "--knowledge", root.appending(path: "knowledge").path]
-            + (messages == nil ? ["--once", "Reply briefly"] : ["--script", root.appending(path: "requests.txt").path]) + options
+            + (messages == nil ? ["--once", prompt] : ["--script", root.appending(path: "requests.txt").path]) + options
         var environment = ["HOME": root.path, "TMPDIR": root.path + "/", "PATH": root.path + ":/usr/bin:/bin",
                            "LANG": "en_US.UTF-8", "BRAUS_APP_SUPPORT_DIR": root.appending(path: "support").path]
         for name in ChatChildEnvironmentTests.names { environment[name] = fakeValue }

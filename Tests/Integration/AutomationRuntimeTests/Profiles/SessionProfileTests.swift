@@ -78,11 +78,11 @@ extension SessionProfileTests {
         }
     }
 
-    @Test func switchesRejectConflictingEnvironmentValues() throws {
-        try SessionProfileFile.validateSwitches(["outcome": "v2"], environment: ["BRAUS_SWITCHES": "outcome=v2"])
-        #expect(throws: SessionProfileFile.ProfileError.invalidValue(key: "switches")) {
-            try SessionProfileFile.validateSwitches(["outcome": "v2"], environment: ["BRAUS_SWITCHES": "outcome=v1"])
-        }
+    @Test func removedSwitchesAreRejectedByTheProfileFile() throws {
+        let url = URL.temporaryDirectory.appending(path: UUID().uuidString + ".json")
+        defer { do { try FileManager.default.removeItem(at: url) } catch { Issue.record(error) } }
+        try Data(#"{"options":{"switches":{"outcome":"v1"}}}"#.utf8).write(to: url)
+        #expect(throws: SessionProfileFile.ProfileError.unknownKey("switches")) { try SessionProfileFile.load(url) }
     }
 
     @Test func profilesRoundTrip() throws {

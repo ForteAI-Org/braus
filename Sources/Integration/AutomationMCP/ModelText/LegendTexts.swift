@@ -2,6 +2,10 @@ import Foundation
 
 extension ModelText {
     nonisolated static let legendTexts: [Entry] = [
+        Entry(key: .init(rawValue: "scene.changesHeader"), owner: "AutomationMCP", delivery: .legend,
+              budgetCharacters: 64, text: "r{revision} since r{since}\n", legacy: false),
+        Entry(key: .init(rawValue: "scene.unchangedHeader"), owner: "AutomationMCP", delivery: .legend,
+              budgetCharacters: 64, text: "r{revision} unchanged since r{since}", legacy: false),
         Entry(
             key: .init(rawValue: "scene.personHadApp"),
             owner: "perception",

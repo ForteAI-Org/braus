@@ -21,11 +21,15 @@ struct RecallProvenanceBoundaryTests {
     func internalReferenceMustRemainUsable() async throws {
         let session = P.photoSession(try W.directory())
         let tools = P.tools(session, stream: "third-review-provenance")
-        _ = try await P.task(tools, #"{"operation":"begin","goal":"Register the already prepared invoice","recall":false}"#)
-        let task = try #require(P.rows("SELECT task_id FROM memory_tasks", in: session).first)
-        _ = try await P.task(tools, #"{"operation":"end","outcome":"completed","outputs":[{"name":"invoice_file","kind":"file","value":"/tmp/report.pdf","source":"observation"}]}"#)
-        let reference = task + "/invoice_file"
-        _ = try await P.task(tools, #"{"operation":"begin","goal":"Email the ready invoice","recall":false,"inputs":[{"name":"attachment","kind":"file","value":"/tmp/report.pdf","source":"previous_output","source_ref":"\#(reference)"}]}"#)
+        let memory = MemoryService.shared(for: session.directory)
+        let producer = try TaskProducer(source: .app, streamID: "third-review-provenance")
+        let previous = try await TaskChannel.begin(TaskRevisionContent(goal: "Register the already prepared invoice"),
+            producer: producer, traceID: nil, memory: memory)
+        let output = try TaskValue(name: "invoice_file", kind: .file, content: .text("/tmp/report.pdf"), source: .observation)
+        _ = try await TaskChannel.checkpoint(previous,
+            TaskCheckpointDraft(kind: .end, declared: .completed, outputs: [output]), producer: producer, memory: memory)
+        let reference = previous.taskID + "/invoice_file"
+        _ = try await P.task(tools, #"{"request":"Email the ready invoice","inputs":[{"name":"attachment","kind":"file","value":"/tmp/report.pdf","source":"previous_output","source_ref":"\#(reference)"}]}"#)
         let refs = try P.rows("SELECT source_ref FROM memory_task_values WHERE name = 'attachment'", in: session)
         #expect(refs == [reference], "The real task exists and declares this output; its provenance must remain usable")
         #expect(ValueMinimization().minimize(text: "sk-ant-1234567890abcdefghijklmnopqrstuvwxyz").0 == ValueMinimization.marker)

@@ -62,7 +62,7 @@ applications as they are, with the knowledge the earlier ones left in the memory
 `tasks.txt` holds blocks of lines separated by empty lines; `#` starts a comment;
 a block whose first line starts with `>` continues the previous conversation
 instead of opening a new one (a request that depends on the one before it).
-`expected.json` names the keys of `memory_task status` the run depends on
+`expected.json` names the keys of the host runtime identity the run depends on
 (`archive`, `recall.channel`, `recall.model`, `recall.owns_index`, …): the process
 answers before any turn and a difference stops the chat. The evidence folder keeps
 the preflight's answer and, per request, the conversation as saved, the tasks it
@@ -71,6 +71,29 @@ the times, the outcome and the request's token counts (every provider run of it 
 the interpretation reminder is a second run). A failed request stops the script unless
 `--continue`. A reopening of Braus between two requests is two runs of the script
 command on the same archive.
+
+The host identity is independent of the model tool catalogue. Preflight reads the host directly;
+it never calls or exposes `memory_task`. The identity retains `archive`, `recall` and the profile
+reported by the composition. Its `runtime` object has `contract: braus-t2-single-path`, wired
+`features`, `served_tools`, `tool_schema_sha256`, `tool_loading`, `guide_scope`,
+`pending_experiments` and session-scoped
+`tool_attempts`. Expectations can compare those fields before any provider request. A difference
+stops the run; a matching declaration does not establish functional acceptance.
+
+Each request writes `NN/runtime.json` with that runtime object. `tool_attempts` counts attempts over
+the session lifetime, including refused attempts; it is not evidence of successful execution or
+observed effects. Use the transcript and independent task checks to establish increment coverage.
+The catalogue, actual execution and resulting evidence must agree; selecting a build is not a
+substitute for those checks.
+
+Product behavior is the delivered task cycle, prompt, compact results, Recall, batch policy,
+structured pre-turn facts, state collection and uncertainty handling. There is no profile map for
+selecting previous implementations. Authority, memory permissions, archive resources and supported
+transport capabilities remain composition inputs. There are no runtime implementation switches. Individual gestures exclude `expect`; row and batch
+expectations remain available. Scene differences use the bounded anchor/last-base policy with a
+75 percent limit. `pending_experiments` stays empty for evidence-format compatibility. Scientific
+comparisons use distinct patched sources and frozen builds, never a profile option. The preflight
+hashes the actual served tool schema with sorted JSON keys and unescaped slashes before provider work.
 
 The summary (`NN/summary.json`) says in fields what a run of many tasks needs, so it
 never parses a message. New fields are added; none is renamed or removed.
@@ -93,7 +116,7 @@ learned (`RecallService.waitAllIdle`, at most 10 s), so the next process finds i
 search also catches the index up first (`RecallService.catchUp`, at most 5 s).
 
 Inside chat: `/model`, `/status`, `/memory` (the archive this process records into
-and the Recall it runs, as `memory_task status` answers), `/release`, `/help`, `/quit`.
+and the Recall it runs, through the same host identity used by preflight), `/release`, `/help`, `/quit`.
 Ctrl+C or SIGTERM stops further tool calls, cancels the provider, drains the
 active tool operation, releases the Seat and saves an interrupted entry. In a script,
 whose task no one resumes, the stop first closes the open task as abandoned with the
@@ -148,21 +171,31 @@ A provider process disconnect between turns does not release the Seat.
 
 ## Tools and results
 
-With `tool_surface=v2` and `task_cycle=v2`, `ToolList` freezes the eleven advertised tools and the credential's
-level at composition. `find` searches the allowed catalogue and returns complete schemas; `call` resolves the real
-name before admission, validation and recording. The dispatcher validates against the complete callable catalogue,
-independently of the advertised list. Composed mutating schemas include the task cycle's optional `step`; routing
-consumes it before provider invocation. The group index comes from that same allowed catalogue.
+`ToolList` freezes the initial core and the composition's authority level. The core is
+`open_session`, `observe`, `act`, `type_text`, `press_key`, `menu`, `batch`, `plan`, `end`, `find`, `call`.
+Observe-only profiles serve their permitted subset. `find` searches the permitted catalogue and
+returns complete schemas; `call` resolves the actual name before admission, validation and recording.
+The dispatcher validates against the complete callable catalogue independently of the advertised
+list. Mutating schemas include the task cycle's optional `step`; routing consumes it before provider
+invocation. The group index comes from that same permitted catalogue.
 
-A `.capabilityStep` uses `CapabilityCallRecorder` and schema 22: the start commits before effects and an unsaved end
-suspends memory. Schema 19 returns typed unavailable failures; writes do not execute and reads declare the recording
-gap. Schema 22 remains inactive until its separate migration is delivered. `human_step` is absent from every list.
-The following tool and adapter descriptions cover the legacy v1 surface.
+Additional capabilities such as `status`, `windows`, `apps`, `select`, `insert_text`, `scroll`, `drag`,
+`context_menu`, `press` and `close_session` are discovered and invoked through `find`/`call`. A known
+capability can be invoked through `call` without repeating discovery. Directly naming an unadvertised
+tool is refused. The product has no native provider-search adapter or loading selector: every provider
+receives the same core and uses find/call. Runtime evidence retains `tool_loading: upfront` as a fixed
+format field, not a configuration input. Native discovery remains an uncompleted EA5 study requiring
+an attested client and separate source/build artifacts for full-list, native-search and find/call
+comparisons. A synthetic invocation test is not evidence of native-client support.
 
-`status`, `windows`, `apps`, `open_session`, `observe`, `act`, `select`,
-`type_text`, `insert_text`, `press_key`, `scroll`, `drag`, `context_menu`,
-`menu`, `press`, `batch`, `close_session`. CLI chat and the signed Braus app
-share these definitions and their validation.
+`plan` opens or revises task rows and delivers compact procedure offers; gestures refer to their row
+with `step`, and `end` closes the task with result checks. Internal after-turn learning does not depend
+on a model call to the removed task API. `human_step` is absent from every model list.
+
+A `.capabilityStep` uses `CapabilityCallRecorder` and schema 22: the start commits before effects and an
+unsaved end suspends memory. Schema 19 returns typed unavailable failures; writes do not execute and
+reads declare the recording gap. The delivered migration exposes the current schema only after its
+shape has been verified. Historical schema identities remain meaningful for reading stored evidence.
 
 `app_capabilities` and `app_call` reach an app's adapter (`AppAdapters`) with
 no session, and exist only where the composition passes the adapters to
@@ -232,23 +265,28 @@ and not opened, unless the person named the app, the seat already holds it, or
 the adapter cannot run. The answer says to call `open_session` again with
 `named` true when none of the adapter's verbs does the task.
 
-Action tools require the ephemeral session ID returned by open_session.
-Observations carry a revision, capture report time, and the current text scene,
-or its `changes` since an earlier revision (`since`) of the same window.
+Action tools use the host's current session implicitly. A stale session operand cannot select or
+reopen another session, and an action with no current session is refused. Saved observations and
+old identifiers grant no authority. Model-facing observations carry a revision and the current
+text scene, or `changes` since an earlier revision (`since`) of the same window; operational session
+IDs and capture times are omitted from that compact surface.
 The existing engine observes afresh before acting; saved observations are not
 coordinates or authority for later input.
 
-Ordinary desktop results use the existing text content item. Adapter results additionally
-carry `structuredContent` with their outcome and evidence. A host must preserve the result fields
-it needs; the app's model loop explicitly includes the structured adapter result. This transport
-change is not a measured token-saving claim. AutomationMCP keeps the last
-scene the model read of up to eight windows, by the seat's window number or else
-by bundle ID and title; an untitled window of the same size is taken for the
-titled one it was. An action's or `observe`'s scene of such a window is sent as
-`SceneChanges` when they are under half the scene's size. `open_session` and
-`observe` with `full: true` send the whole scene. The baselines are forgotten at
-each turn, when the session ends, and left as they were by a call whose answer
-never reached the model.
+Desktop results render scene and outcome text in tagged blocks and preserve applicable
+`structuredContent`; adapters also retain their compact text and structured result. Hosts must keep
+the fields their consumer needs rather than parsing display prose as evidence. Action results use
+`gesture · effect · recovery` plus a bounded message, separating input delivery from effect. An uncertain
+delivery can have a confirmed observed effect while remaining an uncertain delivery. Repeated identical
+refusals on unchanged scene content return `do_not_repeat`. None of this is a measured token-saving claim.
+
+AutomationMCP retains the last scene the model read for up to eight windows, by the seat's window
+number or else by bundle identity and title; an untitled window of the same size can match its former
+titled reading. Safe scene-text cuts are always used. `open_session` and `observe` with `full: true` send
+the whole scene. The fixed difference policy compares anchor/last bases and uses a 75 percent limit, keeping at most
+the anchor and latest scene dependencies. A comparison with chained differences is a separate study
+and does not create a second implementation in the product. Baselines are reset at context boundaries and session
+closure, and a call whose answer never reached the model restores the delivered baseline.
 
 `SceneChanges` matches elements by identity and writes them in the lines of
 `text()`, which prints sections and their elements in reading order so one screen
@@ -260,28 +298,38 @@ the window. An element now in another section is reported while its old section
 name still exists, since `section:` targets by it; a section name that is gone is
 reported once, in the new section lines.
 
-Replayed over one recorded Codex session on Resolve and Slack (89 Braus tool
+Historical replay over one recorded Codex session on Resolve and Slack (89 Braus tool
 results, 72 of them scenes, with no window numbers), the results come to 279
 thousand characters against the 820 thousand that session printed; dropping the
 duplicate alone gives 412 thousand. Half the scene stays the cut: two thirds turned
-three more scenes into changes and saved 5% of the scene characters.
+three more scenes into changes and saved 5% of the scene characters. These historical observations
+do not qualify the current implementation or establish a measured winner for the difference-policy study.
 
-Batch validates all steps before starting, executes at most 20 act/select/input steps,
-and stops on the first failed/ambiguous/unverified result. Earlier effects remain.
-A verified toggle already in its desired state may continue. No action is
-automatically replayed after a provider failure.
+The dedicated `batch` tool validates every step before effects and uses the shared policy for at
+most 20 steps, one application and 15 seconds. It checks each target again as the sequence proceeds.
+A failure, ambiguity, unavailable next target, unexpected surface or stop ends the sequence without
+replay or rollback. An unknown effect can continue when the next target is available, or the step is
+last; it is still counted as unverified. A committing step must be last, have an expectation and follow
+confirmed earlier effects. Return and Command-Return are conservatively committing inputs. There is
+no inline `then` variant of model gesture tools. The standalone CLI's `--then` separator remains its
+command syntax. A batch reports attempted and verified counts separately; neither a tool attempt nor
+an agent completion claim proves an effect.
 
 The host follows new application windows using the Driver's existing window
 tracking. Dropdown selection uses the same native/custom dropdown selector as
-the terminal command. Tool results preserve the Engine's outcome vocabulary,
-including honest_miss, ambiguous and acted_unverified.
+the terminal command. The archive retains the Engine's historical result vocabulary; the model-facing contract renders
+typed gesture, effect and recovery fields rather than selecting an older result format.
 
 `type_text` resolves and focuses a named field. `insert_text` keeps a focus and
 selection already established, including a dialog's initially selected name,
 and inserts one intact payload. Only exact native focused-field readback against
 an explicit complete `expected_value` verifies that insertion. An opaque field
-remains unverified; batch stops before a subsequent Return. A separately
-authorized commit must be followed by verification of its actual effect.
+remains unverified. A batch cannot proceed from that uncertainty to a committing Return, even when
+the final Return has an expectation. A separately authorized commit must be followed by verification
+of its actual effect. Committing input is classified before dispatch on attested focus and the current
+scene; a dry run does not bypass this check. Eligible unknown effects can receive a bounded second
+look without delivering the input again. A seen passing effect keeps its evidence after a capped or
+unwatched wait, with the wait limit attached.
 The Seat path has no foreground fallback. Multi-app concurrent control and remote
 ChatGPT connections remain separate work.
 
@@ -356,25 +404,29 @@ Pro Tools or Premiere workflow through the model.
 
 ### Application guide delivery
 
-`AutomationMCP/Guides` reads only profile-selected skill files: delimited JSON metadata,
-then a two or three line head and complete Markdown sections. Loading and per-guide
-search construction run on the concurrent executor before publishing `AppGuides`.
-There are no bundled guides. A missing guide preserves existing answer bytes.
+Application guides belong only to the private composition. The open profile excludes their loading,
+exposure and activation, including injected guide delivery. The open product must work without guides;
+this is not a feature that the open user enables through a rollout option.
 
-`DocumentSearch` shares the capability retrieval algorithm without inventing capability
-contracts for guide sections. Composition prepares the union of catalogue texts and
-`GuideSearch.documents(for:)` texts in one `CatalogueVectors` snapshot, using the existing
-embedding adapter and one persistence writer. Each selector borrows that immutable snapshot.
+`AutomationMCP/Guides` reads profile-selected files with delimited JSON metadata, a short head and
+complete Markdown sections. Loading and per-guide index construction run on the concurrent executor
+before publishing `AppGuides`. There are no bundled guides. Without a guide, no guide block is added.
+The profile loader composes attached delivery. Other delivery policies are private-library injection
+points and are not selectable product rollout generations.
 
-The guide head is reserved first, memory next, and up to three complete sections last.
-Coverage compares section text with the same-app `MemoryPartSummary.text`, never its label;
-coverage emits `GuideOverlap` with unknown contrast. Default limits are 1500 tokens and
-0.85 similarity. The injected token estimator rounds character count divided by four upward.
-ME3 supplies delivered memory summaries and the remaining budget; EB2 supplies the common
-estimator and EB2b records delivered guide content in task context.
+`GuideSearch` can share `DocumentSearch`, an immutable `CatalogueVectors` snapshot and an injected
+embedding adapter with capability retrieval. Those injection seams do not establish that the profile
+loader uses semantic retrieval. The current default profile loader supplies neither vectors nor an
+embedder and uses equality for overlap checks; it must not be reported as tested hybrid search or
+semantic overlap detection. Any private composition claiming those behaviors needs explicit wiring
+and separate evidence.
 
-The TU6/EA2b integration TODOs in the facade and dispatcher mark the pending composition:
-optional guides default to nil, requested delivery registers `GuideCapability`, and successful
-opening selects head/index values before formatting. The resolver supplies the person's locale
-and the resolved bundle's numeric short version. Result formatting receives values only;
-v2 escapes guide content in a nonempty `<guide>` block, and v1 uses plain text after a blank line.
+The guide head is reserved first, memory next, and up to three complete sections last. Coverage
+compares complete section text with same-app `MemoryPartSummary.text`; `GuideOverlap` retains unknown
+contrast. The library's default limits are 1500 tokens and 0.85 similarity. The injected estimator rounds
+character count divided by four upward. Delivered guide content can enter typed task state without
+being mistaken for procedural memory or an observation of the current scene.
+
+The resolver supplies locale, bundle identity and numeric app version. Formatting receives prepared
+values and escapes guide content in a nonempty `<guide>` data block. Private guide wiring and selection
+require their own tests; neither a runtime feature declaration nor a green open run certifies them.

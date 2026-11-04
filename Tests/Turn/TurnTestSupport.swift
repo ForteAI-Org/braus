@@ -20,7 +20,7 @@ final class TestTurnHost: TurnHosting {
     }
     func turnBegan() { began += 1 }
     func turnStopping() { stopping += 1 }
-    func seatFacts() -> SeatFacts? { SeatFacts(legacyText: "Braus seat: no session is open.") }
+    func seatFacts() -> SeatFacts? { SeatFacts() }
 }
 
 final class TurnTestTransport: ModelTransport {
@@ -64,4 +64,12 @@ func testTurnRoot() throws -> URL {
     let root = URL.temporaryDirectory.appending(path: "braus-turn-test-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     return root
+}
+
+@MainActor
+func testTurnInstructions(role: String? = nil) -> String {
+    let tools = AutomationTools(session: TurnTestSession())
+    return TurnRunner.systemPrompt(role: role, tools: tools.instructions,
+        toolNames: tools.toolDefinitions.compactMap { $0["name"].string },
+        groupIndex: tools.groupIndex, guidesEnabled: tools.guidesEnabled)
 }

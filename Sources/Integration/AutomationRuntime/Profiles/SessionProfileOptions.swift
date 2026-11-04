@@ -10,12 +10,10 @@ extension SessionProfile {
         public var effort: String?
         public var guides: [URL]
         public var forbiddenApps: [String]
-        public var switches: [String: String]
 
         public init(harnessWebSearch: Bool = false, seatWarmSeconds: Int = 30,
                     holdsFromPlanToEnd: Bool = false, providerCredential: ProviderCredential = .none,
-                    effort: String? = nil, guides: [URL] = [], forbiddenApps: [String] = [],
-                    switches: [String: String] = [:]) {
+                    effort: String? = nil, guides: [URL] = [], forbiddenApps: [String] = []) {
             self.harnessWebSearch = harnessWebSearch
             self.seatWarmSeconds = seatWarmSeconds
             self.holdsFromPlanToEnd = holdsFromPlanToEnd
@@ -23,7 +21,6 @@ extension SessionProfile {
             self.effort = effort
             self.guides = guides
             self.forbiddenApps = forbiddenApps
-            self.switches = switches
         }
     }
 

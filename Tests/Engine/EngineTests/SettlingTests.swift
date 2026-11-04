@@ -56,7 +56,6 @@ struct SettlingTests {
         var slept: [Duration] = []
     }
 
-    private var usesNewVerdict: Bool { OperationCheck.engineVersion == "engine-oracle-2" }
 
     private let pid: pid_t = 4242
     private let frame = CGRect(x: 100, y: 100, width: 1000, height: 800)
@@ -147,9 +146,9 @@ struct SettlingTests {
         #expect(settling.prepares == [0], "one reference, before the first gesture")
     }
 
-    @Test("a wait that ended at its cap leaves a click's verdict from the scene unknown, a change seen or not, with the limit and the reason",
+    @Test("a capped wait preserves a seen change and keeps an unseen effect unknown",
           arguments: [true, false])
-    func cappedSceneVerdictIsUnknown(changed: Bool) async throws {
+    func cappedSceneVerdictPreservesEvidence(changed: Bool) async throws {
         let scenes   = ScriptedScenes([scene([toggleOff]), scene([changed ? toggleOn : toggleOff])])
         let settling = RecordingSettling()
         settling.result = .capped
@@ -157,26 +156,21 @@ struct SettlingTests {
             .act(ActionRequest(processID: pid, bundleID: "com.x", appName: "X", target: "Facebook", verb: .click))
         let check = try #require(outcome.check)
         #expect(check.method == .sceneDifference, "the premise: the click is judged by the scene")
-        let passed = usesNewVerdict && changed
+        let passed = changed
         #expect(check.verdict == (passed ? .passed : .unknown) && check.limits.contains(.settleCapped), "\(check)")
         #expect(outcome.kind == (passed ? .foundActed : .actedUnverified), Comment(rawValue: outcome.message))
-        if !usesNewVerdict {
-            #expect(outcome.message.contains("ended at its cap (300 ms)") && outcome.message.contains("do not repeat it"),
-                    Comment(rawValue: outcome.message))
-        }
     }
 
-    @Test("a wait with nothing to watch leaves a click's scene verdict unknown, the limit naming it")
-    func unwatchedSceneVerdictIsUnknown() async throws {
+    @Test("an unwatched wait preserves a seen change with its observation limit")
+    func unwatchedSceneVerdictPreservesEvidence() async throws {
         let scenes   = ScriptedScenes([scene([toggleOff]), scene([toggleOn])])
         let settling = RecordingSettling()
         settling.result = .unavailable
         let outcome = await engine(scenes: scenes, actuator: RecordingActuator(), settling: settling, pauses: Pauses())
             .act(ActionRequest(processID: pid, bundleID: "com.x", appName: "X", target: "Facebook", verb: .click))
         let check = try #require(outcome.check)
-        #expect(check.verdict == (usesNewVerdict ? .passed : .unknown) && check.limits.contains(.settleUnwatched), "\(check)")
-        #expect(outcome.kind == (usesNewVerdict ? .foundActed : .actedUnverified))
-        if !usesNewVerdict { #expect(outcome.message.contains("Nothing could be watched")) }
+        #expect(check.verdict == .passed && check.limits.contains(.settleUnwatched), "\(check)")
+        #expect(outcome.kind == .foundActed)
     }
 
     @Test("after a capped wait a direct read-back that found the text stays passed, with the limit; one that did not find it is unknown",
@@ -207,12 +201,12 @@ struct SettlingTests {
         settling.result = ended
         _ = await engine(scenes: scenes, actuator: actuator, settling: settling, pauses: Pauses())
             .act(ActionRequest(processID: pid, bundleID: "com.x", appName: "X", target: "Facebook", verb: .click))
-        let expected: DeliveryEffect = usesNewVerdict && changed ? .observed : receipt
+        let expected: DeliveryEffect = changed ? .observed : receipt
         #expect(actuator.confirmations.last == expected)
-        #expect(actuator.confirmations.count == (SecondLook.isEnabled && !changed && ended != .settled ? 2 : 1))
+        #expect(actuator.confirmations.count == (!changed && ended != .settled ? 2 : 1))
     }
 
-    @Test("a key's receipt follows its verdict too: unknown after a capped wait though the scene changed, observed after a settled one",
+    @Test("a key's receipt preserves its observed change after capped or settled waits",
           arguments: [(SettleResult.capped, DeliveryEffect.unknown), (.settled, .observed)])
     func keyReceiptFollowsTheVerdict(ended: SettleResult, receipt: DeliveryEffect) async throws {
         // A field that appears is a structural change, which a key's verdict attributes.
@@ -223,12 +217,12 @@ struct SettlingTests {
         let outcome = await engine(scenes: scenes, actuator: actuator, settling: settling, pauses: Pauses())
             .deliver(InputRequest(processID: pid, bundleID: "com.x", appName: "X",
                                   input: .pressKey(KeyChord(.character("x")), times: 1)))
-        #expect(actuator.confirmations.last == (usesNewVerdict ? .observed : receipt), Comment(rawValue: outcome.message))
-        #expect(ended == .settled || outcome.check?.verdict == (usesNewVerdict ? .passed : .unknown),
+        #expect(actuator.confirmations.last == .observed, Comment(rawValue: outcome.message))
+        #expect(ended == .settled || outcome.check?.verdict == .passed,
                 Comment(rawValue: outcome.message))
     }
 
-    @Test("a toggle the control cannot read is judged by the scene: after a capped wait that is unknown, though the scene shows it on; read from the control, it stays passed",
+    @Test("a toggle read from the scene or the control keeps its seen effect after a capped wait",
           arguments: [(ControlState?.none, OperationCheck.Verdict.unknown, DeliveryEffect.unknown),
                       (ControlState?.some(.on), .passed, .observed)])
     func toggleReadBackKeepsItsSource(control: ControlState?, verdict: OperationCheck.Verdict, receipt: DeliveryEffect) async throws {
@@ -244,11 +238,11 @@ struct SettlingTests {
                                desiredState: .on))
         let check = try #require(outcome.check)
         #expect(check.method == .controlState && check.observed == "on", "the premise: the state read is on, \(check)")
-        #expect(check.verdict == (usesNewVerdict ? .passed : verdict) && check.limits.contains(.settleCapped), "\(check)")
-        #expect(actuator.confirmations.last == (usesNewVerdict ? .observed : receipt))
+        #expect(check.verdict == .passed && check.limits.contains(.settleCapped), "\(check)")
+        #expect(actuator.confirmations.last == .observed)
     }
 
-    @Test("a typed text the field cannot read back is judged by the scene: after a capped wait that is unknown, though the scene shows the text")
+    @Test("a typed text read from the scene keeps its seen effect after a capped wait")
     func typedReadBackFromTheScene() async throws {
         let scenes   = ScriptedScenes([scene([field(value: "")]), scene([field(value: "Braus")])])
         let actuator = RecordingActuator()
@@ -262,8 +256,8 @@ struct SettlingTests {
                                   input: .typeText("Braus", into: "Project Name", replacing: true)))
         let check = try #require(outcome.check)
         #expect(check.method == .controlValue && check.observed == "Braus", "the premise: the scene shows the text, \(check)")
-        #expect(check.verdict == (usesNewVerdict ? .passed : .unknown) && check.limits.contains(.settleCapped), "\(check)")
-        #expect(actuator.confirmations.last == (usesNewVerdict ? .observed : .unknown))
+        #expect(check.verdict == .passed && check.limits.contains(.settleCapped), "\(check)")
+        #expect(actuator.confirmations.last == .observed)
     }
 
     @Test("a wait that settled leaves the verdict as it was, with no settling limit")

@@ -28,15 +28,10 @@ struct ModelTextRulesRegressionTests {
             context.channels = channels
             context.toolNames = Set(names)
             context.toolDefinitions = definitions
-            for format in [PromptDataFormat.plain, .tagged] {
-                for compact in [false, true] {
-                    let text = ModelText.systemPrompt(.v2, legacyText: "", dataFormat: format,
-                        compactOutcome: compact, toolNames: names, groupIndex: nil,
-                        searchesWeb: false, role: nil)
-                    let entry = specimen(text, budget: 2400)
-                    #expect(validate([entry], context: context).isEmpty)
-                }
-            }
+            let text = ModelText.systemPrompt(toolNames: names, groupIndex: nil,
+                searchesWeb: false, role: nil)
+            let entry = specimen(text, budget: 2400)
+            #expect(validate([entry], context: context).isEmpty)
         }
     }
 }
@@ -120,17 +115,23 @@ struct ModelTextContradictionTests {
     }
 }
 
-struct ModelTextLegacyTests {
+struct ModelTextRetiredToolsTests {
     @Test
-    func frozenBytes() throws {
-        let url = modelTextRoot.appending(path: "Tests/Chat/Fixtures/model-text-legacy.json")
-        let expected = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: url))
-        let legacy = ModelText.catalogue.filter(\.legacy)
-        #expect(Set(legacy.map { $0.key.rawValue }) == legacyKeys)
-        #expect(Set(expected.keys) == legacyKeys)
-        for entry in legacy {
-            let text = try #require(expected[entry.key.rawValue])
-            #expect(Data(text.utf8) == Data(entry.text.utf8))
-        }
+    func retiredTaskToolIsAbsentFromThePublicCatalogue() {
+        #expect(!ModelText.catalogue.contains { $0.key.rawValue.contains("memory_task") })
+        #expect(!ModelText.catalogue.contains { $0.text.contains("memory_task") })
+        let keys = ModelText.catalogue.map(\.key)
+        #expect(Set(keys).count == keys.count)
+    }
+}
+
+
+extension ModelTextRulesRegressionTests {
+    @Test func canonicalExternalMCPGuidancePassesNameAndConsistencyRules() throws {
+        let entry = try #require(ModelText.catalogue.first { $0.key.rawValue == "tool_catalogue.mcpClientInstructions.v1" })
+        let violations = validate([entry], context: RuleContext())
+        #expect(violations.filter { [.name, .contradiction].contains($0.code) }.isEmpty)
+        #expect(!entry.text.contains("memory_task"))
+        #expect(!entry.text.contains("app_call") && !entry.text.contains("app_capabilities"))
     }
 }

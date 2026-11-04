@@ -47,8 +47,7 @@ public nonisolated struct SessionProfile: Sendable, Equatable, Codable {
                 "hasProviderCredential": .bool(options.providerCredential != .none),
                 "hasEffort": .bool(options.effort != nil),
                 "guideCount": .number(Double(options.guides.count)),
-                "forbiddenAppCount": .number(Double(options.forbiddenApps.count)),
-                "switchCount": .number(Double(options.switches.count))
+                "forbiddenAppCount": .number(Double(options.forbiddenApps.count))
             ])
         ])
     }

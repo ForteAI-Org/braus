@@ -31,7 +31,7 @@ struct ReviewCorrectionTests {
     func nativeCommandsArePerceived() async throws {
         let session = Learning.photoSession(try W.directory())
         let tools = Learning.tools(session)
-        _ = try await Learning.task(tools, #"{"operation":"begin","goal":"Open and close the export dialog"}"#)
+        _ = try await Learning.task(tools, #"{"request":"Open and close the export dialog"}"#)
         let id = session.id!.uuidString
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
         let menu = try await Learning.call(tools, "menu", #"{"session":"\#(id)","path":"File > Export…"}"#)
@@ -39,8 +39,8 @@ struct ReviewCorrectionTests {
         #expect(!after.contains("memory:") && after.contains("Export"),
                 "the new dialog has no learned window operations: \(menu)")
         _ = try await Learning.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
-        let ended = try await Learning.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        #expect(ended["candidate"]["steps"].array?.map { $0["tool"].string ?? "" } == ["menu", "press"], "one step per command")
+        let ended = try await Learning.task(tools, #"{"outcome":"completed"}"#)
+        #expect(try await Learning.candidateFixture(tools, session)["steps"].array?.map { $0["tool"].string ?? "" } == ["menu", "press"], "one step per command")
         let memory = MemoryService.shared(for: session.directory)
         #expect(await memory.flush(within: .seconds(10)))
         let samples = try Learning.rows("""
@@ -67,6 +67,7 @@ struct ReviewCorrectionTests {
         session.windows[Learning.preview] = Learning.Preview.export
         session.script["press|Save"] = LearningSession.Outcome(kind: .refused, gesture: false)
         let tools = Learning.tools(session)
+        _ = try await Learning.task(tools, #"{"request":"Check the command and its observed result"}"#)
         let id = session.id!.uuidString
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
         _ = try await Learning.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
@@ -89,7 +90,7 @@ struct ReviewCorrectionTests {
         let tools = Learning.tools(session)
         let secret = "codec-9Z1-canary"
         _ = try await Learning.task(tools, #"""
-            {"operation":"begin","goal":"Export in the house format","inputs":[{"name":"format","value":"\#(secret)","secret":true}]}
+            {"request":"Export in the house format","inputs":[{"name":"format","value":"\#(secret)","secret":true}]}
             """#)
         let id = session.id!.uuidString
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
@@ -123,6 +124,7 @@ struct ReviewCorrectionTests {
         let session = Learning.photoSession(try W.directory())
         session.script["press_key|s"] = LearningSession.Outcome(effect: .windowTitleChanged(title: "Saved"))
         let tools = Learning.tools(session)
+        _ = try await Learning.task(tools, #"{"request":"Check the command and its observed result"}"#)
         let id = session.id!.uuidString
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
         for _ in 0..<2 {

@@ -344,7 +344,7 @@ struct MenuBarCommandTests {
             Issue.record("Observation erased an acknowledged dispatch: \(error)")
         }
         #expect(presses == 1)
-        #expect(observations == (SecondLook.isEnabled ? 2 : 1))
+        #expect(observations == 2, "an eligible unknown effect gets one further reading, never another press")
     }
 
     private static let scene = SceneSnapshot(
@@ -438,18 +438,19 @@ struct MenuBarCommandTests {
             signature: { _ in [String(revision)] },
             observe: { revision += 1; return Self.scene }
         )
-        #expect(revision == 3)
+        #expect(revision == 4)
+        #expect(result.lookedAgain)
         #expect(result.kind == .actedUnverified)
         #expect(result.scene == nil)
         #expect(result.message.contains("Do not repeat"))
     }
 
     @Test("A handback that was not verified but is verified by the observation gets the window verdict",
-          arguments: [true, false])
-    func aLateVerifiedReturnGetsTheWindowVerdict(_ windowOpened: Bool) async throws {
+          arguments: [true, false], [AXError.success, .cannotComplete])
+    func aLateVerifiedReturnGetsTheWindowVerdict(_ windowOpened: Bool, _ answer: AXError) async throws {
         let dispatched = await MenuBarCommand.runInFront(
             read     : { .press(Node("Place Embedded..."), path: "File > Place Embedded...") },
-            press    : { _ in .success },
+            press    : { _ in answer },
             withFront: { command in command(); return "The return was not verified." }
         )
         let result = try await MenuBarCommand.observedOutcome(
@@ -463,6 +464,8 @@ struct MenuBarCommandTests {
         )
         #expect(result.kind == (windowOpened ? .foundActed : .actedUnverified))
         #expect(result.scene == Self.scene)
+        #expect(result.outcome.gesture == (answer == .cannotComplete ? .uncertain : .sent))
+        #expect(result.check?.limits.contains(.deliveryUncertain) == (answer == .cannotComplete))
         #expect(!result.message.contains("not verified"))
         #expect(!result.message.contains("Observe"))
     }
@@ -659,6 +662,8 @@ struct MenuBarCommandTests {
         let pressed = await MenuBarCommand.runPrepared(preparesEnabledItems: false, read: { self.resolve("File > New...") },
                                                        press: { _ in .cannotComplete }, refresh: nil)
         #expect(pressed.pressed == "File > New..." && pressed.answer == .cannotComplete && pressed.outcome.kind == .foundActed)
+        #expect(pressed.outcome.outcome.gesture == .uncertain)
+        #expect(pressed.outcome.check?.limits.contains(.deliveryUncertain) == true)
         let refused = await MenuBarCommand.runPrepared(preparesEnabledItems: false, read: { self.resolve("File > New...") },
                                                        press: { _ in .actionUnsupported }, refresh: nil)
         #expect(refused.pressed == nil && refused.answer == .actionUnsupported && refused.outcome.kind == .actedUnverified)

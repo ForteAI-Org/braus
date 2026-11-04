@@ -13,6 +13,7 @@ import Memory
 import PerceptionCore
 @testable import SQLiteMemory
 import Testing
+import TaskRouting
 
 /// P2-01, P2-04 and the acceptance scenarios 1 and 2 through the tools: one task searches a shop through its interface,
 /// creates a note through an adapter and appends to it by the identifier the creation produced. The candidate keeps the
@@ -72,8 +73,8 @@ struct MixedProcedureTests {
     }
 
     static func tools(_ session: LearningSession, _ adapter: NotesFake, stream: String) -> AutomationTools {
-        let tools = P.tools(session, stream: stream)
-        tools.adapters = AppAdapters([adapter])
+        let tools = AutomationTools(session: session, adapters: AppAdapters([adapter]), router: TaskRouter(catalogue: RouteCatalogue([])))
+        tools.producer = CallProducer(source: .app, streamID: stream)
         return tools
     }
 
@@ -84,7 +85,9 @@ struct MixedProcedureTests {
     }
 
     static func appCall(_ tools: AutomationTools, _ verb: String, _ arguments: JSONValue) async throws -> JSONValue {
-        answered(try await tools.call("app_call", .object(["app": .string("Notes"), "verb": .string(verb), "arguments": arguments])))
+        var fields = arguments.object ?? [:]
+        if tools.openTask != nil { fields["step"] = .string("r1") }
+        return answered(try await tools.call("call", .object(["name": .string("notes." + verb), "arguments": .object(fields)])))
     }
 
     @Test("scenarios 1 and 2: UI, adapter and dependent adapter steps kept in order, admitted on their own oracles; the Recall refers to the new run's result and the historical identifier is refused")
@@ -95,7 +98,7 @@ struct MixedProcedureTests {
         let adapter = NotesFake()
         let tools = Self.tools(session, adapter, stream: "learn")
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Search lamps on the shop and note them","recall":false,
+            {"request":"Search lamps on the shop and note them",
              "inputs":[{"name":"query","value":"lamps"}]}
             """#)
         _ = try await P.call(tools, "open_session", #"{"app":"\#(Self.shop)"}"#)
@@ -105,14 +108,14 @@ struct MixedProcedureTests {
         let created = try await Self.appCall(tools, "create_note", .object(["title": .string("SYNTH-LAMPS")]))
         let noteID = try #require(created["result"]["id"].string, "\(created)")
         _ = try await Self.appCall(tools, "append_to_note", .object(["id": .string(noteID), "text": .string("SYNTH-BODY")]))
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = ended["candidate"]
+        let ended = try await P.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await P.candidateFixture(tools, session)
         let candidateID = try #require(candidate["id"].string, "\(ended)")
         #expect(candidate["blocks"].array?.map { $0["app"].string ?? "" } == [Self.shop, "com.apple.Notes"], "\(candidate)")
         #expect(candidate["steps"].array?.map { $0["check"].string ?? "" }
                 == ["value_read_back passed", "structural_effect passed", "adapter_effect passed", "adapter_effect passed"])
 
-        let interpreted = try await P.task(tools, #"""
+        let interpreted = try await P.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidateID)",
              "procedure":{"label":"Search <query> on the shop and note the result"},
              "parts":[{"part":"b1","label":"Search <query> on the shop","outcome":"completed"},
@@ -140,11 +143,12 @@ struct MixedProcedureTests {
 
         // Scenario 2: a new task's Recall refers the dependent step to the new run's result, never to the historical id.
         let asking = Self.tools(session, adapter, stream: "ask")
-        let begun = try await P.task(asking, #"""
-            {"operation":"begin","goal":"Search lamps on the shop and note them","remaining":"Search lamps on the shop and note them",
-             "inputs":[{"name":"query","value":"lamps"}],
+        _ = try await P.task(asking, #"{"request":"Search lamps on the shop and note them","inputs":[{"name":"query","value":"lamps"}]}"#)
+        // The dependency oracle is a typed service query of this real task, independent of plan text formatting.
+        let begun = try await HistoricalRecallFixture.query(asking, #"""
+            {"operation":"recall","reason":"new_need","remaining":"Search lamps on the shop and note them",
              "needs":[{"text":"Search lamps on the shop, then create a note and append to the note created"}]}
-            """#)
+            """#, availableChannels: HistoricalRecallFixture.nativeChannels.union(["app_call:create_note", "app_call:append_to_note"]))
         let need = begun["recall"]["needs"].array?.first ?? .null
         let delivered = "\(need)"
         #expect(!delivered.contains(noteID), "the historical identifier is never delivered: \(delivered)")

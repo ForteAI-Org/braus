@@ -8,6 +8,7 @@
 import AppKit
 import ApplicationServices
 import EngineCore
+import Engine
 import PerceptionCore
 import WindowPlacement
 
@@ -26,6 +27,28 @@ import WindowPlacement
 /// destructive at any step unless the person allowed that.
 @MainActor
 public enum MenuBarCommand {
+
+    /// ExpectationReadings belongs to one perceived command and retains only its volatile proof inputs.
+    final class ExpectationReadings {
+        let bundleID: String
+        let before: PerceivedWindow?
+        var after: PerceivedWindow?
+        var windowsBefore: [String]?
+
+        init(bundleID: String, before: PerceivedWindow?) {
+            self.bundleID = bundleID
+            self.before = before
+        }
+    }
+
+    @TaskLocal
+    static var expectationReadings: ExpectationReadings?
+
+    /// Reads a window predicate's baseline immediately before the admitted press, never from scene titles.
+    private static func captureExpectationWindows(in processID: pid_t) {
+        guard case .window = ScreenExpectation.current else { return }
+        expectationReadings?.windowsBefore = windowTitles(of: processID)
+    }
 
     /// One item of a menu as the walk reads it. The key equivalent is read only by the walk that
     /// looks for a new window: `keyEquivalent` is `AXMenuItemCmdChar`, nil when the item has none,
@@ -311,7 +334,7 @@ public enum MenuBarCommand {
                     + "Nothing was pressed: name one of them to press it.", noop: .listing), nil, nil)
             case .press(let item, let path):
                 let error = press(item)
-                // An item that opens a modal can keep the reply past the timeout: it was pressed.
+                // A modal can outlive the reply timeout; retain the uncertain dispatch while observing its effect.
                 guard error == .success || error == .cannotComplete else {
                     return (nil, ActOutcome(.actedUnverified, "Pressing \(path) failed with AXError \(error.rawValue).",
                                             check: Self.windowCheck(
@@ -321,7 +344,9 @@ public enum MenuBarCommand {
                                             )),
                             nil, error)
                 }
-                return (path, ActOutcome(.foundActed, "pressed \(path)"), nil, error)
+                let check = error == .cannotComplete
+                    ? windowCheck(.unknown, limits: [.deliveryUncertain], performed: .uncertain) : nil
+                return (path, ActOutcome(.foundActed, "pressed \(path)", check: check), nil, error)
         }
     }
 
@@ -421,7 +446,10 @@ public enum MenuBarCommand {
         let mayHaveActed = result.pressed != nil || result.outcome.kind == .actedUnverified
         return (result.pressed, ActOutcome(
             mayHaveActed ? .actedUnverified : .refused,
-            result.outcome.message + " " + issue + (mayHaveActed ? " Do not repeat it blind." : "")
+            result.outcome.message + " " + issue + (mayHaveActed ? " Do not repeat it blind." : ""),
+            scene: result.outcome.scene, check: result.outcome.check, notSent: result.outcome.notSent,
+            noop: result.outcome.noop, cause: result.outcome.cause,
+            lookedAgain: result.outcome.lookedAgain, waited: result.outcome.waited
         ), result.disabled, result.answer)
     }
 
@@ -454,11 +482,10 @@ public enum MenuBarCommand {
                 )
             },
             press: {
+                captureExpectationWindows(in: processID)
                 let answer = AXUIElementPerformAction($0, kAXPressAction as CFString)
-                if SecondLook.isEnabled {
-                    gestureEnded = .now
-                    if answer == .success || answer == .cannotComplete { InterruptibleWait.current?.open() }
-                }
+                gestureEnded = .now
+                if answer == .success || answer == .cannotComplete { InterruptibleWait.current?.open() }
                 return answer
             },
             withFront: { command in
@@ -517,11 +544,10 @@ public enum MenuBarCommand {
                 )
             },
             press: {
+                captureExpectationWindows(in: processID)
                 let answer = AXUIElementPerformAction($0, kAXPressAction as CFString)
-                if SecondLook.isEnabled {
-                    gestureEnded = .now
-                    if answer == .success || answer == .cannotComplete { InterruptibleWait.current?.open() }
-                }
+                gestureEnded = .now
+                if answer == .success || answer == .cannotComplete { InterruptibleWait.current?.open() }
                 return answer
             },
             refresh: refresh
@@ -558,32 +584,38 @@ public enum MenuBarCommand {
         frontReturned: () -> Bool = { false },
         settling     : (any Settling)? = nil,
         signature    : @MainActor (pid_t) -> [String] = windowSignature,
+        windowTitles : @MainActor (pid_t) -> [String]? = windowTitles,
         secondLookCap: Duration = .seconds(2),
         gestureEnded : ContinuousClock.Instant = .now,
         observe      : @escaping @MainActor () async throws -> SceneSnapshot
     ) async throws -> ActOutcome {
         guard let pressed else { return outcome }
-        let enabled = SecondLook.isEnabled
-        if enabled { InterruptibleWait.current?.open() }
-        defer { if enabled { InterruptibleWait.current?.close() } }
+        InterruptibleWait.current?.open()
+        defer { InterruptibleWait.current?.close() }
         var ended: SettleResult = .unavailable
+        let uncertain = outcome.check?.performed == .uncertain || outcome.check?.limits.contains(.deliveryUncertain) == true
+        func judgmentCheck(_ verdict: OperationCheck.Verdict, limits: [OperationCheck.Limit] = [],
+                           performed: OperationCheck.Performed = .requested) -> OperationCheck {
+            windowCheck(verdict, limits: limits + (uncertain && !limits.contains(.deliveryUncertain) ? [.deliveryUncertain] : []),
+                performed: uncertain ? .uncertain : performed)
+        }
         func read() async throws -> SceneSnapshot? {
-            guard enabled, let wait = InterruptibleWait.current else { return try await observe() }
+            guard let wait = InterruptibleWait.current else { return try await observe() }
             let result: Result<SceneSnapshot, any Error>? = await wait.reading {
                 do { return .success(try await observe()) } catch { return .failure(error) }
             }
             return try result?.get()
         }
         let interrupted = ActOutcome(.actedUnverified, outcome.message,
-                                     check: outcome.check ?? windowCheck(.unknown), cause: outcome.cause)
+                                     check: outcome.check ?? judgmentCheck(.unknown), cause: outcome.cause)
         func observationFailure(_ error: any Error) -> ActOutcome {
             ActOutcome(.actedUnverified, outcome.message
                 + OutcomeText.commandObservationFailure + String(describing: error)
-                + OutcomeText.commandObservationRecovery, check: windowCheck(.unknown, limits: [.noAfterScene]))
+                + OutcomeText.commandObservationRecovery, check: judgmentCheck(.unknown, limits: [.noAfterScene]))
         }
         func changingWindows() -> ActOutcome {
             ActOutcome(.actedUnverified, OutcomeText.changingWindows(afterPress: pressed),
-                check: windowCheck(.unknown, limits: [enabled ? .settleCapped : .noAfterScene]))
+                check: judgmentCheck(.unknown, limits: [.settleCapped]))
         }
         let scene: SceneSnapshot?
         var firstFailure: ActOutcome?
@@ -592,8 +624,7 @@ public enum MenuBarCommand {
             if let settling {
                 ended = await settling.settle(in: processID, cap: pressSettle)
             } else {
-                if enabled { try await Task.sleep(for: pressSettle) }
-                else { try? await Task.sleep(for: pressSettle) }
+                try await Task.sleep(for: pressSettle)
             }
             after = signature(processID)
             var stable: SceneSnapshot?
@@ -615,9 +646,25 @@ public enum MenuBarCommand {
             scene = nil
             firstFailure = observationFailure(error)
         }
+        func checkedExpectation(_ result: ActOutcome, scene: SceneSnapshot?) -> ActOutcome {
+            guard let expectation = ScreenExpectation.current,
+                  [.foundActed, .actedUnverified].contains(result.kind),
+                  result.check?.performed != .substitute else { return result }
+            let readings = expectationReadings
+            let before = readings?.before
+            let after = readings?.after
+            let comparable = before != nil && after != nil && scene != nil
+                && before?.scene.bundleID == readings?.bundleID && after?.scene.bundleID == readings?.bundleID
+                && before.flatMap { before in after.map { ActVerification.comparable(before: before.capture, after: $0.capture) } } == true
+            let windows: [String]?
+            if case .window = expectation { windows = windowTitles(processID) }
+            else { windows = nil }
+            return ActionEngine.expectationOutcome(expectation, outcome: result, before: before?.scene,
+                after: scene, windows: windows, comparable: comparable, beforeWindows: readings?.windowsBefore)
+        }
         func judged(_ scene: SceneSnapshot?, after: [String]) -> ActOutcome {
             if outcome.kind == .actedUnverified, !(frontIssue != nil && frontReturned()) {
-                let check = outcome.check ?? windowCheck(.unknown, limits: [.deliveryUncertain], performed: .uncertain)
+                let check = outcome.check ?? judgmentCheck(.unknown, limits: [.deliveryUncertain], performed: .uncertain)
                 guard let frontIssue else { return ActOutcome(.actedUnverified, outcome.message, scene: scene, check: check) }
                 return ActOutcome(.actedUnverified, (pressed.hasSuffix(".") ? "pressed \(pressed)" : "pressed \(pressed).")
                     + " \(frontIssue) The scene is attached."
@@ -626,7 +673,7 @@ public enum MenuBarCommand {
             }
             let changed = after != before
             // A window that did not change does not show the command failed: its effect may be elsewhere, so it is unknown.
-            let check = windowCheck(changed ? .passed : .unknown)
+            let check = judgmentCheck(changed ? .passed : .unknown)
             return changed
                 ? ActOutcome(.foundActed, "pressed \(pressed): a window of the application opened, closed or was retitled",
                              scene: scene, check: check)
@@ -634,13 +681,13 @@ public enum MenuBarCommand {
                              + "the scene shows whether it took effect. Do not press it again blind.",
                              scene: scene, check: check)
         }
-        var first = firstFailure ?? judged(scene, after: after)
-        if enabled, Task.isCancelled { return SecondLook.cut(first) }
-        if enabled, first.check?.verdict == .unknown, ended != .settled {
+        var first = checkedExpectation(firstFailure ?? judged(scene, after: after), scene: scene)
+        if Task.isCancelled { return SecondLook.cut(first) }
+        if first.check?.verdict == .unknown, ended != .settled {
             first = first.with(check: first.check?.adding([ended == .capped ? .settleCapped : .settleUnwatched]))
         }
-        if enabled { first = first.with(lookedAgain: false, waited: gestureEnded.duration(to: .now)) }
-        guard enabled, let mode = SecondLook.mode(for: first.check, alreadyLooked: false) else { return first }
+        first = first.with(lookedAgain: false, waited: gestureEnded.duration(to: .now))
+        guard let mode = SecondLook.mode(for: first.check, alreadyLooked: false) else { return first }
         if Task.isCancelled || InterruptibleWait.current?.stopRequested == true { return SecondLook.cut(first) }
         let cap = SecondLook.remaining(budget: secondLookCap, since: gestureEnded, now: .now)
         var lastEnding = ended
@@ -698,7 +745,7 @@ public enum MenuBarCommand {
             if census != signatureAtRead || (lastEnding != .settled && windowsKeptChanging) {
                 return changingWindows().with(lookedAgain: true, waited: gestureEnded.duration(to: .now))
             }
-            var final = judged(finalScene, after: census)
+            var final = checkedExpectation(judged(finalScene, after: census), scene: finalScene)
             if final.check?.verdict == .unknown, lastEnding != .settled {
                 final = final.with(check: final.check?.adding([lastEnding == .capped ? .settleCapped : .settleUnwatched]))
             }
@@ -725,6 +772,25 @@ public enum MenuBarCommand {
         OperationCheck(condition: .windowSetChanged, method: .windowSignature, verdict: verdict,
                        expected: "windows changed", observed: verdict == .passed ? "windows changed" : nil,
                        limits: limits + [.commandEffectUnchecked], performed: performed)
+    }
+
+    /// Returns a complete AX window-title census, or nil when a window list or title could not be read.
+    /// A failed read is not an empty list and cannot prove a window's absence.
+    private static func windowTitles(of processID: pid_t) -> [String]? {
+        let application = AXUIElementCreateApplication(processID)
+        AXUIElementSetMessagingTimeout(application, 1)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
+              let windows = value as? [AXUIElement] else { return nil }
+        var titles: [String] = []
+        for window in windows {
+            var value: CFTypeRef?
+            let error = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &value)
+            if error == .noValue { titles.append(""); continue }
+            guard error == .success, let title = value as? String else { return nil }
+            titles.append(title)
+        }
+        return titles
     }
 
     /// What says a command changed the application's windows: every accessibility window's number, role,

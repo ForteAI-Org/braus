@@ -44,7 +44,7 @@ extension TaskCycleHandler {
 
     func planRowJSON(_ row: TodoRow) -> JSONValue {
         var result = Self.rowJSON(row).object ?? [:]
-        if RecallRendering.Version.current == .v2, let part = row.part,
+        if let part = row.part,
            let key = deliveredOffers[row.id]?.first(where: { $0.partID == part })?.key {
             result["part"] = .string(key)
         }
@@ -53,7 +53,7 @@ extension TaskCycleHandler {
 
     /// Translates the row's offered key to its archive identity before the todo's foreign key is written.
     func planPart(_ key: String?, row: TodoRowID, previous: String?, state: PlanMemoryState) -> String? {
-        guard RecallRendering.Version.current == .v2, let key else { return key ?? previous }
+        guard let key else { return previous }
         guard memoryAccess.reads, let parts = state.offers[row],
               let part = parts.first(where: { $0.key == key || $0.partID == key }) else {
             state.notices.append(Self.planNotice(row, ModelText.text(.init(rawValue: "task_cycle.unknown_part.v2"))))
@@ -182,7 +182,7 @@ extension TaskCycleHandler {
                     guard !deliveredGuideApps.contains(resolved), !apps.contains(where: { $0.bundleID == resolved }) else { continue }
                     let app = resolveGuideApp(resolved)
                     if let head = guides.head(for: app) {
-                        heads.append(ModelText.guideContent(head: head, index: nil))
+                        heads.append(ModelText.guideContent(head: head))
                         apps.append(app)
                     }
                 }
@@ -300,7 +300,7 @@ extension TaskCycleHandler {
     }
 
     func learnedForPlanApp(_ bundleID: String?) async -> Int? {
-        guard RecallRendering.Version.current == .v2, memoryAccess.reads,
+        guard memoryAccess.reads,
               let bundleID, let directory = session.memoryDirectory else { return nil }
         return await RecallService.shared(for: MemoryService.shared(for: directory))
             .admittedProcedureCount(bundleID: bundleID, access: memoryAccess,

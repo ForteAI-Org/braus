@@ -3,7 +3,6 @@ import AutomationRuntime
 import Foundation
 import LocalMCP
 import Memory
-import Switches
 import Testing
 @testable import SQLiteMemory
 
@@ -77,7 +76,7 @@ struct PlanCycleTests {
 
     @Test(.enabled(if: SQLiteMemorySchema.version == 19, "Schema 19 availability contract"))
     func unavailableArchiveNeverOpensFirstTask() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2"])) {
+        do {
             let directory = URL.temporaryDirectory.appending(path: "tu6-unavailable-\(UUID().uuidString)")
             let session = ToolResultSession()
             session.memoryDirectory = directory
@@ -94,7 +93,7 @@ struct PlanCycleTests {
 @MainActor
 struct EndContractTests {
     @Test func noOpenTaskHasCode() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2"])) {
+        do {
             let tools = AutomationTools(session: ToolResultSession())
             let result = try await tools.call("end", .object(["outcome": .string("completed")]))
             #expect(result["isError"].bool == true)
@@ -105,20 +104,18 @@ struct EndContractTests {
 
 @MainActor
 struct AfterTurnInterpretationTests {
-    @Test func aPendingCandidateHasNoModelReminderInV2() {
+    @Test func aPendingCandidateStaysInternal() {
         let session = ToolResultSession()
         let secrets = ProducerSecrets()
         let scene = SceneTextPolicy()
         let formatter = ResultFormatter(session: session, secrets: secrets, sceneText: scene)
         let handler = TaskCycleHandler(session: session, secrets: secrets, formatter: formatter)
         handler.pendingCandidate = "candidate"
-        SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2"])) {
+        do {
             #expect(handler.takeInterpretationReminder() == nil)
         }
-        SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v1"])) {
-            #expect(handler.takeInterpretationReminder()?.contains("candidate") == true)
-            #expect(handler.takeInterpretationReminder() == nil)
-        }
+        #expect(handler.takeInterpretationReminder() == nil)
+        #expect(handler.pendingCandidate == "candidate")
     }
 }
 

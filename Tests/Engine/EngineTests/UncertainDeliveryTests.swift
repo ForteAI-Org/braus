@@ -3,7 +3,6 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
-import Switches
 import Synchronization
 import Testing
 
@@ -39,50 +38,37 @@ struct UncertainDeliveryTests {
             frame: CGRect(x: 0, y: 0, width: 800, height: 600))
     }
 
-    @Test(arguments: ["off", "on"])
-    func inputsReadOnceWithoutAnotherGesture(_ arm: String) async {
+    @Test
+    func inputsReadOnceWithoutAnotherGesture() async {
         let inputs: [InputRequest.Input] = [
             .insertText("new", expecting: "new"), .typeText("new", into: "Name", replacing: true),
             .pressKey(KeyChord(.tab), times: 2), .scroll(lines: -2, over: "Name"),
             .drag(from: "Name", to: .offset(dx: 10, dy: 10)), .contextMenu(on: "Name", item: "Copy")
         ]
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": arm])) {
-            let messages = [
-                "inserting text: delivery failed: 'delivery stopped'; observe before any retry",
-                "typing into 'Name': delivery failed: 'delivery stopped'",
-                "pressed tab 2 times: delivery failed: 'delivery stopped'",
-                "scrolled 2 lines down over 'Name': delivery failed: 'delivery stopped'",
-                "dragged 'Name' to 10,10 points away: delivery failed: 'delivery stopped'",
-                "right-clicking 'Name': delivery failed: 'delivery stopped'"
-            ]
-            for (input, message) in zip(inputs, messages) {
-                let scenes = ActionEngineTests.ScriptedScenes([window("Before"), window("After")])
-                let actuator = FailingActuator(detail: "'delivery stopped'")
-                let engine = ActionEngine(.init(scenes: scenes, actuator: actuator,
-                    windows: ActionEngineTests.ScriptedWindows([[]])), pause: { _ in })
-                let result = await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X", input: input))
-                #expect(actuator.calls == 1)
-                #expect(scenes.calls == (arm == "on" ? 2 : 1))
-                #expect((result.scene != nil) == (arm == "on"))
-                #expect(result.check?.performed == .uncertain)
-                if arm == "off" { #expect(Data(result.message.utf8) == Data(message.utf8)) }
-            }
+        for input in inputs {
+            let scenes = ActionEngineTests.ScriptedScenes([window("Before"), window("After")])
+            let actuator = FailingActuator(detail: "'delivery stopped'")
+            let engine = ActionEngine(.init(scenes: scenes, actuator: actuator,
+                windows: ActionEngineTests.ScriptedWindows([[]])), pause: { _ in })
+            let result = await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X", input: input))
+            #expect(actuator.calls == 1)
+            #expect(scenes.calls == 2)
+            #expect(result.scene != nil)
+            #expect(result.check?.performed == .uncertain)
         }
     }
 
     @Test(arguments: ["Before", "After"])
     func clickUsesItsOwnVerdict(_ title: String) async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "on"])) {
-            let scenes = ActionEngineTests.ScriptedScenes([window("Before"), window(title)])
-            let actuator = FailingActuator()
-            let engine = ActionEngine(.init(scenes: scenes, actuator: actuator,
-                windows: ActionEngineTests.ScriptedWindows([[]])), pause: { _ in })
-            let result = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X", target: "Name", verb: .click))
-            #expect(result.scene != nil)
-            #expect(result.outcome.row == (title == "After" ? "uncertain · confirmed · continue" : "uncertain · absent · do_not_repeat"))
-            #expect(result.check?.limits.contains(.deliveryUncertain) == true)
-            #expect(actuator.calls == 1)
-        }
+        let scenes = ActionEngineTests.ScriptedScenes([window("Before"), window(title)])
+        let actuator = FailingActuator()
+        let engine = ActionEngine(.init(scenes: scenes, actuator: actuator,
+            windows: ActionEngineTests.ScriptedWindows([[]])), pause: { _ in })
+        let result = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X", target: "Name", verb: .click))
+        #expect(result.scene != nil)
+        #expect(result.outcome.row == (title == "After" ? "uncertain · confirmed · continue" : "uncertain · absent · do_not_repeat"))
+        #expect(result.check?.limits.contains(.deliveryUncertain) == true)
+        #expect(actuator.calls == 1)
     }
 
     @Test func refusalDoesNotReadAfterwards() async {
@@ -119,40 +105,33 @@ extension UncertainDeliveryTests {
         }
         #expect(actuator.calls == 0)
         #expect(result.check?.performed == .uncertain)
-        #expect(!result.message.contains("private detail"))
+        #expect(result.message.contains("delivery failed: private detail"), "The producer keeps the diagnosis; model formatting removes it")
     }
 }
 
 extension UncertainDeliveryTests {
-    @Test(arguments: ["toggle", "arrows", "typeAhead", "submenu"], ["off", "on"])
-    func actionSitesAttachTheirReading(_ site: String, _ arm: String) async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": arm])) {
-            let extra = site == "arrows" ? [SceneElement(id: "text|other", kind: .text, label: "Other",
-                bounds: NormalizedRect(x: 0.2, y: 0.35, width: 0.2, height: 0.1))] : []
-            let scenes = ActionEngineTests.ScriptedScenes([
-                window("Before", additional: extra), window("After", additional: extra)
-            ])
-            let actuator = FailingActuator(detail: "'delivery stopped'")
-            let controls = ActionEngineTests.FakeControls(values: site == "arrows" ? ["Other"] : [nil])
-            if site == "submenu" {
-                controls.submenu = MenuItemNavigation(hasSubmenu: true, row: 1, submenuFrame: nil)
-            }
-            let rows: [WindowRow] = site == "toggle" ? [] : [WindowRow(layer: 101,
-                frame: CGRect(x: 100, y: 60, width: 400, height: 300), title: nil, number: 2)]
-            let engine = ActionEngine(.init(scenes: scenes, actuator: actuator,
-                windows: ActionEngineTests.ScriptedWindows([rows]), controls: controls), pause: { _ in })
-            let result = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X",
-                target: "Name", verb: site == "toggle" ? .setToggle : .click, desiredState: .on))
-            #expect(actuator.calls == 1)
-            #expect((result.scene != nil) == (arm == "on"))
-            #expect(result.check?.performed == .uncertain)
-            #expect(scenes.calls == (arm == "on" ? 2 : 1))
-            if arm == "off" {
-                let prefix = site == "toggle" ? "set 'Name'" : site == "arrows" ? "picking 'Name'"
-                    : site == "typeAhead" ? "typing 'Name'" : "opening submenu 'Name'"
-                #expect(Data(result.message.utf8) == Data((prefix + ": delivery failed: 'delivery stopped'").utf8))
-            }
+    @Test(arguments: ["toggle", "arrows", "typeAhead", "submenu"])
+    func actionSitesAttachTheirReading(_ site: String) async {
+        let extra = site == "arrows" ? [SceneElement(id: "text|other", kind: .text, label: "Other",
+            bounds: NormalizedRect(x: 0.2, y: 0.35, width: 0.2, height: 0.1))] : []
+        let scenes = ActionEngineTests.ScriptedScenes([
+            window("Before", additional: extra), window("After", additional: extra)
+        ])
+        let actuator = FailingActuator(detail: "'delivery stopped'")
+        let controls = ActionEngineTests.FakeControls(values: site == "arrows" ? ["Other"] : [nil])
+        if site == "submenu" {
+            controls.submenu = MenuItemNavigation(hasSubmenu: true, row: 1, submenuFrame: nil)
         }
+        let rows: [WindowRow] = site == "toggle" ? [] : [WindowRow(layer: 101,
+            frame: CGRect(x: 100, y: 60, width: 400, height: 300), title: nil, number: 2)]
+        let engine = ActionEngine(.init(scenes: scenes, actuator: actuator,
+            windows: ActionEngineTests.ScriptedWindows([rows]), controls: controls), pause: { _ in })
+        let result = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X",
+            target: "Name", verb: site == "toggle" ? .setToggle : .click, desiredState: .on))
+        #expect(actuator.calls == 1)
+        #expect(result.scene != nil)
+        #expect(result.check?.performed == .uncertain)
+        #expect(scenes.calls == (site == "toggle" ? 3 : 2), "Toggle targeting adds its mandatory fresh read before the uncertain delivery")
     }
 }
 
@@ -181,18 +160,16 @@ extension UncertainDeliveryTests {
         let scenes = ActionEngineTests.ScriptedScenes([window("Before"), window("After")])
         let engine = ActionEngine(.init(scenes: scenes, actuator: actuator,
             windows: ActionEngineTests.ScriptedWindows([[]])), pause: { _ in })
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "on"])) {
-            await InterruptibleWait.$current.withValue(wait) {
-                let result = await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X",
-                    input: .contextMenu(on: "Name", item: "Copy")))
-                #expect(result.scene == nil)
-                #expect(result.outcome.row == (fails ? "uncertain · unknown(not_readable) · do_not_repeat"
-                    : "sent · unknown(not_readable) · observe"))
-                #expect(actuator.calls == 1)
-                #expect(scenes.calls == 1)
-                #expect(!Task.isCancelled)
-                #expect(!wait.isOpen)
-            }
+        await InterruptibleWait.$current.withValue(wait) {
+            let result = await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X",
+                input: .contextMenu(on: "Name", item: "Copy")))
+            #expect(result.scene == nil)
+            #expect(result.outcome.row == (fails ? "uncertain · unknown(not_readable) · do_not_repeat"
+                : "sent · unknown(not_readable) · observe"))
+            #expect(actuator.calls == 1)
+            #expect(scenes.calls == 1)
+            #expect(!Task.isCancelled)
+            #expect(!wait.isOpen)
         }
     }
 
@@ -216,17 +193,15 @@ extension UncertainDeliveryTests {
 
 extension UncertainDeliveryTests {
     @Test func anotherToggleStateIsNotTheRequestedEffect() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "on"])) {
-            let scenes = ActionEngineTests.ScriptedScenes([window("Before"), window("After")])
-            let controls = ActionEngineTests.FakeControls(toggle: .off)
-            let engine = ActionEngine(.init(scenes: scenes, actuator: FailingActuator(),
-                windows: ActionEngineTests.ScriptedWindows([[]]), controls: controls), pause: { _ in })
-            let result = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X",
-                target: "Name", verb: .setToggle, desiredState: .on))
-            #expect(result.outcome.row == "uncertain · absent · do_not_repeat")
-            #expect(result.check?.expected == "on")
-            #expect(result.check?.observed == "off")
-        }
+        let scenes = ActionEngineTests.ScriptedScenes([window("Before"), window("After")])
+        let controls = ActionEngineTests.FakeControls(toggle: .off)
+        let engine = ActionEngine(.init(scenes: scenes, actuator: FailingActuator(),
+            windows: ActionEngineTests.ScriptedWindows([[]]), controls: controls), pause: { _ in })
+        let result = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X",
+            target: "Name", verb: .setToggle, desiredState: .on))
+        #expect(result.outcome.row == "uncertain · absent · do_not_repeat")
+        #expect(result.check?.expected == "on")
+        #expect(result.check?.observed == "off")
     }
 
     @Test func pureMarkKeepsTheSitesEvidence() {
@@ -265,36 +240,16 @@ extension UncertainDeliveryTests {
         let observer = ActionEngineTests.RecordingObserver()
         let engine = ActionEngine(.init(scenes: TakeoverScenes(window("Before"), wait: wait), actuator: actuator,
             windows: ActionEngineTests.ScriptedWindows([[]]), observer: observer), pause: { _ in })
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "on"])) {
-            await InterruptibleWait.$current.withValue(wait) {
-                let result = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X",
-                    target: "Name", verb: .click))
-                #expect(result.scene == nil)
-                #expect(result.outcome.row == "uncertain · unknown(not_readable) · do_not_repeat")
-                #expect(!Task.isCancelled)
-                #expect(actuator.calls == 1)
-                #expect(observer.records.count == 1)
-                #expect(observer.records.first?.attempt == .deliveryFailed("delivery stopped"))
-            }
+        await InterruptibleWait.$current.withValue(wait) {
+            let result = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X",
+                target: "Name", verb: .click))
+            #expect(result.scene == nil)
+            #expect(result.outcome.row == "uncertain · unknown(not_readable) · do_not_repeat")
+            #expect(!Task.isCancelled)
+            #expect(actuator.calls == 1)
+            #expect(observer.records.count == 1)
+            #expect(observer.records.first?.attempt == .deliveryFailed("delivery stopped"))
         }
-    }
-}
-
-extension UncertainDeliveryTests {
-    @Test func defaultAndOffAreIdentical() async {
-        var results: [ActOutcome] = []
-        for values in [[:], ["scene_after_uncertain": "off"]] {
-            let scenes = ActionEngineTests.ScriptedScenes([window("Before")])
-            let engine = ActionEngine(.init(scenes: scenes, actuator: FailingActuator(),
-                windows: ActionEngineTests.ScriptedWindows([[]])), pause: { _ in })
-            let result = await SwitchBoard.$testing.withValue(SwitchBoard(values: values)) {
-                await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X",
-                    input: .pressKey(KeyChord(.tab), times: 1)))
-            }
-            results.append(result)
-            #expect(scenes.calls == 1)
-        }
-        #expect(results[0] == results[1])
     }
 }
 
@@ -312,38 +267,33 @@ extension UncertainDeliveryTests {
     }
 
     @Test func uncertainSecureTextIsNeverReadBack() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "on"])) {
-            var secure = element
-            secure.role = "AXSecureTextField"
-            let capture = PerceivedWindow(scene: SceneSnapshot(bundleID: "com.x", appName: "X", windowTitle: "Form",
-                viewportPixelSize: ViewportPixelSize(width: 800, height: 600), elements: [secure]),
-                frame: CGRect(x: 0, y: 0, width: 800, height: 600))
-            let inputs: [InputRequest.Input] = [.typeText("hidden", into: "Name", replacing: true),
-                                                .insertText("hidden", expecting: "hidden")]
-            for input in inputs {
-                let engine = ActionEngine(.init(scenes: ActionEngineTests.ScriptedScenes([capture]),
-                    actuator: FailingActuator(), windows: ActionEngineTests.ScriptedWindows([[]]),
-                    controls: SecureControls()), pause: { _ in })
-                let result = await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X", input: input))
-                #expect(result.scene != nil)
-                #expect(result.check?.expected == nil && result.check?.observed == nil)
-                #expect(result.check?.limits.contains(.valueWithheld) == true)
-                #expect(result.check?.performed == .uncertain)
-            }
+        var secure = element
+        secure.role = "AXSecureTextField"
+        let capture = PerceivedWindow(scene: SceneSnapshot(bundleID: "com.x", appName: "X", windowTitle: "Form",
+            viewportPixelSize: ViewportPixelSize(width: 800, height: 600), elements: [secure]),
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        let inputs: [InputRequest.Input] = [.typeText("hidden", into: "Name", replacing: true),
+                                            .insertText("hidden", expecting: "hidden")]
+        for input in inputs {
+            let engine = ActionEngine(.init(scenes: ActionEngineTests.ScriptedScenes([capture]),
+                actuator: FailingActuator(), windows: ActionEngineTests.ScriptedWindows([[]]),
+                controls: SecureControls()), pause: { _ in })
+            let result = await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X", input: input))
+            #expect(result.scene != nil)
+            #expect(result.check?.expected == nil && result.check?.observed == nil)
+            #expect(result.check?.limits.contains(.valueWithheld) == true)
+            #expect(result.check?.performed == .uncertain)
         }
     }
 }
 
 extension UncertainDeliveryTests {
-    @Test(arguments: ["off", "on"], [OperationCheck.Verdict.passed, .failed])
-    func uncertainRowsRespectSwitch(_ arm: String, _ verdict: OperationCheck.Verdict) async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": arm])) {
-            let result = ActOutcome(.actedUnverified, "menu receipt", check: OperationCheck(
-                condition: .menuItemChosen, method: .controlValue, verdict: verdict,
-                limits: [.deliveryUncertain], performed: .uncertain))
-            #expect(result.outcome.row == (arm == "off" ? "uncertain · unknown(not_readable) · observe"
-                : verdict == .passed ? "uncertain · confirmed · continue" : "uncertain · absent · do_not_repeat"))
-        }
+    @Test(arguments: [OperationCheck.Verdict.passed, .failed])
+    func uncertainRowsRespectObservedVerdict(_ verdict: OperationCheck.Verdict) async {
+        let result = ActOutcome(.actedUnverified, "menu receipt", check: OperationCheck(
+            condition: .menuItemChosen, method: .controlValue, verdict: verdict,
+            limits: [.deliveryUncertain], performed: .uncertain))
+        #expect(result.outcome.row == (verdict == .passed ? "uncertain · confirmed · continue" : "uncertain · absent · do_not_repeat"))
     }
 
     @Test func uncertainMarkPreservesJudgeCause() {
@@ -361,22 +311,6 @@ extension UncertainDeliveryTests {
                                   expected: "wanted", observed: "wanted", performed: .requested))
         await InterruptibleWait.$current.withValue(wait) {
             #expect(ActionEngine.stoppedOutcome(verified) == verified)
-        }
-    }
-}
-
-extension UncertainDeliveryTests {
-    @Test func offClickGoldenBytes() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "off"])) {
-            let scenes = ActionEngineTests.ScriptedScenes([window("Before")])
-            let engine = ActionEngine(.init(scenes: scenes, actuator: FailingActuator(),
-                windows: ActionEngineTests.ScriptedWindows([[]])), pause: { _ in })
-            let result = await engine.act(ActionRequest(processID: 42, bundleID: "com.x", appName: "X",
-                target: "Name", verb: .click))
-            #expect(Data(result.message.utf8) == Data("clicked 'Name': delivery failed: delivery stopped".utf8))
-            #expect(result.outcome.row == "uncertain · unknown(not_readable) · observe")
-            #expect(result.scene == nil)
-            #expect(scenes.calls == 1)
         }
     }
 }
@@ -423,28 +357,31 @@ extension UncertainDeliveryTests {
 }
 
 extension UncertainDeliveryTests {
-    struct PartialTextActuator: Actuating {
+    final class PartialTextActuator: Actuating, @unchecked Sendable {
         let sentBefore: Int
+        private let state = Synchronization.Mutex(0)
+        var calls: Int { state.withLock { $0 } }
+        init(sentBefore: Int) { self.sentBefore = sentBefore }
         func perform(_ gesture: Gesture, in processID: pid_t) async throws {
+            state.withLock { $0 += 1 }
             throw ActionEngine.TextStopped(reason: "focus moved", sentBefore: sentBefore)
         }
         func confirm(_ effect: DeliveryEffect, in processID: pid_t) async {}
     }
 
     @Test(arguments: [1, 3])
-    func offPartialTextGoldenBytes(_ sentBefore: Int) async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "off"])) {
-            let engine = ActionEngine(.init(scenes: ActionEngineTests.ScriptedScenes([window("Before")]),
-                actuator: PartialTextActuator(sentBefore: sentBefore),
-                windows: ActionEngineTests.ScriptedWindows([[]])), pause: { _ in })
-            let result = await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X",
-                input: .typeText("new", into: "Name", replacing: true)))
-            let expected = sentBefore == 1
-                ? "clicked 'Name', but focus moved: nothing was typed. Observe before typing again."
-                : "clicked 'Name' and pressed 2 of its preparation keys, but focus moved: nothing was typed. Observe before typing again."
-            #expect(Data(result.message.utf8) == Data(expected.utf8))
-            #expect(result.scene == nil)
-            #expect(result.outcome.row == "uncertain · unknown(not_readable) · observe")
-        }
+    func partialTextIsNotReplayed(_ sentBefore: Int) async {
+        let actuator = PartialTextActuator(sentBefore: sentBefore)
+        let engine = ActionEngine(.init(scenes: ActionEngineTests.ScriptedScenes([window("Before")]),
+            actuator: actuator,
+            windows: ActionEngineTests.ScriptedWindows([[]])), pause: { _ in })
+        let result = await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X",
+            input: .typeText("new", into: "Name", replacing: true)))
+        #expect(result.scene != nil)
+        #expect(result.check?.performed == .uncertain)
+        #expect(result.check?.limits.contains(.deliveryUncertain) == true)
+        #expect(result.outcome.recovery == .doNotRepeat)
+        #expect(result.message.contains("delivery failed: focus moved"))
+        #expect(actuator.calls == 1, "the partial input is never sent again during its read-back")
     }
 }

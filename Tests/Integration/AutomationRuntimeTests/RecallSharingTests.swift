@@ -5,7 +5,7 @@
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
 
-import AutomationMCP
+@testable import AutomationMCP
 @testable import AutomationRuntime
 import EngineCore
 import Foundation
@@ -16,7 +16,7 @@ import PerceptionCore
 import Testing
 
 /// RecallSharingTests prove that the app's workers and an external MCP client search one Recall over the user's one
-/// archive, through their own entries: the client speaks JSON-RPC to an `MCPRouter` over `AutomationTools` with its
+/// archive, using current MCP plan/action entries and separately named typed query/report fixtures: the client speaks JSON-RPC to an `MCPRouter` over `AutomationTools` with its
 /// `mcp` producer, as production composes it. What one learns, the other is offered; each query, link and declared
 /// use stays its producer's; and a use is credited only for the steps the calls carried out and verified, never for
 /// what an agent declares. These are integration proofs over the session double, not a live run.
@@ -27,36 +27,83 @@ struct RecallSharingTests {
     typealias P = ProcedureLearningTests
     typealias L = RecallLifecycleTests
 
+    struct Client {
+        let router: MCPRouter
+        let tools: AutomationTools
+    }
+
     /// An MCP client's entry: its router over the tools of its own session and producer.
-    static func client(_ session: LearningSession, stream: String = "mcp-client") async throws -> MCPRouter {
+    static func client(_ session: LearningSession, stream: String = "mcp-client") async throws -> Client {
         let tools = P.tools(session, source: .mcp, stream: stream)
-        let router = MCPRouter(tools: AutomationTools.definitions, instructions: nil) { name, arguments in try await tools.call(name, arguments) }
+        let router = MCPRouter(tools: tools.toolDefinitions, instructions: nil) { name, arguments in try await tools.call(name, arguments) }
         let initialized = await router.handle(.object(["jsonrpc": .string("2.0"), "id": .number(0), "method": .string("initialize"),
                                                         "params": .object(["protocolVersion": .string("2025-11-25")])]))
         #expect(initialized?["result"]["serverInfo"]["name"].string == "braus")
-        return router
+        return Client(router: router, tools: tools)
     }
 
     static var requestID = 0
 
     /// One `tools/call` through the router, answered as the client reads it.
-    static func call(_ router: MCPRouter, _ name: String, _ arguments: String) async throws -> JSONValue {
+    static func call(_ client: Client, _ name: String, _ arguments: String) async throws -> JSONValue {
         requestID += 1
+        var fields = P.json(arguments).object ?? [:]
+        fields.removeValue(forKey: "session")
+        if client.tools.openTask != nil, !["open_session", "close_session", "observe", "plan", "end"].contains(name) {
+            fields["step"] = .string("r1")
+        }
+        let listed = client.tools.toolDefinitions.contains { $0["name"].string == name }
+        let servedName = listed ? name : "call"
+        let servedArguments: JSONValue = listed ? .object(fields) : .object(["name": .string(name), "arguments": .object(fields)])
         let request: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(requestID)), "method": .string("tools/call"),
-                                          "params": .object(["name": .string(name), "arguments": P.json(arguments)])])
-        let answer = try #require(await router.handle(request))
+                                          "params": .object(["name": .string(servedName), "arguments": servedArguments])])
+        let answer = try #require(await client.router.handle(request))
         #expect(answer["error"] == .null, "\(answer)")
         return answer["result"].payload
     }
 
-    static func task(_ router: MCPRouter, _ arguments: String) async throws -> JSONValue {
-        try await call(router, "memory_task", arguments)
+    /// Sends only the actual current model contract through MCP.
+    static func task(_ client: Client, _ arguments: String) async throws -> JSONValue {
+        guard var fields = P.json(arguments).object, fields["operation"] == nil else {
+            throw P.FixtureFailure("The MCP fixture requires plan/end, not the retired task surface")
+        }
+        if fields["outcome"] != nil { return try await call(client, "end", arguments) }
+        if fields["rows"] == nil { fields["rows"] = .array([.object(["title": fields["request"] ?? .string("Carry out the task")])]) }
+        return try await call(client, "plan", String(decoding: JSONEncoder().encode(JSONValue.object(fields)), as: UTF8.self))
+    }
+
+    /// Declares a current MCP plan from explicit historical producer-fixture input.
+    /// This is setup for service-contract assertions; it never returns a translated facade response.
+    static func planFixture(_ client: Client, _ text: String) async throws -> JSONValue {
+        guard case .begin(let content, _, _) = try MemoryTaskTool.decode(P.json(text), minimization: ValueMinimization(), messageRef: nil) else {
+            throw P.FixtureFailure("Expected a typed task input fixture")
+        }
+        var fields: [String: JSONValue] = ["request": .string(content.goal)]
+        for key in ["inputs", "constraints", "requested_result"] {
+            if let value = P.json(text).object?[key] { fields[key] = value }
+        }
+        return try await task(client, String(decoding: JSONEncoder().encode(JSONValue.object(fields)), as: UTF8.self))
+    }
+
+    /// Queries the service for the task declared through MCP; its value is not the model's plan response.
+    static func beginQueryFixture(_ client: Client, _ text: String) async throws -> JSONValue {
+        _ = try await planFixture(client, text)
+        return try await HistoricalRecallFixture.queryForCurrentTask(client.tools, text)
+    }
+
+    static func beginProposalFixture(_ client: Client, _ text: String) async throws -> JSONValue {
+        _ = try await planFixture(client, text)
+        return try await HistoricalRecallFixture.proposeForCurrentTask(client.tools, text)
+    }
+
+    static func endFixture(_ client: Client, _ text: String) async throws -> JSONValue {
+        try await HistoricalRecallFixture.end(client.tools, text)
     }
 
     static func rows(_ sql: String, _ session: LearningSession) throws -> [String] { try P.rows(sql, in: session) }
 
     /// The export tract of the photo, carried out by a client with the task's values.
-    static func export(_ router: MCPRouter, session: LearningSession, name: String = "foto_mail.png", format: String = "PNG") async throws {
+    static func export(_ router: Client, session: LearningSession, name: String = "foto_mail.png", format: String = "PNG") async throws {
         let id = session.id!.uuidString
         _ = try await call(router, "open_session", #"{"app":"\#(P.preview)"}"#)
         _ = try await call(router, "menu", #"{"session":"\#(id)","path":"File > Export…"}"#)
@@ -74,7 +121,7 @@ struct RecallSharingTests {
 
         let session = P.photoSession(directory)
         let client = try await Self.client(session)
-        let begun = try await Self.task(client, RecallCycleTests.exportRequest)
+        let begun = try await Self.beginQueryFixture(client, RecallCycleTests.exportRequest)
         let recall = begun["recall"]
         #expect(recall["search"]["status"].string == "completed" && recall["coverage"].string == "complete", "\(recall)")
         let selection = recall["needs"].array?.first?["selection"] ?? .null
@@ -82,13 +129,13 @@ struct RecallSharingTests {
         #expect(selection["steps"].array?.compactMap { RecallCycleTests.int($0["step"]) } == [4, 5, 6, 7])
         let query = try #require(recall["query"].string)
         try await Self.export(client, session: session)
-        let ended = try await Self.task(client, #"""
+        let ended = try await Self.endFixture(client, #"""
             {"operation":"end","outcome":"completed","use":[{"query":"\#(query)","need":1,"outcome":"followed"}]}
             """#)
         let used = try #require(ended["recall_use"].array?.first)
         #expect(used["verified"].array?.compactMap { RecallCycleTests.int($0) } == [4, 5, 6, 7], "\(ended)")
 
-        #expect(try Self.rows("SELECT source || ':' || source_stream_id FROM memory_recall_queries", worker) == ["mcp:mcp-client"])
+        #expect(try Self.rows("SELECT source || ':' || source_stream_id FROM memory_recall_queries WHERE query_id = '\(query)'", worker) == ["mcp:mcp-client"])
         #expect(try Self.rows("SELECT DISTINCT source || ':' || source_stream_id FROM memory_procedure_interpretations", worker)
                 == ["app:worker-1"], "the version stays the worker's")
         #expect(try Self.rows("SELECT count(*) FROM memory_recall_links WHERE confirmed = 1", worker) == ["4"])
@@ -96,7 +143,7 @@ struct RecallSharingTests {
                 "a reuse proves its own calls: the source is not evaluated again")
 
         // The next search, by another worker, sees one reuse carried out and verified.
-        let again = try await P.task(P.tools(P.photoSession(directory), stream: "worker-2"), RecallCycleTests.exportRequest)
+        let again = try await HistoricalRecallFixture.beginQuery(P.tools(P.photoSession(directory), stream: "worker-2"), RecallCycleTests.exportRequest)
         #expect(again["recall"]["needs"].array?.first?["selection"]["evidence"].string?.contains("1 earlier reuse") == true, "\(again)")
         await L.close(worker)
     }
@@ -108,7 +155,7 @@ struct RecallSharingTests {
         RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
         let session = P.photoSession(directory)
         let client = try await Self.client(session)
-        _ = try await Self.task(client, #"""
+        _ = try await Self.planFixture(client, #"""
             {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG","recall":false,
              "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
             """#)
@@ -121,14 +168,14 @@ struct RecallSharingTests {
         try await Self.export(client, session: session, name: "foto_web.jpg", format: "JPEG")
         _ = try await Self.call(client, "open_session", #"{"app":"\#(P.finder)"}"#)
         _ = try await Self.call(client, "act", #"{"session":"\#(id)","target":"Show Preview","verb":"set_toggle","value":"on"}"#)
-        let ended = try await Self.task(client, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
-        let interpreted = try await Self.task(client, P.photoInterpretation(candidate))
+        _ = try await Self.task(client, #"{"outcome":"completed"}"#)
+        let candidate = try await P.candidateIDFixture(client.tools, session)
+        let interpreted = try await P.interpretFixture(client.tools, session, P.photoInterpretation(candidate))
         #expect(interpreted["status"].string == "interpreted", "\(interpreted)")
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
 
         let worker = P.photoSession(directory)
-        let begun = try await P.task(P.tools(worker, stream: "worker-1"), RecallCycleTests.exportRequest)
+        let begun = try await HistoricalRecallFixture.beginQuery(P.tools(worker, stream: "worker-1"), RecallCycleTests.exportRequest)
         #expect(begun["recall"]["needs"].array?.first?["selection"]["version"].string
                 == ProcedureAssembly.routeID(candidateID: candidate, revision: 1), "\(begun)")
         #expect(try Self.rows("SELECT source || ':' || source_stream_id FROM memory_procedure_interpretations", worker) == ["mcp:mcp-client"])
@@ -143,7 +190,7 @@ struct RecallSharingTests {
         _ = try await L.learnPhoto(worker)
         let session = P.photoSession(directory)
         let tools = P.tools(session, stream: "worker-2")
-        let begun = try await P.task(tools, #"""
+        let begun = try await HistoricalRecallFixture.beginPlannedQuery(tools, #"""
             {"operation":"begin","goal":"Find ritratto, rotate it and export it as ritratto_web.jpg",
              "inputs":[{"name":"criterion","value":"ritratto"},{"name":"output_name","value":"ritratto_web"}]}
             """#)
@@ -151,15 +198,15 @@ struct RecallSharingTests {
         _ = try await P.call(tools, "open_session", #"{"app":"\#(P.preview)"}"#)
         _ = try await P.call(tools, "observe", #"{"session":"\#(session.id!.uuidString)"}"#)
         #expect(try Self.rows("SELECT count(*) FROM memory_recall_queries", worker) == ["1"], "a new scene is no reason to search")
-        let refused = try await P.task(tools, #"{"operation":"recall","reason":"initial"}"#)
+        let refused = try await HistoricalRecallFixture.query(tools, #"{"operation":"recall","reason":"initial"}"#)
         #expect(refused["error"].string == "invalid_task", "\(refused)")
-        let missing = try await P.task(tools, #"{"operation":"recall"}"#)
+        let missing = try await HistoricalRecallFixture.query(tools, #"{"operation":"recall"}"#)
         #expect(missing["error"].string == "invalid_task")
-        _ = try await P.task(tools, #"""
+        _ = try await HistoricalRecallFixture.update(tools, #"""
             {"operation":"update","revision":1,"inputs":[{"name":"output_name","value":"ritratto_mail"},
              {"name":"output_extension","value":"png"},{"name":"output_format","value":"PNG"}]}
             """#)
-        let again = try await P.task(tools, #"""
+        let again = try await HistoricalRecallFixture.query(tools, #"""
             {"operation":"recall","reason":"input_changed","remaining":"Export the edited photo in Preview with a new name and format"}
             """#)
         #expect(again["status"].string == "recalled" && again["recall"]["reason"].string == "input_changed", "\(again)")
@@ -179,10 +226,10 @@ struct RecallSharingTests {
         // Adapted: the client names the file otherwise, so the naming step is its own operation.
         let first = P.photoSession(directory)
         let adapting = try await Self.client(first, stream: "mcp-adapting")
-        let adapted = try await Self.task(adapting, RecallCycleTests.exportRequest)
+        let adapted = try await Self.beginQueryFixture(adapting, RecallCycleTests.exportRequest)
         let adaptedQuery = try #require(adapted["recall"]["query"].string)
         try await Self.export(adapting, session: first, name: "foto_mail_v2.png")
-        let adaptedEnd = try await Self.task(adapting, #"""
+        let adaptedEnd = try await Self.endFixture(adapting, #"""
             {"operation":"end","outcome":"completed","use":[{"query":"\#(adaptedQuery)","need":1,"outcome":"adapted","cause":"agent",
              "note":"another name was asked"}]}
             """#)
@@ -194,18 +241,18 @@ struct RecallSharingTests {
         // Abandoned: delivered, nothing carried out.
         let second = P.photoSession(directory)
         let abandoning = try await Self.client(second, stream: "mcp-abandoning")
-        let abandoned = try await Self.task(abandoning, RecallCycleTests.exportRequest)
+        let abandoned = try await Self.beginQueryFixture(abandoning, RecallCycleTests.exportRequest)
         let abandonedQuery = try #require(abandoned["recall"]["query"].string)
-        _ = try await Self.task(abandoning, #"""
+        _ = try await Self.endFixture(abandoning, #"""
             {"operation":"end","outcome":"failed","use":[{"query":"\#(abandonedQuery)","need":1,"outcome":"abandoned","cause":"method"}]}
             """#)
 
         // Declared followed, carried out by nothing: a declaration is not a verification.
         let third = P.photoSession(directory)
         let declaring = try await Self.client(third, stream: "mcp-declaring")
-        let declared = try await Self.task(declaring, RecallCycleTests.exportRequest)
+        let declared = try await Self.beginQueryFixture(declaring, RecallCycleTests.exportRequest)
         let declaredQuery = try #require(declared["recall"]["query"].string)
-        let declaredEnd = try await Self.task(declaring, #"""
+        let declaredEnd = try await Self.endFixture(declaring, #"""
             {"operation":"end","outcome":"completed","use":[{"query":"\#(declaredQuery)","need":1,"outcome":"followed"}]}
             """#)
         #expect(declaredEnd["recall_use"] == .null || declaredEnd["recall_use"].array?.first?["verified"].array?.isEmpty == true,
@@ -233,7 +280,7 @@ struct RecallSharingTests {
         let (_, routeID) = try await L.learnPhoto(worker)
         let session = P.photoSession(directory)
         let client = try await Self.client(session, stream: "mcp-cancelling")
-        let begun = try await Self.task(client, RecallCycleTests.exportRequest)
+        let begun = try await Self.beginQueryFixture(client, RecallCycleTests.exportRequest)
         let query = try #require(begun["recall"]["query"].string)
         let id = session.id!.uuidString
         _ = try await Self.call(client, "open_session", #"{"app":"\#(P.preview)"}"#)
@@ -241,7 +288,7 @@ struct RecallSharingTests {
         _ = try await Self.call(client, "type_text", #"{"session":"\#(id)","target":"foto_demo.png","text":"foto_mail.png"}"#)
         _ = try await Self.call(client, "select", #"{"session":"\#(id)","control":"Format","item":"PNG"}"#)
         _ = try await Self.call(client, "press", #"{"session":"\#(id)","button":"Cancel"}"#)
-        let ended = try await Self.task(client, #"""
+        let ended = try await Self.endFixture(client, #"""
             {"operation":"end","outcome":"completed","use":[{"query":"\#(query)","need":1,"outcome":"followed"}]}
             """#)
         let used = try #require(ended["recall_use"].array?.first)
@@ -266,7 +313,7 @@ struct RecallSharingTests {
         ], surface: .dialog, title: "Export")
         session.script["menu|File > Export…"] = LearningSession.Outcome(next: renamed)
         let client = try await Self.client(session, stream: "mcp-renamed")
-        let begun = try await Self.task(client, RecallCycleTests.exportRequest)
+        let begun = try await Self.beginQueryFixture(client, RecallCycleTests.exportRequest)
         let query = try #require(begun["recall"]["query"].string)
         let id = session.id!.uuidString
         _ = try await Self.call(client, "open_session", #"{"app":"\#(P.preview)"}"#)
@@ -274,7 +321,7 @@ struct RecallSharingTests {
         _ = try await Self.call(client, "type_text", #"{"session":"\#(id)","target":"ritratto.png","text":"foto_mail.png"}"#)
         _ = try await Self.call(client, "select", #"{"session":"\#(id)","control":"Format","item":"PNG"}"#)
         _ = try await Self.call(client, "press", #"{"session":"\#(id)","button":"Save"}"#)
-        let ended = try await Self.task(client, #"""
+        let ended = try await Self.endFixture(client, #"""
             {"operation":"end","outcome":"completed","use":[{"query":"\#(query)","need":1,"outcome":"followed"}]}
             """#)
         let used = try #require(ended["recall_use"].array?.first)
@@ -290,7 +337,7 @@ struct RecallSharingTests {
         _ = try await L.learnPhoto(worker)
         let session = P.photoSession(directory)
         let tools = P.tools(session, stream: "worker-2")
-        let begun = try await P.task(tools, RecallCycleTests.exportRequest)
+        let begun = try await HistoricalRecallFixture.beginPlannedQuery(tools, RecallCycleTests.exportRequest)
         let query = try #require(begun["recall"]["query"].string)
         let id = session.id!.uuidString
         _ = try await P.call(tools, "open_session", #"{"app":"\#(P.preview)"}"#)
@@ -299,8 +346,8 @@ struct RecallSharingTests {
         _ = try await P.call(tools, "select", #"{"session":"\#(id)","control":"Format","item":"PNG"}"#)
         _ = try await P.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
         // The request changes afterwards: a later name. The calls made under the first revision keep its values.
-        _ = try await P.task(tools, #"{"operation":"update","revision":1,"inputs":[{"name":"output_name","value":"foto_new"}]}"#)
-        let ended = try await P.task(tools, #"""
+        _ = try await HistoricalRecallFixture.update(tools, #"{"operation":"update","revision":1,"inputs":[{"name":"output_name","value":"foto_new"}]}"#)
+        let ended = try await HistoricalRecallFixture.end(tools, #"""
             {"operation":"end","outcome":"completed","use":[{"query":"\#(query)","need":1,"outcome":"followed"}]}
             """#)
         let used = try #require(ended["recall_use"].array?.first)
@@ -317,12 +364,12 @@ struct RecallSharingTests {
         RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
         let tools = P.tools(session)
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG","recall":false,
+            {"request":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
              "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
             """#)
         try await P.runPhotoExport(tools, session)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
+        _ = try await P.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await P.candidateIDFixture(tools, session)
         let interpretation = P.photoInterpretation(candidate)
             .replacingOccurrences(of: #"{"name":"criterion","role":"text searched for the input file","kind":"text"},"#, with: #"""
                 {"name":"criterion","role":"text searched for the input file","kind":"text"},
@@ -331,7 +378,7 @@ struct RecallSharingTests {
             .replacingOccurrences(of: #"{"step":1,"argument":"text","template":"{criterion}"},"#, with: #"""
                 {"step":1,"argument":"text","template":"{criterion}"},{"step":2,"argument":"target","template":"{selected_file}"},
                 """#)
-        let interpreted = try await P.task(tools, interpretation)
+        let interpreted = try await P.interpretFixture(tools, session, interpretation)
         #expect(interpreted["error"] == .null, "\(interpreted)")
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
     }
@@ -340,7 +387,7 @@ struct RecallSharingTests {
     static func selectFile(_ directory: URL, stream: String, inputs: String, clicked: String) async throws -> ([Int], JSONValue) {
         let session = P.photoSession(directory)
         let tools = P.tools(session, stream: stream)
-        let begun = try await P.task(tools, #"""
+        let begun = try await HistoricalRecallFixture.beginPlannedQuery(tools, #"""
             {"operation":"begin","goal":"Search altro in Finder and select the file found","remaining":"Search altro in Finder and select the file found",
              "needs":[{"text":"Search altro in Finder and select the file found","app":"\#(P.finder)"}],"inputs":\#(inputs)}
             """#)
@@ -349,7 +396,7 @@ struct RecallSharingTests {
         _ = try await P.call(tools, "open_session", #"{"app":"\#(P.finder)"}"#)
         _ = try await P.call(tools, "type_text", #"{"session":"\#(id)","target":"Search","text":"altro"}"#)
         _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"\#(clicked)"}"#)
-        let ended = try await P.task(tools, #"""
+        let ended = try await HistoricalRecallFixture.end(tools, #"""
             {"operation":"end","outcome":"completed","use":[{"query":"\#(query)","need":1,"outcome":"followed"}]}
             """#)
         let used = try #require(ended["recall_use"].array?.first, "\(ended)")

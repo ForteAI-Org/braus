@@ -3,21 +3,14 @@ import AutomationRuntime
 import CryptoKit
 import Foundation
 import LocalMCP
-import Switches
 import Testing
 
 @MainActor
 struct HumanStepOutOfListsTests {
-    @Test func everySurfaceExcludesHumanStep() {
+    @Test func everyChannelCompositionExcludesHumanStep() {
         for bits in 0..<8 {
-            for surface in ["v1", "v2"] {
-                for cycle in ["v1", "v2"] {
-                    SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": surface, "task_cycle": cycle])) {
-                        let definitions = AutomationTools.definitions(for: AutomationChannels(rawValue: bits))
-                        #expect(!definitions.contains { $0["name"].string == "human_step" })
-                    }
-                }
-            }
+            let definitions = AutomationTools.definitions(for: AutomationChannels(rawValue: bits))
+            #expect(!definitions.contains { $0["name"].string == "human_step" })
         }
     }
 

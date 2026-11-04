@@ -1,7 +1,6 @@
 import EngineCore
 import SeatCore
 import SeatSession
-import Switches
 import Testing
 @testable import SeatDriving
 
@@ -14,14 +13,13 @@ struct SeatTargetCancellationTests {
         await #expect(throws: CancellationError.self) { try await read.value }
     }
 
-    @Test(arguments: ["off", "on"])
-    func remotePartialEffectKeepsItsHistoricalWords(_ arm: String) {
-        SwitchBoard.$testing.withValue(SwitchBoard(values: ["outcome": "v1", "scene_after_uncertain": arm])) {
-            let refusal = RemoteContentActuationRefusal.selectionNotVerified("AXRow")
-            let error = SeatActuator.deliveryError(refusal)
-            #expect(String(describing: error) == refusal.description)
-            if arm == "on" { #expect((error as? GestureMayHaveActed)?.sentence == refusal.description) }
-            else { #expect(error as? RemoteContentActuationRefusal == refusal) }
-        }
+    @Test
+    func remotePartialEffectKeepsItsTypedCauseAndDiagnostic() {
+        let refusal = RemoteContentActuationRefusal.selectionNotVerified("AXRow")
+        let error = SeatActuator.deliveryError(refusal)
+        #expect(String(describing: error) == refusal.description)
+        #expect((error as? GestureEffectUncertain)?.cause == "remote_content_refused." + refusal.code)
+        #expect((error as? GestureEffectUncertain)?.description == refusal.description)
+        #expect(error as? GestureNotSent == nil)
     }
 }

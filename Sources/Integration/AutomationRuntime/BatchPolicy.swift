@@ -2,7 +2,6 @@ import EngineCore
 import Foundation
 import Memory
 import PerceptionCore
-import Switches
 
 /// BatchPolicy decides admission and continuation from facts supplied by either runner.
 public nonisolated enum BatchPolicy {
@@ -182,32 +181,23 @@ public nonisolated enum BatchPolicy {
         }
     }
 
-    public static func expectedAbsent(_ step: StepFacts, outcome: Outcome, sceneBefore: SceneSnapshot) -> Bool {
-        guard outcome.effect == .absent, let expectation = step.expectation else { return false }
-        let task: TaskResultCheck.Expectation
+    /// Consumes the original predicate oracle's already-satisfied fact, without another scene or census.
+    public static func expectedAbsent(_ step: StepFacts, outcome: ActOutcome) -> Bool {
+        guard let expectation = step.expectation,
+              outcome.outcome.effect == .absent, outcome.noop == .statePresent,
+              let check = outcome.check, check.condition == .structuralEffect, check.verdict == .failed else {
+            return false
+        }
+        let method: OperationCheck.Method
         switch expectation {
-        case .element(let label, let expect): task = .element(app: nil, label: label, expect: expect)
-        case .window(let title, let open): task = .window(app: nil, title: title, open: open)
+        case .window: method = .windowCensus
+        case .element(_, let expected):
+            switch expected {
+            case .value: method = .controlValue
+            case .state: method = .controlState
+            case .present, .absent: method = .sceneDifference
+            }
         }
-        return TaskResultCheck.judge(task, attemptID: "", windows: [sceneBefore.windowTitle], scene: sceneBefore).verdict == .passed
-    }
-}
-
-/// BatchMode reads the rollout arms independently of the pure step decisions.
-public nonisolated enum BatchMode {
-    public enum Version: String, Sendable { case v1, v2 }
-    public enum Form: String, Sendable { case tool, inGestures = "in_gestures" }
-    /// Marks expansion into the shared runner without changing the installed rollout switches.
-    @TaskLocal public static var isExpandingGestures = false
-
-    public static func validateConfiguration() throws {
-        guard !isEnabled || TaskCycleArm.current == .v2 else {
-            throw BatchConfigurationError.taskCycleV2Required
-        }
-    }
-
-    public static var isEnabled: Bool { SwitchBoard.current.arm("batch", default: Version.v1) == .v2 }
-    public static var usesGestures: Bool {
-        isEnabled && !isExpandingGestures && SwitchBoard.current.arm("batch_form", default: Form.tool) == .inGestures
+        return check.method == method
     }
 }

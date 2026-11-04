@@ -56,7 +56,7 @@ struct SchemaMigration22OutcomeTests {
             kind: .actedUnverified, tool: .act, verb: nil, hasEffect: true, check: check,
             notSent: nil, sceneAttached: true
         )
-        #expect(converted.outcome == Outcome(gesture: .uncertain, effect: .unknown(.notReadable), recovery: .doNotRepeat))
+        #expect(converted.outcome == Outcome(gesture: .uncertain, effect: .unknown(.notClassified), recovery: .doNotRepeat))
         try assertAdmitted(converted)
     }
 

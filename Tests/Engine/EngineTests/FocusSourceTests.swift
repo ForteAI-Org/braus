@@ -3,7 +3,6 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
-import Switches
 import Testing
 
 struct FocusSourceTests {
@@ -19,30 +18,13 @@ struct FocusSourceTests {
     }
 
     private func engine(_ scenes: ActionEngineTests.ScriptedScenes, _ controls: ActionEngineTests.FakeControls?,
-                        _ actuator: ActionEngineTests.RecordingActuator, surface: Bool, enabled: Bool = true,
-                        allowsDestructive: Bool = false) -> SwitchingEngine {
-        SwitchingEngine(engine: ActionEngine(
+                        _ actuator: ActionEngineTests.RecordingActuator, surface: Bool,
+                        allowsDestructive: Bool = false) -> ActionEngine {
+        ActionEngine(
             .init(scenes: scenes, actuator: actuator, windows: ActionEngineTests.ScriptedWindows([[]]),
                   controls: controls, correspondence: { _ in surface }),
             permissions: ActionPermissions(allowsDestructive: allowsDestructive), pause: { _ in }
-        ), enabled: enabled)
-    }
-
-    private struct SwitchingEngine {
-        let engine: ActionEngine
-        let enabled: Bool
-
-        func deliver(_ request: InputRequest) async -> ActOutcome {
-            await SwitchBoard.$testing.withValue(SwitchBoard(values: ["committing_input": enabled ? "on" : "off"])) {
-                await engine.deliver(request)
-            }
-        }
-
-        func act(_ request: ActionRequest) async -> ActOutcome {
-            await SwitchBoard.$testing.withValue(SwitchBoard(values: ["committing_input": enabled ? "on" : "off"])) {
-                await engine.act(request)
-            }
-        }
+        )
     }
 
     private func request(_ input: InputRequest.Input, dryRun: Bool = false) -> InputRequest {
@@ -126,28 +108,6 @@ struct FocusSourceTests {
         #expect(actuator.gestures.isEmpty)
     }
 
-    @Test func switchOffPreservesDelivery() async {
-        let controls = ActionEngineTests.FakeControls()
-        controls.focus = [.ordinary(TargetIdentity("native-field"))]
-        let capture = window()
-        let scenes = ActionEngineTests.ScriptedScenes([capture])
-        let actuator = ActionEngineTests.RecordingActuator()
-        let subject = engine(scenes, controls, actuator, surface: true, enabled: false)
-        let result = await subject.deliver(request(.pressKey(KeyChord(.return), times: 1)))
-        #expect(result.kind != .refused)
-        #expect(actuator.gestures == [KeyChord(.return).gesture])
-        #expect(controls.focusReads == 0)
-        let defaults = ActionEngine.Dependencies(
-            scenes: ActionEngineTests.ScriptedScenes([capture]),
-            actuator: ActionEngineTests.RecordingActuator(), windows: ActionEngineTests.ScriptedWindows([[]])
-        )
-        #expect(defaults.correspondence == nil)
-        let unchanged = await SwitchBoard.$testing.withValue(SwitchBoard()) {
-            await ActionEngine(defaults, pause: { _ in })
-                .deliver(request(.pressKey(KeyChord(.return), times: 1)))
-        }
-        #expect(unchanged == result)
-    }
     @Test func withheldValuesIncludeEscapedQuotedFragments() {
         let value = "Private's\ntext\rnext\u{2028}" + String(repeating: "x", count: 80)
         let rendered = String(OutcomeText.quoted(value).dropFirst().dropLast())
@@ -168,7 +128,7 @@ struct FocusSourceTests {
         #expect(result.message.contains(OutcomeText.quoted(label)))
         #expect(!result.message.contains("\n"))
     }
-    @Test func switchOffKeepsTextRehearsalsFreeOfFocusReads() async {
+    @Test func committingTextRehearsalsCheckTheTargetWithoutDispatch() async {
         let inputs: [InputRequest.Input] = [
             .insertText("hello\n"), .typeText("hello\n", into: "Message", replacing: true),
         ]
@@ -176,11 +136,11 @@ struct FocusSourceTests {
             let scenes = ActionEngineTests.ScriptedScenes([window()])
             let controls = ActionEngineTests.FakeControls()
             let actuator = ActionEngineTests.RecordingActuator()
-            let result = await engine(scenes, controls, actuator, surface: true, enabled: false)
+            let result = await engine(scenes, controls, actuator, surface: true)
                 .deliver(request(input, dryRun: true))
-            #expect(result.kind == .dryRun)
-            #expect(scenes.calls == 1)
-            #expect(controls.focusReads == 0)
+            #expect(result.kind == .refused)
+            #expect(scenes.calls == (input == .insertText("hello\n") ? 2 : 1), "Focused insertion reads its scene; a named-field refusal retains its resolved scene")
+            #expect(controls.focusReads == (input == .insertText("hello\n") ? 1 : 0))
             #expect(actuator.gestures.isEmpty)
         }
     }
@@ -206,10 +166,10 @@ struct FocusSourceTests {
         controls.focus = [.ordinary(TargetIdentity("native-field"))]
         let scenes = FocusChangingScenes(capture: window(label: "Search mail"), controls: controls)
         let actuator = ActionEngineTests.RecordingActuator()
-        let subject = SwitchingEngine(engine: ActionEngine(
+        let subject = ActionEngine(
             .init(scenes: scenes, actuator: actuator, windows: ActionEngineTests.ScriptedWindows([[]]),
                   controls: controls), pause: { _ in }
-        ), enabled: true)
+        )
         var input = request(.insertText("hello\n"))
         input.binding = TextTargetBinding(identity: TargetIdentity("native-field"), role: nil, label: "")
         let outcome = await subject.deliver(input)

@@ -5,7 +5,7 @@
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
 
-import AutomationMCP
+@testable import AutomationMCP
 @testable import AutomationRuntime
 import EngineCore
 import Foundation
@@ -15,7 +15,7 @@ import PerceptionCore
 @testable import SQLiteMemory
 import Testing
 
-/// RecallScopeTests prove, through `memory_task begin` on the corpus learned by D2's producers, that a selection
+/// RecallScopeTests prove, through explicit typed service queries on the corpus learned by D2's producers, that a selection
 /// holds the work the request asks for and no more: what the request forbids, work already done and parts whose
 /// output is ready stay out, and what the request needs but cannot be resolved is said rather than certified complete.
 @MainActor
@@ -57,7 +57,7 @@ struct RecallScopeTests {
     @Test("creating only a note does not recall the step that shares it by Mail, and the constraint is not lost")
     func creatingOnlyNoteExcludesSharing() async throws {
         let (session, memory) = try await Self.learned()
-        let begun = try await P.task(P.tools(session, stream: "note-scope"), #"""
+        let begun = try await HistoricalRecallFixture.beginQuery(P.tools(session, stream: "note-scope"), #"""
             {"operation":"begin","goal":"Create a new note titled Idee in Notes",
              "remaining":"Create a new note titled Idee in Notes",
              "constraints":["Do not share the note and do not open Mail"],
@@ -70,7 +70,7 @@ struct RecallScopeTests {
         #expect(begun["recall"]["coverage"].string == "complete")
         #expect(!Self.conditions(begun).contains("constraint_unchecked"), "both clauses were checked against the steps")
         // A constraint the selector cannot check is carried to the agent, not dropped.
-        let other = try await P.task(P.tools(session, stream: "note-scope-2"), #"""
+        let other = try await HistoricalRecallFixture.beginQuery(P.tools(session, stream: "note-scope-2"), #"""
             {"operation":"begin","goal":"Create a new note titled Idee in Notes","remaining":"Create a new note titled Idee in Notes",
              "constraints":["Keep the note short"],"inputs":[{"name":"note_title","value":"Idee"}]}
             """#)
@@ -85,7 +85,7 @@ struct RecallScopeTests {
         let tools = P.tools(session, stream: "dialog-open")
         session.windows[Self.preview] = try RecallCorpus.load().window(Self.preview, "export")
         _ = try await tools.call("open_session", .object(["app": .string(Self.preview)]))
-        let begun = try await P.task(tools, #"""
+        let begun = try await HistoricalRecallFixture.beginQuery(tools, #"""
             {"operation":"begin","goal":"Choose PNG as the format in the Export dialog already open in Preview",
              "remaining":"Choose PNG as the format in the Export dialog already open in Preview",
              "inputs":[{"name":"output_format","value":"PNG","role":"format chosen in the Export dialog"}]}
@@ -100,7 +100,7 @@ struct RecallScopeTests {
     @Test("a need whose app is imposed gets the input it lacks as missing: no producer is invented, the coverage is ambiguous")
     func trulyMissingInput() async throws {
         let (session, memory) = try await Self.learned()
-        let begun = try await P.task(P.tools(session, stream: "missing"), #"""
+        let begun = try await HistoricalRecallFixture.beginQuery(P.tools(session, stream: "missing"), #"""
             {"operation":"begin","goal":"Send the shared note by email","remaining":"Send the shared note by email",
              "needs":[{"text":"Type the recipient in To and send the shared note","app":"com.apple.mail"}]}
             """#)
@@ -115,7 +115,7 @@ struct RecallScopeTests {
     @Test("a variant whose fixed choice contradicts the task's value is excluded and named; the coherent one is selected")
     func incoherentVariantExcluded() async throws {
         let (session, memory) = try await Self.learned()
-        let begun = try await P.task(P.tools(session, stream: "variant"), #"""
+        let begun = try await HistoricalRecallFixture.beginQuery(P.tools(session, stream: "variant"), #"""
             {"operation":"begin","goal":"Print the open PDF","remaining":"Print the open PDF",
              "inputs":[{"name":"pages","value":"Current","role":"pages to print"}]}
             """#)
@@ -176,7 +176,7 @@ struct RecallScopeTests {
     @Test("an input produced by an earlier part comes with that part; an output the task already holds keeps its producer out")
     func producersOfInputs() async throws {
         let (session, memory) = try await Self.learned(try Self.invoiceCorpus())
-        let lacking = try await P.task(P.tools(session, stream: "invoice-lacking"), #"""
+        let lacking = try await HistoricalRecallFixture.beginQuery(P.tools(session, stream: "invoice-lacking"), #"""
             {"operation":"begin","goal":"Download invoice INV-2026-040 and email it to luca@example.com",
              "remaining":"Download invoice INV-2026-040 and email it to luca@example.com",
              "inputs":[{"name":"invoice","value":"INV-2026-040"},{"name":"recipient","value":"luca@example.com"}]}
@@ -185,7 +185,7 @@ struct RecallScopeTests {
         #expect(made["coverage"].string == "complete", "\(lacking)")
         #expect(Self.steps(lacking).first == 1 && Self.conditions(lacking).contains("input_produced"),
                 "the download that produces the attached file is part of the selection: \(Self.steps(lacking)) \(Self.conditions(lacking))")
-        let ready = try await P.task(P.tools(session, stream: "invoice-ready"), #"""
+        let ready = try await HistoricalRecallFixture.beginQuery(P.tools(session, stream: "invoice-ready"), #"""
             {"operation":"begin","goal":"Email the invoice INV-2026-040 already downloaded to luca@example.com",
              "remaining":"Download invoice INV-2026-040 and email it to luca@example.com",
              "inputs":[{"name":"invoice","value":"INV-2026-040"},
@@ -205,7 +205,7 @@ struct RecallScopeTests {
     @Test("the attached file equal to the downloaded one, but stated as observed: no relation, the attachment stays to resolve")
     func equalValuesWithoutStatedOrigin() async throws {
         let (session, memory) = try await Self.learned(try Self.invoiceCorpus(attachmentSource: #""source":"observation""#))
-        let lacking = try await P.task(P.tools(session, stream: "invoice-unstated"), #"""
+        let lacking = try await HistoricalRecallFixture.beginQuery(P.tools(session, stream: "invoice-unstated"), #"""
             {"operation":"begin","goal":"Download invoice INV-2026-040 and email it to luca@example.com",
              "remaining":"Download invoice INV-2026-040 and email it to luca@example.com",
              "inputs":[{"name":"invoice","value":"INV-2026-040"},{"name":"recipient","value":"luca@example.com"}]}

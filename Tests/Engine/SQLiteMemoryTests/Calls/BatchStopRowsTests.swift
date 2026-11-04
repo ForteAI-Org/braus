@@ -44,6 +44,40 @@ struct BatchStopRowsTests {
         await memory.store.close()
     }
 
+    @Test(arguments: [0, 1])
+    func stopAfterExecutedStepAcceptsItsSkippedSuffix(_ stoppedAt: Int) async throws {
+        let memory = try await open()
+        try await start(memory)
+        for position in 0...stoppedAt {
+            try await end(memory, position, position == stoppedAt ? .honestMiss : .foundActed)
+        }
+        for position in (stoppedAt + 1)..<3 {
+            _ = try await memory.calls.advance([AgentCallTransition("b.\(position)", F.ended(.skipped))])
+        }
+        let progress = AgentCallProgress(.completed,
+            result: .batch(stopped: true, attempted: stoppedAt + 1, verified: stoppedAt),
+            endedAtMS: F.t0 + 100, batchConclusion: .stopped(at: stoppedAt, reason: .expectedAbsent))
+        #expect(try await memory.calls.advance([AgentCallTransition("b", progress)]) == .committed)
+        #expect(try await memory.calls.call("b")?.progress.batchConclusion == progress.batchConclusion)
+        #expect(try await memory.calls.advance([AgentCallTransition("b", progress)]) == .alreadyApplied)
+        #expect(try await memory.calls.call("b.\(stoppedAt + 1)")?.progress.status == .skipped)
+        await memory.store.close()
+    }
+
+    @Test func skippedPrefixBeforeDeclaredStopIsRejected() async throws {
+        let memory = try await open()
+        try await start(memory)
+        for position in 0..<3 {
+            _ = try await memory.calls.advance([AgentCallTransition("b.\(position)", F.ended(.skipped))])
+        }
+        let progress = AgentCallProgress(.completed, result: .batch(stopped: true, attempted: 0, verified: 0),
+            endedAtMS: F.t0 + 100, batchConclusion: .stopped(at: 1, reason: .personInControl))
+        #expect(await callError { _ = try await memory.calls.advance([AgentCallTransition("b", progress)]) }
+            == .batchNotSettled(eventID: "b"))
+        #expect(try await memory.calls.call("b")?.progress.status == .started)
+        await memory.store.close()
+    }
+
     @Test func unknownIntermediateCanFinishAndRoundTrip() async throws {
         let memory = try await open()
         try await start(memory)

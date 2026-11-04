@@ -30,6 +30,15 @@ extension ToolCatalogue {
         ], required: ["target"], readOnly: false)
     }
 
+    static var reconcileCallDefinition: JSONValue {
+        let text: JSONValue = .object(["type": .string("string"), "minLength": .number(1)])
+        return discoveryDefinition("reconcile_call", properties: [
+            "call": text,
+            "finding": .object(["type": .string("string"), "enum": .array([.string("happened"), .string("not_happened")])]),
+            "evidence": text, "note": text
+        ], required: ["call", "finding", "evidence"], readOnly: false)
+    }
+
     private static func discoveryDefinition(_ name: String, properties: [String: JSONValue],
                                             required: [String], readOnly: Bool) -> JSONValue {
         .object(["name": .string(name), "description": .string(ModelText.text(.init(rawValue: "catalogue." + name))),
@@ -38,31 +47,12 @@ extension ToolCatalogue {
     }
 
     static func definitions(for list: ToolList, channels: AutomationChannels) -> [JSONValue] {
-        let available = availableDefinitions(for: channels, surface: .v2) + [findDefinition, callDefinition]
+        let available = availableDefinitions(for: channels, surface: .tagged) + [findDefinition, callDefinition]
         return ToolList.names(attendance: list.attendance, level: list.level).compactMap { id in
             guard var definition = available.first(where: { $0["name"].string == id.rawValue })?.object else { return nil }
             definition["inputSchema"] = composedSchema(definition["inputSchema"] ?? .null,
-                name: id.rawValue, effect: policyRegistry.effectClass(of: id.rawValue, arguments: .null), surface: .v2)
+                name: id.rawValue, effect: policyRegistry.effectClass(of: id.rawValue, arguments: .null), surface: .tagged)
             return .object(definition)
-        }
-    }
-
-    /// Keeps the core loaded while exposing the permitted catalogue for harness discovery.
-    static func harnessDefinitions(
-        core: [JSONValue],
-        entries: [CatalogueEntry],
-        list: ToolList
-    ) -> [JSONValue] {
-        let names = Set(ToolList.names(attendance: list.attendance, level: list.level,
-                                      loading: .harnessSearch).map(\.rawValue))
-        return core.compactMap { value in
-            guard let name = value["name"].string, names.contains(name), var definition = value.object else { return nil }
-            definition["_meta"] = .object(["anthropic/alwaysLoad": .bool(true)])
-            return JSONValue.object(definition)
-        } + entries.map { entry in
-            .object(["name": .string(entry.contract.id.rawValue),
-                "description": .string(entry.contract.description), "inputSchema": entry.contract.inputSchema,
-                "annotations": .object(["readOnlyHint": .bool(entry.contract.effect == .read)])])
         }
     }
 
@@ -79,13 +69,9 @@ extension ToolCatalogue {
 
     private static func composedSchema(_ value: JSONValue, name: String, effect: EffectClass,
                                        surface: ToolSurface) -> JSONValue {
-        guard TaskCycleArm.current == .v2, var schema = value.object,
+        guard var schema = value.object,
               var fields = schema["properties"]?.object else { return value }
-        if surface == .v2, name == "act", var verb = fields["verb"]?.object {
-            verb["enum"] = .array((verb["enum"]?.array ?? []).filter { $0.string != "triple_click" })
-            fields["verb"] = .object(verb)
-        }
-        if effect != .read, !["open_session", "close_session", "call"].contains(name), fields["step"] == nil {
+        if effect != .read, !["open_session", "close_session", "call", "reconcile_call"].contains(name), fields["step"] == nil {
             fields["step"] = .object(["type": .string("string"), "pattern": .string("^r[1-9][0-9]*$")])
         }
         schema["properties"] = .object(fields)

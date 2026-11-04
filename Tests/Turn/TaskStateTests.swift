@@ -1,3 +1,4 @@
+import LocalMCP
 import AutomationMCP
 import AutomationRuntime
 import ChatCore
@@ -5,7 +6,6 @@ import EngineCore
 import Foundation
 import Memory
 import ModelTransports
-import Switches
 import Testing
 @testable import Turn
 
@@ -216,32 +216,24 @@ struct TaskStateRunnerTests {
     }
 
     @Test(arguments: [true, false])
-    func turnRunnerSendsNothingNew(_ allowsSuspension: Bool) async throws {
-        var sent: [[TurnMessage]]?
-        var received: [TurnRunEvent]?
-        for arm in ["off", "on"] {
-            try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_state": arm])) {
-                let host = TestTurnHost()
-                let runner = testTurnRunner(host: host, root: URL(filePath: "/fake/task-state"),
-                                            allowsSuspension: allowsSuspension)
-                var sceneReads = 0
-                runner.latestScene = { sceneReads += 1; return nil }
-                let transport = TurnTestTransport([
-                    [.toolCall(.init(id: "one", name: "observe", arguments: Data("{}".utf8)))],
-                    [.delta("ok")]
-                ])
-                var events: [TurnRunEvent] = []
-                _ = try await runner.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
-                    contextWindow: nil))) { events.append($0) }
-                if let sent { #expect(transport.messages == sent) } else { sent = transport.messages }
-                if let received { #expect(events == received) } else { received = events }
-                #expect(transport.messages.count == 2)
-                #expect(transport.messages.first?.last?.text == "Braus seat: no session is open.\n\nHello")
-                #expect((runner.currentTaskState != nil) == (arm == "on"))
-                #expect(arm == "off" ? sceneReads == 0 : sceneReads > 0)
-                try await runner.close()
-            }
-        }
+    func turnRunnerCollectsStateWithoutInjectingMessages(_ allowsSuspension: Bool) async throws {
+        let host = TestTurnHost()
+        let runner = testTurnRunner(host: host, root: URL(filePath: "/fake/task-state"),
+                                    allowsSuspension: allowsSuspension)
+        var sceneReads = 0
+        runner.latestScene = { sceneReads += 1; return nil }
+        let transport = TurnTestTransport([
+            [.toolCall(.init(id: "one", name: "observe", arguments: Data("{}".utf8)))],
+            [.delta("ok")]
+        ])
+        var events: [TurnRunEvent] = []
+        _ = try await runner.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
+            contextWindow: nil))) { events.append($0) }
+        #expect(transport.messages.count == 2)
+        #expect(transport.messages.first?.last?.text == "<braus_state>\nsession: closed\ntask: none\n</braus_state>\n\nHello")
+        #expect(runner.currentTaskState != nil)
+        #expect(sceneReads > 0)
+        try await runner.close()
     }
 
     @Test func firstReviewTurnDoesNotReplaceTheRequest() async throws {
@@ -255,27 +247,21 @@ struct TaskStateRunnerTests {
         try await runner.close()
     }
 
-    @Test func sceneIsUpdatedAndOffSkipsTheProvider() async throws {
-        for arm in ["on", "off"] {
-            try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_state": arm])) {
-                let host = TestTurnHost()
-                let runner = testTurnRunner(host: host, root: URL(filePath: "/fake/task-state"))
-                var reads = 0
-                runner.latestScene = {
-                    reads += 1
-                    return .init(revision: 2, text: "Whole scene")
-                }
-                let transport = TurnTestTransport([[.delta("ok")]])
-                _ = try await runner.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
-                    contextWindow: nil))) { _ in }
-                #expect(reads == (arm == "on" ? 1 : 0))
-                #expect(runner.taskStateProblems.isEmpty)
-                if arm == "on" {
-                    #expect(runner.currentTaskState?.sections[.scene]?.lines == [[.operand("Whole scene")]])
-                }
-                try await runner.close()
-            }
+    @Test func ordinaryStateReadsTheLatestWholeScene() async throws {
+        let host = TestTurnHost()
+        let runner = testTurnRunner(host: host, root: URL(filePath: "/fake/task-state"))
+        var reads = 0
+        runner.latestScene = {
+            reads += 1
+            return .init(revision: 2, text: "Whole scene")
         }
+        let transport = TurnTestTransport([[.delta("ok")]])
+        _ = try await runner.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
+            contextWindow: nil))) { _ in }
+        #expect(reads == 1)
+        #expect(runner.taskStateProblems.isEmpty)
+        #expect(runner.currentTaskState?.sections[.scene]?.lines == [[.operand("Whole scene")]])
+        try await runner.close()
     }
 
     @Test func noFactFromLogText() async throws {

@@ -110,15 +110,4 @@ enum BatchStep {
         }
     }
 
-    func accepts(_ outcome: Outcome) -> Bool {
-        outcome.effect == .confirmed
-    }
-
-    /// Supplies the request context available to historical no-op readers too.
-    func outcome(of result: ActOutcome) -> Outcome {
-        var noop: NoopKind?
-        if case .act(let action) = self, action.verb == .setToggle { noop = .statePresent }
-        return Outcome.converting(result.kind, check: nil, notSent: result.notSent,
-                                  noop: noop, sceneAttached: result.scene != nil)
-    }
 }

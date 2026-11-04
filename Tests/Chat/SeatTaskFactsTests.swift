@@ -13,18 +13,17 @@ struct SeatTaskFactsTests {
         #expect(tools.takeStoppedTaskNotice() == nil)
     }
 
-    @Test func instructionSwitchDefaultsToLegacyForEveryChannelSet() {
+    @Test func structuredInstructionsAreUsedForEveryChannelSet() {
         for bits in 0..<8 {
             var channels: AutomationChannels = []
             if bits & 1 != 0 { channels.insert(.native) }
             if bits & 2 != 0 { channels.insert(.web) }
             if bits & 4 != 0 { channels.insert(.adapters) }
-            let original = AutomationTools.instructions(for: channels)
-            #expect(AutomationTools.instructions(for: channels, seatLine: .v1) == original)
-            let changed = AutomationTools.instructions(for: channels, seatLine: .v2)
-            #expect(!changed.contains("call status and observe"))
-            #expect(!changed.contains("windows, then open_session"))
-            #expect(original.contains("call status and observe"))
+            let text = AutomationTools.instructions(for: channels)
+
+            #expect(!text.contains("call status and observe"))
+            #expect(!text.contains("windows, then open_session"))
+            #expect(text.contains("plan") && text.contains("end"))
         }
     }
 }

@@ -7,13 +7,6 @@ import Memory
 import PerceptionCore
 
 extension TaskCycleHandler {
-    func memoryDelivery(_ value: JSONValue, reason: RecallService.MemoryReadReason?) -> JSONValue {
-        guard reason == .profileDoesNotReadMemory, var object = value.object, var search = value["search"].object else { return value }
-        search["note"] = .string(ModelText.text(.init(rawValue: "profile.memory_not_read.v1")))
-        object["search"] = .object(search)
-        return .object(object)
-    }
-
     /// Whether a store error is a refusal of a choice's own record (a check of the archive, an identity, a lock or a wait
     /// inside the store) rather than the memory being unusable, which stays `memory_unavailable`.
     static func isChoiceRecordFault(_ error: MemoryStoreError) -> Bool {
@@ -21,126 +14,6 @@ extension TaskCycleHandler {
             case .contract, .identity, .locked, .contention, .malformedText: true
             case .open, .schema, .failed, .snapshot, .unavailable, .cancelled: false
         }
-    }
-
-    /// Runs a query of the Recall for the open task and answers it as the agent reads it, under `recall`; a query
-    /// the memory cannot run answers `recall_error`, and the task's declaration stays recorded.
-    func recall(_ reason: RecallReason, _ plan: MemoryTaskTool.RecallPlan, content: TaskRevisionContent, task: OpenTask,
-                        producer: TaskProducer, memory: MemoryService) async -> [String: JSONValue] {
-        let service = RecallService.shared(for: memory)
-        if access.reads { await service.schedule() }
-        do {
-            let (needs, notes) = try await resolved(plan.needs, service: service)
-            let request = try RecallRequest(taskID: task.taskID, attemptID: task.attemptID, revision: task.revision, reason: reason,
-                                            remainingWork: plan.remaining ?? content.goal, needs: needs,
-                                            values: content.inputs, constraints: content.constraints, notes: notes)
-            let answer = try await service.recall(request, producer: producer, access: access)
-            let data = try JSONEncoder().encode(answer.delivery)
-            return ["recall": try memoryDelivery(JSONDecoder().decode(JSONValue.self, from: data), reason: answer.reason)]
-        } catch let error as TaskContextError {
-            return ["recall_error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1"))
-                + "\(error)"
-                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.2"))))]
-        } catch {
-            return ["recall_error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.3"))
-                + "\(MemoryService.describe(error))"
-                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.4")))
-                                            + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.5")))]
-        }
-    }
-
-    /// Searches for a proposal of the experiment of the agent's choice and answers its text under `recall_proposal`; a
-    /// search the memory cannot run answers `recall_error`, and the task's declaration stays recorded.
-    func propose(_ reason: RecallReason, _ plan: MemoryTaskTool.RecallPlan, content: TaskRevisionContent, task: OpenTask,
-                         producer: TaskProducer, memory: MemoryService) async -> [String: JSONValue] {
-        let service = RecallService.shared(for: memory)
-        if access.reads { await service.schedule() }
-        do {
-            let (needs, notes) = try await resolved(plan.needs, service: service)
-            let request = try RecallRequest(taskID: task.taskID, attemptID: task.attemptID, revision: task.revision, reason: reason,
-                                            remainingWork: plan.remaining ?? content.goal, needs: needs,
-                                            values: content.inputs, constraints: content.constraints, notes: notes)
-            let answer = try await service.propose(request, producer: producer, access: access)
-            let data = try JSONEncoder().encode(answer.delivery)
-            return ["recall_proposal": try memoryDelivery(JSONDecoder().decode(JSONValue.self, from: data), reason: answer.reason)]
-        } catch let error as TaskContextError {
-            return ["recall_error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.6"))
-                + "\(error)"
-                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.7"))))]
-        } catch {
-            return ["recall_error": .string((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.8"))
-                + "\(MemoryService.describe(error))"
-                + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.9")))
-                                            + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.error.v1.10")))]
-        }
-    }
-
-    /// The needs with the applications they name resolved to bundle IDs (`RecallApplications`), before anything filters,
-    /// selects or records them, and the notes of those that could not be resolved. The applications are the learned parts'
-    /// and those the session offers the `apps` tool for each word named, asked once per word; nothing is opened.
-    private func resolved(_ needs: [RecallNeed], service: RecallService) async throws -> ([RecallNeed], [String]) {
-        let words = Set(needs.compactMap(\.bundleID))
-        guard !words.isEmpty else { return (needs, []) }
-        let learned = access.reads ? await service.learnedApplications() : []
-        var offered: [ApplicationCandidate] = []
-        for word in words.sorted() { offered += (try? await session.applications(matching: word)) ?? [] }
-        let resolution = try RecallApplications.resolving(needs, among: RecallApplications.known(learned: learned, offered: offered))
-        return (resolution.needs, resolution.notes)
-    }
-
-    /// Records the agent's declared uses of the selections it received; answers how many were recorded.
-    /// Records each use the agent reported, and answers how many were recorded and why each other one was not. A use
-    /// that names no query of the attempt is answered, never what keeps the checkpoint or the end from being recorded:
-    /// thrown, it left the task open, then abandoned with nothing learned (review U2, 14 October 2026).
-    func report(_ uses: [MemoryTaskTool.UseReport], task: OpenTask, memory: MemoryService) async -> (recorded: Int, problems: [String]) {
-        let service = RecallService.shared(for: memory)
-        var recorded = 0
-        var problems: [String] = []
-        for use in uses {
-            do {
-                try await service.report(queryID: use.queryID, attemptID: task.attemptID, needPosition: use.needPosition,
-                                         declared: use.declared, cause: use.cause, note: use.note)
-                recorded += 1
-            } catch RecallUseError.unknownQuery(let id) {
-                // A proposal's id is no query's (live run R01): say which id a use names, and that nothing was recorded.
-                if await service.isProposal(id, of: task.taskID) {
-                    problems.append(("\(id)" + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1")))
-                                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.2")))
-                } else {
-                    problems.append((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.3"))
-                        + "\(id)"
-                        + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.4")))
-                                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.5")))
-                }
-            } catch {
-                problems.append((ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.6"))
-                    + "\(use.queryID)"
-                    + ModelText.text(.init(rawValue: "task_cycle_handler__evidence.id.v1.7"))
-                    + "\(MemoryService.describe(error))"))
-            }
-        }
-        return (recorded, problems)
-    }
-
-    /// Links the attempt's calls to the steps the Recall delivered to it and answers what each selection was used
-    /// for, or nil when it received none.
-    func linked(_ task: OpenTask, producer: TaskProducer, memory: MemoryService) async -> JSONValue? {
-        // The facts a link reads are derived after each call: let the queue write them, within a short budget.
-        _ = await memory.flush(within: .seconds(2))
-        guard let summaries = try? await RecallService.shared(for: memory).link(attemptID: task.attemptID, taskID: task.taskID,
-                                                                                 producer: producer),
-              !summaries.isEmpty else { return nil }
-        return .array(summaries.map { summary in
-            .object([
-                "query": .string(summary.queryID), "need": .number(Double(summary.needPosition + 1)),
-                "tract": summary.tract.map { .number(Double($0 + 1)) } ?? .null,
-                "steps_carried_out": .array(summary.executed.map { .number(Double($0 + 1)) }),
-                "verified": .array(summary.confirmed.map { .number(Double($0 + 1)) }),
-                "not_carried_out": .array(summary.notExecuted.map { .number(Double($0 + 1)) }),
-                "own_operations": .number(Double(summary.ownOperations)),
-                "undetermined": .number(Double(summary.undetermined)),
-            ])
-        })
     }
 
     static let noOpenTask = MemoryTaskTool.Failure(
@@ -600,16 +473,4 @@ extension TaskCycleHandler {
 
     /// The calls of this producer whose effect is not known and no later fact resolved (P2-06), after the sweep of the
     /// started calls whose process ended.
-    func unresolvedCalls(memory: MemoryService) async throws -> [UnresolvedCall] {
-        let executor = try await MemoryExecutor.current(memory: memory, source: producer.source)
-        if let executor { await MemoryExecutor.sweep(memory, folder: memory.directory, current: executor) }
-        return (try? await memory.unresolvedCalls(source: producer.source, streamID: producer.streamID,
-                                                   excludingExecutor: executor?.record.executorID)) ?? []
-    }
-
-    static func unresolvedJSON(_ call: UnresolvedCall) -> JSONValue {
-        .object(["call": .string(call.eventID), "tool": .string(call.request.tool.rawValue),
-                 "reason": .string(call.reason.rawValue)])
-    }
-
 }

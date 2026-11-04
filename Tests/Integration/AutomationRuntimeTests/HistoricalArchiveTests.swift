@@ -9,8 +9,10 @@ import AutomationMCP
 @testable import AutomationRuntime
 import CryptoKit
 import Foundation
+import EngineCore
 import LocalMCP
 import Memory
+import PerceptionCore
 @testable import SQLiteMemory
 import Testing
 
@@ -141,11 +143,81 @@ struct HistoricalArchiveTests {
         return rows
     }
 
-    /// Learns the photo export through the tools on frozen schema 19, closes the archive and answers its file.
+    /// Produces the frozen schema 19 fixture through its typed producers. The current plan facade
+    /// intentionally requires todo storage, which this historical source never had.
+    private static func learnPhotoWithHistoricalProducers(_ session: LearningSession) async throws -> String {
+        let memory = MemoryService.shared(for: session.directory)
+        let service = RecallService(memory: memory, configuration: L.configuration())
+        RecallService.install(service)
+        let producer = try TaskProducer(source: .app, streamID: "worker-1")
+        let content = try TaskRevisionContent(goal: "Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
+            inputs: [
+                try TaskValue(name: "criterion", kind: .text, content: .text("foto_demo"), source: .request),
+                try TaskValue(name: "output_name", kind: .text, content: .text("foto_web"), source: .request)
+            ])
+        let task = try await TaskChannel.begin(content, producer: producer, traceID: "message-1", memory: memory)
+        let brain = BrainMemory(brains: memory, applications: memory, relations: memory, clock: { memory.clock.brainNow() })
+        func recorder() -> CallRecorder {
+            CallRecorder(memory: memory, brain: brain,
+                context: ActionContext(source: .app, streamID: "worker-1", traceID: "message-1",
+                    sessionID: session.id?.uuidString))
+        }
+        func open(_ bundle: String) async throws {
+            let call = recorder()
+            try await call.begin(.openSession(app: bundle, window: nil), app: nil, attribution: task.attribution)
+            _ = try await CallRecorder.$current.withValue(call) {
+                try await session.open(application: bundle, window: nil)
+            }
+            let sample = try #require(await call.lastObservation)
+            let id = try #require(session.id)
+            try await call.end(.completed, result: .observation(ObservationResult(sessionID: id.uuidString,
+                sessionRevision: 1, observedAtMS: memory.clock.calendarMS(), sample: sample)), tool: .openSession)
+        }
+        func run(_ request: AgentCallRequest, _ operation: () async throws -> ActOutcome) async throws {
+            let call = recorder()
+            let bundle = try #require(session.memoryApplication)
+            try await call.begin(request, app: AppContextIdentity(bundleID: bundle), attribution: task.attribution)
+            let result = try await CallRecorder.$current.withValue(call) { try await operation() }
+            try await call.end(.completed, result: .outcome(result.kind, message: result.message),
+                tool: request.tool, check: result.withStatedCheck.check)
+        }
+        try await open(P.finder)
+        try await run(.typeText(target: "Search", text: "foto_demo", section: nil, replace: true)) {
+            try await session.deliver(.typeText("foto_demo", into: "Search", replacing: true), section: nil)
+        }
+        try await run(.act(target: "foto_demo.png", verb: .click, value: nil, section: nil)) {
+            try await session.act(target: "foto_demo.png", verb: .click, section: nil, desiredState: nil)
+        }
+        try await open(P.preview)
+        try await run(.act(target: "Rotate Right", verb: .click, value: nil, section: nil)) {
+            try await session.act(target: "Rotate Right", verb: .click, section: nil, desiredState: nil)
+        }
+        try await run(.menu(path: "File > Export…")) { try await session.menu(path: "File > Export…") }
+        try await run(.typeText(target: "foto_demo.png", text: "foto_web.jpg", section: nil, replace: true)) {
+            try await session.deliver(.typeText("foto_web.jpg", into: "foto_demo.png", replacing: true), section: nil)
+        }
+        try await run(.select(control: "Format", item: "JPEG")) { try await session.select(control: "Format", item: "JPEG") }
+        try await run(.press(button: "Save")) { try await session.press(button: "Save") }
+        try await open(P.finder)
+        try await run(.act(target: "Show Preview", verb: .setToggle, value: .on, section: nil)) {
+            try await session.act(target: "Show Preview", verb: .setToggle, section: nil, desiredState: .on)
+        }
+        _ = try await TaskChannel.checkpoint(task, TaskCheckpointDraft(kind: .end, declared: .completed),
+            producer: producer, memory: memory)
+        let candidate = try #require(try await ProcedureProducer.candidate(attemptID: task.attemptID,
+            producer: producer, memory: memory))
+        #expect(candidate.steps.count == 8, "The historical fixture must still contain all eight recorded operations")
+        let tools = P.tools(session)
+        _ = try await P.interpretFixture(tools, session, P.photoInterpretation(candidate.candidate.candidateID))
+        try #require(await service.waitUntilIdle(within: .seconds(60)))
+        return ProcedureAssembly.routeID(candidateID: candidate.candidate.candidateID, revision: 1)
+    }
+
+    /// Learns the photo export through the frozen producers on schema 19, closes the archive and answers its file.
     static func learned() async throws -> (LearningSession, URL, String) {
         try await SQLiteMemoryStore.$openingSchema.withValue(.historical19) {
             let session = P.photoSession(try W.directory())
-            let (_, routeID) = try await L.learnPhoto(session)
+            let routeID = try await Self.learnPhotoWithHistoricalProducers(session)
             await L.close(session)
             // The source represents an earlier build that still appended transitions.
             let raw = try SQLiteConnection(path: L.url(session).path)
@@ -237,7 +309,7 @@ struct HistoricalArchiveTests {
         let reopened = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: reopened, configuration: L.configuration()))
         #expect(await RecallService.shared(for: reopened).waitUntilIdle(within: .seconds(60)))
-        let proposal = try await P.task(P.tools(session, stream: "after-migration"), RecallChoiceToolTests.proposeRequest)["recall_proposal"]
+        let proposal = try await HistoricalRecallFixture.beginProposal(P.tools(session, stream: "after-migration"), RecallChoiceToolTests.proposeRequest)["recall_proposal"]
         #expect(proposal["sources"].array?.contains { $0["version"].string == routeID } == true, "\(proposal)")
         await L.close(session)
     }
@@ -252,11 +324,14 @@ struct HistoricalArchiveTests {
 
         let memory = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
-        let tools = P.tools(session, stream: "after-main")
-        let begun = try await P.task(tools, #"{"operation":"begin","goal":"Rotate the photo again","recall":false}"#)
-        #expect(begun["status"].string == "begun", "\(begun)")
+        let owner = try TaskProducer(source: .app, streamID: "after-main")
+        let begun = try await TaskChannel.begin(TaskRevisionContent(goal: "Rotate the photo again"),
+            producer: owner, traceID: "after-main", memory: memory)
+        let reopenedTask = try await memory.perform { try await $0.tasks.task(begun.taskID, for: owner) }
+        #expect(reopenedTask?.status == .open)
         #expect((await memory.status()).lastMigration?.contains("from schema main-1 to \(SQLiteMemorySchema.historical19Version)") == true)
-        _ = try await P.task(tools, #"{"operation":"end","outcome":"abandoned"}"#)
+        _ = try await TaskChannel.checkpoint(begun, TaskCheckpointDraft(kind: .end, declared: .abandoned),
+            producer: owner, memory: memory)
         #expect(await memory.flush(within: .seconds(10)))
         await L.close(session)
 

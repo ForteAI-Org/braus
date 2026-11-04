@@ -622,7 +622,9 @@ struct MacSessionTests {
         let (first, firstTree) = conversation()
         let (second, secondTree) = conversation()
         let opened = try answer(try await first.call("open_session", .object(["app": .string("Notes")])))
-        let old = try #require(opened["session"].string)
+        let old = try #require(first.session.id?.uuidString)
+        #expect(opened["session"].string == first.session.id?.uuidString)
+        #expect(opened["session"].string == old, "The host diagnostic names its own session, not a model argument")
         await #expect(throws: (any Error).self) {
             _ = try await second.call("act", .object(["session": .string(old), "target": .string("B3")]))
         }
@@ -630,11 +632,13 @@ struct MacSessionTests {
         #expect(desktop.opened.isEmpty, "nothing went to the seat")
         // Its own open of the same app is the same worker's: allowed, under its own ID.
         let own = try answer(try await second.call("open_session", .object(["app": .string("Notes")])))
-        #expect(own["session"].string != nil && own["session"].string != old)
+        #expect(second.session.id != nil && second.session.id?.uuidString != old)
+        #expect(own["session"].string == second.session.id?.uuidString)
         // The first conversation closes its session and opens again: the old ID stays refused.
-        _ = try await first.call("close_session", .object(["session": .string(old)]))
+        _ = try await first.call("call", .object(["name": .string("close_session"), "arguments": .object([:])]))
         let again = try answer(try await first.call("open_session", .object(["app": .string("Notes")])))
-        #expect(again["session"].string != nil && again["session"].string != old)
+        #expect(first.session.id != nil && first.session.id?.uuidString != old)
+        #expect(again["session"].string == first.session.id?.uuidString)
         await #expect(throws: (any Error).self) {
             _ = try await first.call("act", .object(["session": .string(old), "target": .string("B3")]))
         }
@@ -647,8 +651,7 @@ struct MacSessionTests {
     func routerBeforeSession() async throws {
         let session = SessionStub(handoff: nil)
         session.id = nil
-        let tools = AutomationTools(session: session, channels: .web)
-        tools.adapters = AppAdapters([])
+        let tools = AutomationTools(session: session, channels: .web, adapters: AppAdapters([]))
 
         let maps = try answer(await tools.call("open_session", .object(["app": .string("Maps")])))
         #expect(maps["opened"] == .bool(false))
@@ -656,7 +659,7 @@ struct MacSessionTests {
         #expect(session.opened.isEmpty)
 
         let mail = try answer(await tools.call("open_session", .object(["app": .string("Mail")])))
-        #expect(mail["session"].string != nil, "without a composed Mail adapter its interface opens")
+        #expect(session.id != nil && mail["session"].string == session.id?.uuidString, "without a composed Mail adapter its interface opens")
         #expect(session.opened == ["Mail"])
 
         _ = try await tools.call("open_session", .object(["app": .string("Maps"), "named": .bool(true)]))
@@ -667,8 +670,7 @@ struct MacSessionTests {
     func adaptersWithoutTheWeb() async throws {
         let session = SessionStub(handoff: nil)
         session.id = nil
-        let tools = AutomationTools(session: session, channels: .adapters)
-        tools.adapters = AppAdapters([ReadyAdapter()])
+        let tools = AutomationTools(session: session, channels: .adapters, adapters: AppAdapters([ReadyAdapter()]))
         #expect(tools.router != nil, "the adapters are a route of their own")
         #expect(tools.instructions == AutomationTools.instructions(for: .adapters), "no web is served")
 
@@ -698,17 +700,16 @@ struct MacSessionTests {
         for (channels, maps, calendar) in cases {
             let session = SessionStub(handoff: nil)
             session.id = nil
-            let tools = AutomationTools(session: session, channels: channels)
-            if channels.contains(.adapters) { tools.adapters = AppAdapters([ReadyAdapter()]) }
+            let tools = AutomationTools(session: session, channels: channels,
+                                        adapters: channels.contains(.adapters) ? AppAdapters([ReadyAdapter()]) : nil)
             let routed = !channels.isDisjoint(with: [.web, .adapters])
             #expect((tools.router != nil) == routed, "\(channels)")
             #expect(tools.instructions == AutomationTools.instructions(for: channels), "served = composed: \(channels)")
             #expect(tools.toolDefinitions == AutomationTools.definitions(for: channels), "\(channels)")
             let schema = try openSession(tools)
             #expect((schema["inputSchema"]["properties"]["named"] != .null) == routed, "\(channels)")
-            let description = schema["description"].string ?? ""
-            #expect(description.contains("a web page") == channels.contains(.web), "\(channels)")
-            #expect(description.contains("an app_call adapter") == channels.contains(.adapters), "\(channels)")
+            #expect(schema["inputSchema"]["properties"]["session"] == .null)
+            #expect(schema["inputSchema"]["required"].array?.contains(.string("app")) == true)
 
             for (app, route) in [("Maps", maps), ("Calendar", calendar)] {
                 let answered = try answer(await tools.call("open_session", .object(["app": .string(app)])))
@@ -723,15 +724,15 @@ struct MacSessionTests {
         }
     }
 
-    @Test("an adapter route points to app_call only when the adapter can run; otherwise the app opens with a note")
+    @Test("an available adapter route points to discovery and call; otherwise the app opens with a note")
     func adapterRoute() async throws {
         let session = SessionStub(handoff: nil)
         session.id = nil
-        let tools = AutomationTools(session: session, channels: .web)
-        tools.adapters = AppAdapters([ReadyAdapter()])
+        let tools = AutomationTools(session: session, channels: .web, adapters: AppAdapters([ReadyAdapter()]))
         let calendar = try answer(await tools.call("open_session", .object(["app": .string("Calendar")])))
         #expect(calendar["opened"] == .bool(false))
-        #expect(calendar["message"].string?.contains("app_call") == true)
+        #expect(calendar["message"].string?.contains("find") == true && calendar["message"].string?.contains("then call") == true)
+        #expect(calendar["message"].string?.contains("app_call") == false)
 
         let finder = try answer(await tools.call("open_session", .object(["app": .string("Finder")])))
         #expect(session.opened == ["Finder"])

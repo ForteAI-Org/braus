@@ -142,7 +142,7 @@ struct PreviousProductTests {
                 == ["previous-product:knowledge:previous_product:completed:Earlier/Knowledge"])
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
         let session = P.photoSession(folders.knowledge)
-        let proposal = try await P.task(P.tools(session, stream: "after-rename"), RecallChoiceToolTests.proposeRequest)["recall_proposal"]
+        let proposal = try await HistoricalRecallFixture.beginProposal(P.tools(session, stream: "after-rename"), RecallChoiceToolTests.proposeRequest)["recall_proposal"]
         #expect(proposal["sources"].array?.contains { $0["version"].string == routeID } == true, "\(proposal)")
         await Self.close(folders)
         let readBack = try Self.files(folders.earlier)

@@ -6,7 +6,6 @@ import EngineCore
 import PerceptionCore
 import LocalMCP
 import Memory
-import Switches
 import SQLiteMemory
 import Testing
 
@@ -21,16 +20,15 @@ struct SessionProfileRuntimeTests {
         let memory = MemoryService.shared(for: session.directory)
         let tools = AutomationTools(session: session, profile: SessionProfile.cli.replacing(memory: mode))
         tools.producer = CallProducer(source: .cli, streamID: "juniper")
-        let begun = try await P.task(tools, #"{"operation":"begin","goal":"Rotate and mark the image"}"#)
-        #expect(begun["status"].string == "begun")
+        let begun = try await P.task(tools, #"{"request":"Rotate and mark the image"}"#)
+        #expect(begun["status"].string == "planned")
         _ = try await P.call(tools, "open_session", #"{"app":"com.apple.Preview"}"#)
         let id = try #require(session.id?.uuidString)
         _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Rotate Right"}"#)
         _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Markup"}"#)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
+        let ended = try await P.task(tools, #"{"outcome":"completed"}"#)
         #expect(ended["status"].string == "ended")
         await tools.afterTurn()
-        if mode.learns { _ = await tools.interpretLeftCandidate() }
         #expect(await memory.flush(within: .seconds(10)))
         for table in ["memory_events", "memory_agent_actions", "memory_event_observations", "memory_task_events"] {
             #expect(try RecallProductPathTests.count(table, session) > 0, "Facts must remain in \(table)")
@@ -50,12 +48,10 @@ struct SessionProfileRuntimeTests {
     }
 
     @Test func listIsFixedForTheSession() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2", "task_cycle": "v2"])) {
+        do {
             let session = P.photoSession(try W.directory())
             let tools = AutomationTools(session: session, channels: [.web], profile: .app)
             let initial = tools.toolDefinitions
-            tools.adapters = nil
-            tools.router = nil
             #expect(tools.toolDefinitions == initial)
             #expect(tools.toolDefinitions == tools.dispatcher.toolDefinitions)
             #expect(tools.instructions == AutomationTools.instructions(for: [.web]))
@@ -71,22 +67,22 @@ struct SessionProfileRuntimeTests {
         var options = SessionProfile.cli.options
         options.providerCredential = .namedVariable("JUNIPER_TOKEN")
         let tools = AutomationTools(session: session, profile: SessionProfile.cli.replacing(options: options))
-        let status = try await P.task(tools, #"{"operation":"status"}"#)
+        let status = try await tools.runtimeIdentity()
         #expect(status["profile"]["readsMemory"].bool == true)
         let encoded = String(decoding: try JSONEncoder().encode(status), as: UTF8.self)
         #expect(!encoded.contains("JUNIPER_TOKEN"))
         await RecallLifecycleTests.close(session)
     }
 
-    @Test func switchesFromTheProfileReachTheSwitchReader() async throws {
+    @Test func runtimeHasNoProductSwitches() async throws {
         let session = P.photoSession(try W.directory())
-        var options = SessionProfile.cli.options
-        options.switches = ["brain_enrichment": "off"]
-        let tools = AutomationTools(session: session, profile: SessionProfile.cli.replacing(options: options))
-        let status = try await P.task(tools, #"{"operation":"status"}"#)
-        #expect(status["switches"]["brain_enrichment"].string == "off")
+        let tools = AutomationTools(session: session, profile: .cli)
+        let status = try await tools.runtimeIdentity()
+        #expect(status["switches"] == .null)
+        #expect(status["runtime"]["contract"].string == "braus-t2-single-path")
         await RecallLifecycleTests.close(session)
     }
+
 }
 
 extension SessionProfileRuntimeTests {
@@ -99,15 +95,15 @@ extension SessionProfileRuntimeTests {
         let read = SessionProfile.cli.replacing(memory: .read).memoryAccess
         let learn = SessionProfile.cli.replacing(memory: .learn).memoryAccess
         for _ in 0..<2 {
-            let skipped = try await service.prepare(request, access: learn)
-            let searched = try await service.prepare(request, access: read)
+            let skipped = try await service.prepare(request, access: learn, availableChannels: HistoricalRecallFixture.nativeChannels)
+            let searched = try await service.prepare(request, access: read, availableChannels: HistoricalRecallFixture.nativeChannels)
             #expect(!skipped.readsMemory && skipped.considered == 0 && skipped.reason == .profileDoesNotReadMemory)
             #expect(searched.readsMemory && searched.considered > 0)
             #expect(await service.index(searched.status, searchStatus: searched.searchStatus, generation: nil,
                                   readsMemory: searched.readsMemory).status != "off")
         }
-        async let skipped = service.prepare(request, access: learn)
-        async let searched = service.prepare(request, access: read)
+        async let skipped = service.prepare(request, access: learn, availableChannels: HistoricalRecallFixture.nativeChannels)
+        async let searched = service.prepare(request, access: read, availableChannels: HistoricalRecallFixture.nativeChannels)
         let (left, right) = try await (skipped, searched)
         #expect(!left.readsMemory && left.considered == 0)
         #expect(right.readsMemory && right.considered > 0)
@@ -137,19 +133,10 @@ extension SessionProfileRuntimeTests {
         #expect(tools.toolDefinitions == initial)
         let guide = tools.guides?.head(for: OpenedApp(bundleID: "com.example.Juniper", version: nil, locale: "en-US"))
         #expect(guide?.text == "A canvas holds the drawing.\nThe sidebar holds layers.")
-        options.switches = ["guide_delivery": "requested"]
-        let requested = AutomationTools(session: session, profile: SessionProfile.cli.replacing(options: options),
-            resolveGuideApp: { OpenedApp(bundleID: $0, version: nil, locale: "en-US") })
-        let fixed = requested.toolDefinitions
-        try await requested.prepareGuides()
-        #expect(requested.guidesEnabled)
-        #expect(requested.toolDefinitions == fixed)
-        let answer = try await requested.call("read_guide", .object(["app": .string("com.example.Juniper")]))
-        #expect(answer["isError"].bool != true)
-        #expect(answer["content"].array?.first?["text"].string?.contains("A canvas holds the drawing.") == true)
-        let unchanged = AutomationTools(session: session, profile: .cli)
-        try await unchanged.prepareGuides()
-        #expect(unchanged.guides == nil)
+        let open = AutomationTools(session: session,
+            profile: SessionProfile(attendance: .none, level: .actConnectors, memory: .readLearn, catalogue: .open, takeover: false, options: options, name: "open"))
+        try await open.prepareGuides()
+        #expect(!open.guidesEnabled)
         await RecallLifecycleTests.close(session)
     }
 
@@ -208,7 +195,6 @@ extension SessionProfileRuntimeTests {
                 var options = base.options
                 options.harnessWebSearch.toggle()
                 options.guides = [session.directory.appendingPathComponent("Juniper.md")]
-                options.switches = ["brain_enrichment": "off"]
                 let changed = SessionProfile(attendance: base.attendance, level: base.level, memory: memory,
                     archive: session.directory, catalogue: .open, takeover: !base.takeover,
                     mandate: session.directory.appendingPathComponent("task.txt"), options: options, name: "Juniper")
@@ -248,11 +234,12 @@ extension SessionProfileRuntimeTests {
     @Test func rawMemoryReadReasonNeverReachesTheModel() async throws {
         let session = P.photoSession(try W.directory())
         let tools = AutomationTools(session: session, profile: SessionProfile.cli.replacing(memory: .off))
-        _ = try await P.task(tools, #"{"operation":"begin","goal":"Export"}"#)
-        let result = try await P.task(tools, #"{"operation":"recall","reason":"new_need","remaining":"Export"}"#)
+        let result = try await P.task(tools, #"{"request":"Export"}"#)
         let text = String(decoding: try JSONEncoder().encode(result), as: UTF8.self)
+        #expect(result["status"].string == "planned")
         #expect(result["error"] == .null)
-        #expect(result["recall_proposal"]["index"]["status"].string == "off")
+        #expect(result["memory"] == .null)
+        #expect(result["guidance"].string == "memory is not read in this session")
         #expect(!text.contains("profileDoesNotReadMemory"))
         await RecallLifecycleTests.close(session)
     }
@@ -261,18 +248,12 @@ extension SessionProfileRuntimeTests {
 extension SessionProfileRuntimeTests {
     @Test func defaultDefinitionsFollowTheDispatcherAfterChannelsLoad() async throws {
         let session = P.photoSession(try W.directory())
-        for surface in ["v1", "v2"] {
-            for cycle in ["v1", "v2"] {
-                await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": surface, "task_cycle": cycle])) {
-                    let tools = AutomationTools(session: session, channels: [.web, .adapters])
-                    #expect(tools.toolDefinitions == tools.dispatcher.toolDefinitions)
-                    tools.adapters = nil
-                    tools.router = nil
-                    #expect(tools.toolDefinitions == tools.dispatcher.toolDefinitions)
-                    await tools.afterTurn()
-                    #expect(tools.toolDefinitions == tools.dispatcher.toolDefinitions)
-                }
-            }
+        for profile in [SessionProfile.app, .cli, .mcpClient(name: "Juniper", attendance: .client)] {
+            let tools = AutomationTools(session: session, channels: [.web, .adapters], profile: profile)
+            #expect(tools.toolDefinitions == tools.dispatcher.toolDefinitions)
+            #expect(tools.toolDefinitions == tools.dispatcher.toolDefinitions)
+            await tools.afterTurn()
+            #expect(tools.toolDefinitions == tools.dispatcher.toolDefinitions)
         }
         await RecallLifecycleTests.close(session)
     }

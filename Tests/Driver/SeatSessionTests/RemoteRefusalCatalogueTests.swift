@@ -1,6 +1,5 @@
 import EngineCore
 import SeatSession
-import Switches
 import Testing
 @testable import SeatDriving
 
@@ -28,25 +27,15 @@ struct RemoteRefusalCatalogueTests {
     }
 
     @Test(arguments: refusals)
-    func historicalAndTypedTransport(_ refusal: RemoteContentActuationRefusal) {
-        SwitchBoard.$testing.withValue(SwitchBoard(values: ["outcome": "v1"])) {
-            let error = SeatActuator.deliveryError(refusal)
-            if refusal.mayHaveTakenEffect {
-                #expect(error as? RemoteContentActuationRefusal == refusal)
-            } else {
-                #expect((error as? GestureNotSent)?.reason == "remote_content_refused")
-                #expect((error as? GestureNotSent)?.sentence == refusal.description)
-            }
-        }
-        SwitchBoard.$testing.withValue(SwitchBoard(values: ["outcome": "v2"])) {
-            let error = SeatActuator.deliveryError(refusal)
-            if refusal.mayHaveTakenEffect {
-                #expect((error as? GestureEffectUncertain)?.cause == "remote_content_refused." + refusal.code)
-                #expect((error as? GestureEffectUncertain)?.description == refusal.description)
-                #expect(error as? GestureNotSent == nil)
-            } else {
-                #expect((error as? GestureNotSent)?.reason == "remote_content_refused." + refusal.code)
-            }
+    func typedTransport(_ refusal: RemoteContentActuationRefusal) {
+        let error = SeatActuator.deliveryError(refusal)
+        if refusal.mayHaveTakenEffect {
+            #expect((error as? GestureEffectUncertain)?.cause == "remote_content_refused." + refusal.code)
+            #expect((error as? GestureEffectUncertain)?.description == refusal.description)
+            #expect(error as? GestureNotSent == nil)
+        } else {
+            #expect((error as? GestureNotSent)?.reason == "remote_content_refused." + refusal.code)
+            #expect((error as? GestureNotSent)?.sentence == refusal.description)
         }
     }
 }

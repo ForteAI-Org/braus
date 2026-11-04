@@ -44,12 +44,15 @@ final class ChatEvidence {
     func record(number: Int, request: String, continues: Bool, transcript: ChatTranscript, started: Date, ended: Date,
                 failure: (any Error)?, signal: Int32? = nil, abandonment: ChatSession.Abandonment?,
                 brausInterpreted: String? = nil, toolCalls: Int, agentEntries: Int? = nil, memoryFlushed: Bool,
-                archive: URL) throws {
+                archive: URL, configuration: JSONValue? = nil) throws {
         let folder = directory.appendingPathComponent(String(format: "%02d", number), isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try (request + "\n").write(to: folder.appendingPathComponent("request.txt"), atomically: true, encoding: .utf8)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let configuration {
+            try encoder.encode(configuration).write(to: folder.appendingPathComponent("runtime.json"), options: .atomic)
+        }
         try encoder.encode(transcript.conversation).write(to: folder.appendingPathComponent("conversation.json"), options: .atomic)
         var tasks = ChatScript.taskIDs(in: transcript.conversation.entries)
         if let abandonment, !tasks.contains(abandonment.task) { tasks.append(abandonment.task) }

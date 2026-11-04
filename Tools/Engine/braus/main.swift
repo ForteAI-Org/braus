@@ -27,7 +27,6 @@ import SQLiteMemory
 // <app> is a bundle id or an application name; --knowledge <dir> overrides where memory lives;
 // --seat drives on the Seat's virtual display instead of the real screen.
 
-AutomationTools.reportInvalidSwitches()
 
 let rawArguments = Array(CommandLine.arguments.dropFirst())
 let normalizedArguments = rawArguments.first == "--chat" ? ["chat"] + rawArguments.dropFirst() : rawArguments

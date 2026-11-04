@@ -9,24 +9,9 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
-import Switches
 
 /// Delivers inputs and records the gestures and perceptions used to judge them.
 extension ActionEngine {
-
-    private enum CommittingInputArm: String, Sendable { case off, on }
-
-    /// The common switch keeps delivery unchanged until the committing-input refusal is enabled.
-    private var refusesCommittingInput: Bool {
-        SwitchBoard.current.arm("committing_input", default: CommittingInputArm.off) == .on
-    }
-
-
-    private enum SceneAfterUncertainArm: String, Sendable { case off, on }
-
-    var readsAfterUncertain: Bool {
-        SwitchBoard.current.arm("scene_after_uncertain", default: SceneAfterUncertainArm.off) == .on
-    }
 
     @TaskLocal
     private static var uncertainDelivery: UncertainDelivery?
@@ -103,7 +88,8 @@ extension ActionEngine {
             performed: .uncertain, substitute: prior?.substitute, target: prior?.target
         )
         return ActOutcome(outcome.kind == .foundActed ? .foundActed : .actedUnverified,
-                          outcome.message, scene: outcome.scene, check: check, cause: uncertain.cause ?? outcome.cause)
+                          outcome.message + "; " + OutcomeText.deliveryFailure + uncertain.detail,
+                          scene: outcome.scene, check: check, cause: uncertain.cause ?? outcome.cause)
     }
 
     /// A takeover keeps verified evidence and withdraws an unfinished reading of the person's new state.
@@ -122,12 +108,6 @@ extension ActionEngine {
         return ActOutcome(.actedUnverified, outcome.message, check: check, cause: outcome.cause)
     }
 
-    /// Preserves ES1's structural cause in the historical arm, without passing errors to sites.
-    static func legacyUncertain(_ outcome: ActOutcome, _ uncertain: UncertainDelivery) -> ActOutcome {
-        guard let cause = uncertain.cause else { return outcome }
-        return preservingCause(GestureEffectUncertain(cause: cause, description: uncertain.detail), in: outcome)
-    }
-
     /// A judge records the failed delivery rather than teaching a successful delivery to memory.
     func record(_ record: ActionRecord) async {
         let evidence = record.evidence ?? record.before.flatMap { before in
@@ -140,7 +120,7 @@ extension ActionEngine {
             effect: record.effect, windowTitleAfter: record.windowTitleAfter, before: record.before,
             after: record.after, attempt: attempt,
             evidence: evidence?.withWait(lookedAgain: false, waited: nil, ending: Self.settleTrail?.last), check: record.check)
-        if SecondLook.isEnabled || ScreenExpectation.current != nil, let trace = VerdictTrace.current { trace.hold(final) }
+        if let trace = VerdictTrace.current { trace.hold(final) }
         else { await dependencies.observer?.record(final) }
     }
 
@@ -169,7 +149,7 @@ extension ActionEngine {
                     await captureExpectationWindows(in: request.processID)
                     let delivered = await self.deliverInput(request)
                     let final = Self.stoppedOutcome(await concluded(delivered, settles: settles, in: request.processID))
-                    if SecondLook.isEnabled, final.scene == nil, final.check?.limits.contains(.noAfterScene) == true {
+                    if final.scene == nil, final.check?.limits.contains(.noAfterScene) == true {
                         trace.withdrawAfter()
                     }
                     trace.seal()
@@ -195,13 +175,13 @@ extension ActionEngine {
                 .delivered
             }
         }
-        let after = SecondLook.isEnabled && outcome.check?.limits.contains(.noAfterScene) == true
+        let after = outcome.check?.limits.contains(.noAfterScene) == true
             ? nil : windows.count >= 2 ? windows.last : nil
         let evidence = windows.first.flatMap { before in
             after.map { after in
                 SceneEvidence.observe(before: before, after: after, target: trail.target, learnableEffect: trail.effect)
                     .withWait(lookedAgain: outcome.lookedAgain,
-                              waited: SecondLook.isEnabled ? outcome.waited : nil, ending: settles.last)
+                              waited: outcome.waited, ending: settles.last)
             }
         }
         await observer.record(InputRecord(
@@ -384,7 +364,7 @@ extension ActionEngine {
         if ActionPolicy.containsControlCharacter(text) {
             return ActOutcome(.refused, ActionPolicy.controlCharacterRefusal)
         }
-        let checksCommit = refusesCommittingInput && (text.contains("\n") || text.contains("\r"))
+        let checksCommit = text.contains("\n") || text.contains("\r")
         let rehearsal = request.isDryRun
             ? ActOutcome(.dryRun, "would insert \(text.count) characters at the current focus and selection") : nil
         if let rehearsal, !checksCommit { return rehearsal }
@@ -459,15 +439,7 @@ extension ActionEngine {
         case .notSent(let refusal):
             return Self.notSent(refusal, "inserting text") ?? ActOutcome(.refused, refusal.sentence)
         case .uncertain(let u):
-            if readsAfterUncertain { return await afterUncertainDelivery(u, in: pid, judge: judge) }
-
-            let outcome = ActOutcome(.actedUnverified, "inserting text: delivery failed: \(u.detail); observe before any retry",
-                              check: OperationCheck(
-                                  condition: expecting == nil ? .none : .valueReadBack,
-                                  method: .controlValue, verdict: .unknown,
-                                  limits: [.deliveryUncertain, .valueWithheld], performed: .uncertain
-                              ))
-            return Self.legacyUncertain(outcome, u)
+            return await afterUncertainDelivery(u, in: pid, judge: judge)
         }
         return await judge()
     }
@@ -619,21 +591,7 @@ extension ActionEngine {
         case .notSent(let refusal):
             return Self.notSent(refusal, "typing into \(OutcomeText.quoted(element.label))", scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
         case .uncertain(let u):
-            if readsAfterUncertain { return await afterUncertainDelivery(u, in: pid, judge: judge) }
-
-            if u.kind == .stoppedBeforeText {
-                // The click, and any preparation key, went out and may have moved the focus or the selection: a
-                // partial delivery, closed as unknown, never replayed.
-                let keys = u.sentBefore > 1 ? " and pressed \(u.sentBefore - 1) of its preparation keys" : ""
-                return ActOutcome(.actedUnverified, "clicked \(OutcomeText.quoted(element.label))\(keys), but \(u.detail): nothing "
-                    + "was typed. Observe before typing again.",
-                    check: Self.undelivered(.valueReadBack, method: .controlValue, target: element))
-            }
-            let outcome = ActOutcome(.actedUnverified, "typing into \(OutcomeText.quoted(element.label)): delivery failed: \(u.detail)",
-                              check: Self.undelivered(.valueReadBack, method: .controlValue,
-                                                      expected: isSecure || request.withholdsText ? nil : typed,
-                                                      target: element))
-            return Self.legacyUncertain(outcome, u)
+            return await afterUncertainDelivery(u, in: pid, judge: judge)
         }
         return await judge()
     }
@@ -645,7 +603,7 @@ extension ActionEngine {
         perceived: PerceivedWindow
     ) async -> ActOutcome {
         let pid = request.processID
-        if refusesCommittingInput, chord.key == .return,
+        if chord.key == .return,
            chord.modifiers.isEmpty || chord.modifiers == .command {
             let focus = await dependencies.controls?.focusedField(in: pid) ?? .unknown
             if let target = Self.committingTarget(focus, in: perceived),
@@ -707,11 +665,7 @@ extension ActionEngine {
         case .notSent(let refusal):
             return Self.notSent(refusal, pressed, scene: perceived.scene) ?? ActOutcome(.refused, refusal.sentence)
         case .uncertain(let u):
-            if readsAfterUncertain { return await afterUncertainDelivery(u, in: pid, judge: judge) }
-
-            let outcome = ActOutcome(.actedUnverified, "\(pressed): delivery failed: \(u.detail)",
-                              check: Self.undelivered(.structuralEffect, method: .sceneDifference))
-            return Self.legacyUncertain(outcome, u)
+            return await afterUncertainDelivery(u, in: pid, judge: judge)
         }
         return await judge()
     }
@@ -734,8 +688,7 @@ extension ActionEngine {
         into target: CommittingInput.Target,
         scene: SceneSnapshot
     ) -> ActOutcome? {
-        guard refusesCommittingInput,
-              CommittingInput.commits(input, into: target,
+        guard CommittingInput.commits(input, into: target,
                   onCorrespondenceSurface: dependencies.correspondence?(scene.bundleID) ?? false)
         else { return nil }
         switch IrreversiblePolicy.decision(allowed: permissions.allowsDestructive, readBack: .cannotConfirm) {

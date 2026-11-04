@@ -4,7 +4,6 @@ import Foundation
 import Memory
 import Synchronization
 import Testing
-import Switches
 
 @MainActor
 struct TakeoverDuringReadingTests {
@@ -44,9 +43,7 @@ struct TakeoverDuringReadingTests {
             interruption.interruptForHumanControl()
             interruption.requestWaitStop()
             let outcome = try await call.value
-            SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "on"])) {
-                #expect(outcome.outcome.row == "uncertain · unknown(not_readable) · do_not_repeat")
-            }
+            #expect(outcome.outcome.row == "uncertain · unknown(not_readable) · do_not_repeat")
             #expect(interruption.wasInterrupted)
             #expect(!call.isCancelled)
             #expect(gestures.withLock { $0 } == 1)

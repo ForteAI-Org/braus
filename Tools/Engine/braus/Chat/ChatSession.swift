@@ -1,3 +1,4 @@
+import AppAdapters
 import Memory
 
 import AutomationMCP
@@ -30,10 +31,11 @@ final class ChatSession: TurnHosting {
     private var finished = false
     var provider: CLIProvider { runner.commandProvider }
     private lazy var runner = TurnRunner(tools: tools, configuration: .init(
-        workingDirectory: working, bridgeExecutable: URL(filePath: Self.executablePath),
+        workingDirectory: working, bridgeExecutable: bridgeExecutable,
         connectionFolder: temporary, allowsSuspension: profile.takeover, closesSessionOnEnd: false), host: self)
     private var eventFailure: (any Error)?
     let executable: URL
+    private let bridgeExecutable: URL
     let working: URL
     private let temporary: URL
     private let credential: ChildEnvironment.Credential
@@ -65,7 +67,9 @@ final class ChatSession: TurnHosting {
         options   : ChatOptions,
         history   : URL,
         executable: URL,
+        bridgeExecutable: URL? = nil,
         session   : ((BrokeredAutomationSession) -> any AutomationSessionOperating)? = nil,
+        adapters  : AppAdapters? = nil,
         keychain  : any KeychainReading = SystemKeychain(),
         makeTransport: @escaping @MainActor (ModelSelection, ProviderSettings) -> any ModelTransport = {
             $0.transport(settings: $1)
@@ -83,6 +87,7 @@ final class ChatSession: TurnHosting {
         self.catalogue = catalogue
         self.selectionNotice = selectionNotice
         self.executable = executable
+        self.bridgeExecutable = bridgeExecutable ?? URL(filePath: Self.executablePath)
         credential = options.credential
         self.keychain = keychain
         self.makeTransport = makeTransport
@@ -107,7 +112,7 @@ final class ChatSession: TurnHosting {
         channels = options.channels
         let driven = try session?(desktop)
             ?? Self.session(desktop: desktop, options: options, knowledge: knowledge, owner: owner, web: web)
-        let tools = ChatTools(session: driven, channels: options.channels, profile: options.sessionProfile)
+        let tools = ChatTools(session: driven, channels: options.channels, adapters: adapters, profile: options.sessionProfile)
         self.tools = tools
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent("braus-chat-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false,
@@ -128,10 +133,9 @@ final class ChatSession: TurnHosting {
             runner.stop(marksTaskInterrupted: false)
             shutdown = Task { [self] in
                 await router.drain()
-                if closesTaskOnStop || TaskCycleArm.current == .v2 {
+                if true {
                     let agentEntries = current?.conversation.entries.count ?? 0
-                    let closed = await abandonOpenTask(cause: .signal(number), note: "The process was stopped by signal \(number) before memory_task "
-                                                             + "end: Braus closed the task as abandoned.")
+                    let closed = await abandonOpenTask(cause: .signal(number))
                     if let closed { print(Self.line(for: closed)) }
                     await interruption?(number, closed, agentEntries)
                     await MemoryService.closeAll()
@@ -179,34 +183,22 @@ final class ChatSession: TurnHosting {
         tools.restoreTaskReference(ChatScript.taskIDs(in: transcript.conversation.entries).last)
     }
 
-    func abandonOpenTask(cause: StopCause = .conversationEnded, note: String = "The conversation ended without memory_task end: Braus closed the task as "
-                             + "abandoned so the next one can begin.") async -> Abandonment? {
-        if TaskCycleArm.current == .v2 {
-            guard let task = tools.openTask?.taskID else { return nil }
-            do {
-                _ = try await tools.closeStoppedTask(cause)
-                return Abandonment(task: task, closed: true, problem: nil)
-            } catch {
-                return Abandonment(task: task, closed: false, problem: MemoryService.describe(error))
-            }
+    func abandonOpenTask(cause: StopCause = .conversationEnded) async -> Abandonment? {
+        guard let task = tools.openTask?.taskID else { return nil }
+        do {
+            _ = try await tools.closeStoppedTask(cause)
+            return Abandonment(task: task, closed: true, problem: nil)
+        } catch {
+            return Abandonment(task: task, closed: false, problem: MemoryService.describe(error))
         }
-        guard let status = try? await tools.call("memory_task", .object(["operation": .string("status")])) else { return nil }
-        let found = ChatScript.payload(of: status)
-        guard found["status"].string == "open", let task = found["task"].string else { return nil }
-        let answer = (try? await tools.call("memory_task", .object(["operation": .string("end"), "outcome": .string("abandoned"),
-                                                                   "note": .string(note)]))).map(ChatScript.payload(of:))
-        _ = tools.takeInterpretationReminder()
-        let closed = answer?["status"].string == "ended"
-        return Abandonment(task: task, closed: closed,
-                           problem: closed ? nil : answer.map(ChatScript.text) ?? "memory_task end answered nothing")
     }
 
     static func line(for abandonment: Abandonment) -> String {
-        if TaskCycleArm.current == .v2, abandonment.closed {
+        if abandonment.closed {
             return ModelText.text(.init(rawValue: "task_cycle.stopped.v2"))
         }
         return abandonment.closed
-            ? "Braus closed task \(abandonment.task) as abandoned: the conversation ended without memory_task end."
+            ? "Braus closed task \(abandonment.task) as abandoned: the conversation ended without end."
             : "Braus could not close task \(abandonment.task) as abandoned: \(abandonment.problem ?? "no answer")"
     }
 

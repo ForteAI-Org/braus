@@ -40,7 +40,7 @@ enum BatchCommand {
                 app     : AppContextIdentity(bundleID: bundleID),
                 parent  : parent,
                 children: children,
-                entryScene: BatchMode.isEnabled ? try await desktop.observe() : nil,
+                entryScene: try await desktop.observe(),
                 expectations: plan.expectations,
                 windowNumber: { desktop.observedWindowNumber },
                 prepare : { number, step in
@@ -54,7 +54,7 @@ enum BatchCommand {
                         )
                     }
                     print("batch: step \(number)/\(plan.steps.count): \(step.summary)")
-                    return BatchMode.isEnabled ? try await desktop.observe() : nil
+                    return try await desktop.observe()
                 },
                 perform : { number, step, recorder in
                     try await ScreenExpectation.$current.withValue(plan.expectations[number - 1]) {
@@ -90,7 +90,6 @@ enum BatchCommand {
                     }
                 }
             )
-            if !BatchMode.isEnabled { print("batch: completed \(plan.steps.count)/\(plan.steps.count) steps") }
         }
     }
 }

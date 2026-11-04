@@ -44,23 +44,27 @@ enum CommandLineBatch {
         perform : (Int, BatchStep, CallRecorder) async throws -> ActOutcome
     ) async throws {
         precondition(children.count == steps.count, "one recorder per step")
-        try BatchMode.validateConfiguration()
+        try Task.checkCancellation()
         do {
             try await parent.begin(batch: zip(children, steps).map { ($0, request(of: $1)) }, app: app)
         } catch {
+            if Task.isCancelled { throw CancellationError() }
             print("refused: Braus's memory did not confirm the batch before it could act (\(error)); nothing was done")
             throw ActFailure(.refused)
         }
-        if BatchMode.isEnabled, entryScene == nil {
+        if entryScene == nil {
             for child in children { try await child.skip() }
-            try await parent.end(.completed, result: .batch(stopped: true, attempted: 0, verified: 0),
-                                 tool: .batch, batchConclusion: .stopped(at: 0, reason: .refused))
+            let cancelled = Task.isCancelled
+            try await parent.end(cancelled ? .cancelled : .completed,
+                result: cancelled ? nil : .batch(stopped: true, attempted: 0, verified: 0),
+                tool: .batch, batchConclusion: cancelled ? nil : .stopped(at: 0, reason: .refused))
+            if cancelled { throw CancellationError() }
             throw ActFailure(.refused)
         }
         var started = 0, verified = 0
         var stop: (any Error)?
         var conclusion: BatchConclusion?
-        if BatchMode.isEnabled, let entryScene {
+        if let entryScene {
             let result = try await BatchSequence.runPolicy(steps, expectations: expectations, entryScene: entryScene,
                 bundleID: app.bundleID, prepare: { number, step in
                     guard let scene = try await prepare(number, step) else { throw ActFailure(.refused) }
@@ -68,6 +72,10 @@ enum CommandLineBatch {
                 }, windowNumber: windowNumber) { number, step in
                     try await children[number - 1].startStep()
                     started += 1
+                    if Task.isCancelled {
+                        try await children[number - 1].end(.cancelled, result: nil, tool: request(of: step).tool)
+                        throw CancellationError()
+                    }
                     if AutomationCallInterruption.current?.wasInterrupted == true {
                         let refused = ActOutcome(.refused, "person_in_control", notSent: .humanIntervention)
                         try await children[number - 1].end(.completed, result: .outcome(refused.kind, message: refused.message),
@@ -85,25 +93,6 @@ enum CommandLineBatch {
             case .ranToEnd:
                 print("batch: completed \(started)/\(steps.count) steps; verified \(verified)")
             }
-        } else {
-            do {
-                try await BatchSequence.run(steps) { number, step in
-                    _ = try await prepare(number, step)
-                    do {
-                        try await children[number - 1].startStep()
-                    } catch {
-                        print("refused: Braus's memory did not confirm step \(number) before it could act (\(error)); "
-                            + "it was not run")
-                        return ActOutcome(.refused, "The memory did not confirm the step.")
-                    }
-                    started += 1
-                    let result = try await perform(number, step, children[number - 1])
-                    if step.accepts(step.outcome(of: result)) { verified += 1 }
-                    return result
-                }
-            } catch {
-                stop = error
-            }
         }
         for child in children.dropFirst(started) {
             do {
@@ -112,20 +101,22 @@ enum CommandLineBatch {
                 print("memory: a step that never ran could not be recorded as skipped (\(error))")
             }
         }
+        let cancelled = Task.isCancelled
         do {
             try await parent.end(
-                .completed,
-                result: .batch(stopped: conclusion.map { if case .stopped = $0 { true } else { false } }
+                cancelled ? .cancelled : .completed,
+                result: cancelled ? nil : .batch(stopped: conclusion.map { if case .stopped = $0 { true } else { false } }
                     ?? (started < steps.count || verified < started), attempted: started,
                                verified: verified),
                 tool  : .batch,
-                batchConclusion: conclusion
+                batchConclusion: cancelled ? nil : conclusion
             )
             if let gap = await parent.recordingGap { print("memory: part of the batch was not recorded: \(gap)") }
         } catch {
             print("memory: the batch ran, but its record was not saved (\(error)); do not repeat it")
             if stop == nil { stop = CommandLineCall.Unsaved(reason: "\(error)") }
         }
+        try Task.checkCancellation()
         if let stop { throw stop }
     }
 }

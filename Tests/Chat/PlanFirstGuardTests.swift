@@ -3,13 +3,12 @@ import AutomationRuntime
 import Foundation
 import Memory
 import LocalMCP
-import Switches
 import Testing
 
 @MainActor
 struct PlanFirstGuardTests {
-    @Test func armedGuardRefusesBeforeEffectAndAllowsReading() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2", "tool_surface": "v2"])) {
+    @Test func guardRefusesBeforeEffectAndAllowsReading() async throws {
+        do {
             let session = ToolResultSession()
             let tools = AutomationTools(session: session)
             _ = try await tools.call("act", .object(["target": .string("First")]))
@@ -28,21 +27,24 @@ struct PlanFirstGuardTests {
         }
     }
 
-    @Test func legacyDoesNotArmGuard() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v1", "tool_surface": "v2"])) {
-            let session = ToolResultSession()
-            let tools = AutomationTools(session: session)
+    @Test func reopeningKeepsThePlanBarrier() async throws {
+        let session = ToolResultSession()
+        let tools = AutomationTools(session: session)
+        for _ in 0..<2 {
             _ = try await tools.call("open_session", .object(["app": .string("Synthetic")]))
-            _ = try await tools.call("act", .object(["target": .string("Allowed")]))
-            #expect(session.calls.contains("Allowed"))
+            await #expect(throws: AutomationFailure.self) {
+                _ = try await tools.call("act", .object(["target": .string("Must not run")]))
+            }
         }
+        #expect(!session.calls.contains("Must not run"))
     }
+
 }
 
 @MainActor
 struct StepTransitionTests {
     @Test func unknownStepRefusesBeforeAnEffect() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2", "tool_surface": "v2"])) {
+        do {
             let session = ToolResultSession()
             let tools = AutomationTools(session: session)
             do {
@@ -56,7 +58,7 @@ struct StepTransitionTests {
     }
 
     @Test func skippingAPendingRowRequiresAPlanRevision() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2"])) {
+        do {
             let session = ToolResultSession()
             session.memoryDirectory = URL.temporaryDirectory.appending(path: "tu6-order-\(UUID().uuidString)")
             let secrets = ProducerSecrets()
@@ -80,7 +82,7 @@ struct StepTransitionTests {
     }
 
     @Test func configuredAllowanceStartsWhenGuardArms() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2", "tool_surface": "v2"])) {
+        do {
             let session = ToolResultSession()
             let tools = AutomationTools(session: session, guardThreshold: .init(gesturesBeforePlan: 1))
             _ = try await tools.call("act", .object(["target": .string("Before opening")]))

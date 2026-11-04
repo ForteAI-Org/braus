@@ -1,3 +1,4 @@
+import LocalMCP
 import Foundation
 import Testing
 import Turn

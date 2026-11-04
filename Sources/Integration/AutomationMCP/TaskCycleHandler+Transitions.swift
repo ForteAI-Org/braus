@@ -14,7 +14,7 @@ struct StepTransition: Sendable, Equatable {
 
 extension TaskCycleHandler {
     func step(to row: TodoRowID?, gesture: String) async throws -> StepTransition? {
-        guard TaskCycleArm.current == .v2, let row else { return nil }
+        guard let row else { return nil }
         guard let task = openTask else {
             throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle.step_open.v2")), cause: "unknown_step")
         }
@@ -119,7 +119,7 @@ extension TaskCycleHandler {
     }
 
     func noteGesture(eventID: String, outcome: String, uncertain: Bool) {
-        guard TaskCycleArm.current == .v2, let row = todo?.rows.first(where: { $0.status == .inProgress }) else { return }
+        guard let row = todo?.rows.first(where: { $0.status == .inProgress }) else { return }
         guard !bufferedCalls.contains(where: { $0.eventID == eventID }) else { return }
         bufferedCalls.append(CallAttribution(eventID: eventID, row: row.id))
         bufferedGestures.append(TodoGesture(eventID: eventID, row: row.id, outcome: outcome))
@@ -186,11 +186,6 @@ extension TaskCycleHandler {
 
     func closeStoppedTask(_ cause: StopCause) async throws -> StoppedTask? {
         guard let task = openTask else { return nil }
-        if TaskCycleArm.current == .v1 {
-            markTaskInterrupted(producer: producer)
-            try await finishInterruptedTask()
-            return StoppedTask(taskID: task.taskID, verifiedRows: [], uncertainGesture: nil)
-        }
         markTaskInterrupted(producer: producer)
         let (memory, _) = try cycleMemory()
         let source = interruptedProducer ?? producer
@@ -233,29 +228,13 @@ extension TaskCycleHandler {
     }
 
     func planFirstRefusal(for tool: String) -> String? {
-        guard TaskCycleArm.current == .v2, openTask == nil, planGuardArmed,
+        guard openTask == nil, planGuardArmed,
               gesturesWithoutPlan >= guardThreshold.gesturesBeforePlan else { return nil }
         return ModelText.render(.init(rawValue: "task_cycle.first.v2"), ["tool": .toolName("plan")])
     }
 
-    /// Reports interpretation errors explicitly without converting a completed user turn into a failed task.
+    /// Completes internal learning without turning its failure into a failed user task.
     func afterTurn() async {
-        guard access.learns else { pendingCandidate = nil; return }
-        guard TaskCycleArm.current == .v2, let candidate = pendingCandidate else { return }
-        do {
-            let (memory, owner) = try cycleMemory()
-            guard let stated = try await ProcedureProducer.brausInterpretation(candidateID: candidate, producer: owner, memory: memory) else { return }
-            var arguments: [String: JSONValue] = ["operation": .string("interpret"), "candidate": .string(candidate),
-                "procedure": .object(["label": .string(stated.label), "outcome": .string("completed")])]
-            if !stated.phases.isEmpty {
-                arguments["phases"] = .array(stated.phases.map { phase in
-                    .object(["from": .number(Double(phase.first + 1)), "to": .number(Double(phase.last + 1)), "label": .string(phase.label)])
-                })
-            }
-            _ = try await taskAnswer(.object(arguments))
-        } catch {
-            let diagnostic = producerSecrets.withheld(MemoryService.describe(error))
-            Logger(subsystem: "dev.forte.Braus", category: "TaskCycle").error("Task interpretation failed: \(diagnostic, privacy: .private)")
-        }
+        _ = await interpretLeftCandidate()
     }
 }

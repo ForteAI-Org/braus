@@ -18,7 +18,7 @@ import WebSession
 
 /// M05, the web's rung through the actual consumer (W-R2): the production `WebAutomationSession`, pointed at "the
 /// person's own Chrome" that is the synthetic page inside the process (`WebBrowser.attached` over it, as the
-/// personal-Chrome tests do: no Chrome runs, nothing is connected to), under `AutomationTools` and `memory_task`. A
+/// personal-Chrome tests do: no Chrome runs, nothing is connected to), under `AutomationTools` and the current plan/call/end contract. A
 /// click records its rung under the task, a text typed into a password field records its keys' counts and none of the
 /// text anywhere, a click the page would deliver to a banner records none; the session leaves the page as it found it
 /// but for the tab it opened and closed. The default composition (Braus's own Chrome) is untouched: the launch options
@@ -28,6 +28,18 @@ import WebSession
 struct WebRungConsumerTests {
 
     nonisolated static let fragment = "Q7z9"
+
+    /// Uses the actual current catalogue; native/adapter capabilities outside the initial tools go through call.
+    static func call(_ tools: AutomationTools, _ name: String, _ arguments: LocalMCP.JSONValue) async throws -> LocalMCP.JSONValue {
+        var fields = arguments.object ?? [:]
+        if tools.openTask != nil, !["plan", "end", "observe", "open_session", "close_session", "status"].contains(name) {
+            fields["step"] = .string("r1")
+        }
+        if tools.toolDefinitions.contains(where: { $0["name"].string == name }) {
+            return try await tools.call(name, .object(fields))
+        }
+        return try await tools.call("call", .object(["name": .string(name), "arguments": .object(fields)]))
+    }
 
     final class Transcript: @unchecked Sendable { var lines: [String] = [] }
 
@@ -49,27 +61,30 @@ struct WebRungConsumerTests {
         let transcript = Transcript()
         tools.record = { transcript.lines.append($0) }
 
-        _ = try await tools.call("open_session", .object(["app": .string("web:fixture.test")]))
-        let id = LocalMCP.JSONValue.string(try #require(session.id?.uuidString))
-        _ = try await tools.call("memory_task", .object([
-            "operation": .string("begin"), "goal": .string("Fill the form"), "remaining": .string("Fill the form"),
-        ]))
-        let clicked = try await tools.call("act", .object(["session": id, "target": .string("Nome")]))
-        #expect(["found_acted", "acted_unverified"].contains(TypedSecretTests.status(of: clicked) ?? ""), "\(clicked)")
+        _ = try await Self.call(tools, "open_session", .object(["app": .string("web:fixture.test")]))
+        _ = try #require(session.id)
+        _ = try await Self.call(tools, "plan", .object(["request": .string("Fill the form"),
+            "rows": .array([.object(["title": .string("Fill the form")])])]))
+        let clicked = try await Self.call(tools, "act", .object(["target": .string("Nome")]))
+        let clickRow = ["gesture", "effect", "recovery"].compactMap { clicked["structuredContent"][$0].string }
+            .joined(separator: " · ")
+        let clickOutcome = try #require(Outcome.parse(clickRow))
+        // The synthetic page acknowledges the click without changing its scene: delivery is not proof of an effect.
+        #expect(clickOutcome == Outcome(gesture: .sent, effect: .absent, recovery: .retry), "\(clicked)")
         #expect(page.pressCount == 1)
         let secret = "typed-\(Self.fragment)-web"
-        let typedAnswer = try await tools.call("type_text", .object(["session": id, "target": .string("Accesso"), "text": .string(secret)]))
+        let typedAnswer = try await Self.call(tools, "type_text", .object(["target": .string("Accesso"), "text": .string(secret)]))
         #expect(page.textCount > 0, "the keys reached the page")
-        _ = try await tools.call("memory_task", .object(["operation": .string("end"), "outcome": .string("completed")]))
         // The typed text clicked its field first, with the engine's own clicks: the presses so far are the click's
         // and those; the covered click adds no command and no press.
         page.change([.cover(CGRect(x: 100, y: 200, width: 300, height: 30), name: "Banner")])
         let mouseBefore = page.count(of: WebSend.Method.mouse.rawValue), pressesBefore = page.pressCount
         #expect(pressesBefore > 1, "the click and the typed text's clicks: \(pressesBefore)")
-        let refused = try await tools.call("act", .object(["session": id, "target": .string("Nome")]))
+        let refused = try await Self.call(tools, "act", .object(["target": .string("Nome")]))
         #expect(page.count(of: WebSend.Method.mouse.rawValue) == mouseBefore && page.pressCount == pressesBefore,
                 "nothing sent: \(refused)")
-        _ = try await tools.call("close_session", .object(["session": id]))
+        _ = try await Self.call(tools, "end", .object(["outcome": .string("completed")]))
+        _ = try await Self.call(tools, "close_session", .object([:]))
 
         // The archive: each call's row is its own.
         let memory = MemoryService.shared(for: knowledge)
@@ -90,7 +105,9 @@ struct WebRungConsumerTests {
                 "\(String(describing: typedRung))")
         #expect(try await memory.perform { try await $0.facts.attribution(of: typedID) } != nil, "under the task")
         #expect(try await memory.perform { try await $0.facts.rung(of: lastAct) } == nil, "refused before any command: no rung")
-        #expect(try await memory.perform { try await $0.facts.attribution(of: lastAct) } == nil, "after the task ended: no task")
+        #expect(try await memory.perform { try await $0.facts.attribution(of: lastAct) } != nil, "covered click refused within the open plan")
+        #expect(refused["structuredContent"]["gesture"].string == "not_sent", "\(refused)")
+        #expect(refused["structuredContent"]["effect"].string == "not_applicable", "\(refused)")
         #expect(try await memory.perform { try await $0.facts.route(of: firstAct) }?.route == .web)
         // Nothing of the typed text anywhere, while the archive is open (its WAL live, after the flush) and once closed.
         #expect(try SecureFieldTests.files(in: knowledge, holding: Self.fragment).isEmpty, "the open archive holds the text")
@@ -127,16 +144,27 @@ struct WebRungConsumerTests {
         session.usesPersonalChrome = true
         let tools = AutomationTools(session: session)
         tools.producer = CallProducer(source: .app, streamID: "web-rung-lock", traceID: "m2", messageRef: "m2")
-        _ = try await tools.call("open_session", .object(["app": .string("web:fixture.test")]))
-        let id = LocalMCP.JSONValue.string(try #require(session.id?.uuidString))
+        _ = try await Self.call(tools, "open_session", .object(["app": .string("web:fixture.test")]))
+        _ = try #require(session.id)
+        _ = try await Self.call(tools, "plan", .object(["request": .string("Click Nome"),
+            "rows": .array([.object(["title": .string("Click Nome")])])]))
+        #expect(tools.openTask != nil)
         #expect(await memory.flush(within: .seconds(10)))
 
         // The archive is held by another writer: the call's start cannot be confirmed within the budget.
         let lock = try SQLiteConnection(path: memory.url.path)
         try lock.execute("BEGIN IMMEDIATE")
         let mouseBefore = page.count(of: WebSend.Method.mouse.rawValue)
-        await #expect(throws: AutomationFailure.self) {
-            _ = try await tools.call("act", .object(["session": id, "target": .string("Nome")]))
+        do {
+            _ = try await Self.call(tools, "act", .object(["target": .string("Nome")]))
+            Issue.record("The archive lock did not refuse the task step before delivery")
+        } catch let error as MemoryStoreError {
+            guard case .contention(let fault, let attempts, let waited) = error else {
+                Issue.record("Expected typed lock contention, got \(error)")
+                throw error
+            }
+            #expect(fault.code.primary == 5 && fault.phase == .begin)
+            #expect(attempts > 0 && waited >= .zero)
         }
         #expect(page.count(of: WebSend.Method.mouse.rawValue) == mouseBefore && page.pressCount == 0,
                 "the memory refused the start: no command went out")
@@ -144,10 +172,15 @@ struct WebRungConsumerTests {
         lock.close()
 
         // The lock gone, the next call runs and is recorded, once; the refused one left no row of any kind.
-        let clicked = try await tools.call("act", .object(["session": id, "target": .string("Nome")]))
-        #expect(["found_acted", "acted_unverified"].contains(TypedSecretTests.status(of: clicked) ?? ""), "\(clicked)")
+        let clicked = try await Self.call(tools, "act", .object(["target": .string("Nome")]))
+        let clickRow = ["gesture", "effect", "recovery"].compactMap { clicked["structuredContent"][$0].string }
+            .joined(separator: " · ")
+        let clickOutcome = try #require(Outcome.parse(clickRow))
+        // The synthetic page acknowledges the click without changing its scene: delivery is not proof of an effect.
+        #expect(clickOutcome == Outcome(gesture: .sent, effect: .absent, recovery: .retry), "\(clicked)")
         #expect(page.pressCount == 1)
-        _ = try await tools.call("close_session", .object(["session": id]))
+        _ = try await Self.call(tools, "end", .object(["outcome": .string("completed")]))
+        _ = try await Self.call(tools, "close_session", .object([:]))
         #expect(await memory.flush(within: .seconds(10)))
         let calls = try await memory.calls(inTrace: "m2")
         let acts = calls.filter { $0.request.tool == .act }

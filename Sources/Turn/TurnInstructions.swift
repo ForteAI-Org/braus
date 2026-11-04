@@ -5,19 +5,8 @@ import Foundation
 /// TurnInstructions composes the existing system text for both hosts.
 @MainActor
 public enum TurnInstructions {
-    /// The shared application and seat instructions, kept byte for byte.
-    public static let appText = "In this app, open_session also opens an installed application that is "
-        + "not running yet: find it with apps and pass its bundleID to open_session. When several match and "
-        + "the conversation does not make clear which one the person means, ask them which one, naming the "
-        + "candidates, before opening either. Each message from the person begins with Braus's seat line, "
-        + "which replaces the status call for that turn. When it names an open session, observe it by that ID "
-        + "before acting; to continue in the last application it names, call open_session with that "
-        + "application directly."
-
-    /// Uses the arm frozen by the runner, without reading process configuration here.
-    public static func appText(for arm: SeatLineArm) -> String {
-        arm == .v1 ? appText : ModelText.text(.init(rawValue: "seat_line.app.v2"))
-    }
+    /// The shared application and structured seat instructions.
+    public static var appText: String { ModelText.text(.init(rawValue: "seat_line.app.v2")) }
 
     /// What a command line that may search the web is told after the app's line.
     public static let webText = "You can search the web and read web pages with your web tools when a task "
@@ -37,12 +26,11 @@ public enum TurnInstructions {
         hasTools   : Bool    = true,
         searchesWeb: Bool    = false,
         offersWeb  : Bool = false,
-        tools      : String  = AutomationTools.instructions,
-        seatLine   : SeatLineArm = .v1
+        tools      : String  = AutomationTools.instructions
     ) -> String {
         let effectiveTools = tools == AutomationTools.instructions
-            ? AutomationTools.instructions(for: offersWeb ? [.web, .adapters] : [], seatLine: seatLine) : tools
-        var base = hasTools ? effectiveTools + "\n" + appText(for: seatLine) : textOnly
+            ? AutomationTools.instructions(for: offersWeb ? [.web, .adapters] : []) : tools
+        var base = hasTools ? effectiveTools + "\n" + appText : textOnly
         if searchesWeb { base += "\n" + webText }
         guard let role = role?.trimmingCharacters(in: .whitespacesAndNewlines), !role.isEmpty else {
             return base

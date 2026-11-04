@@ -2,7 +2,6 @@ import AutomationMCP
 @testable import AutomationRuntime
 import Memory
 import SQLiteMemory
-import Switches
 import Testing
 
 @MainActor
@@ -15,30 +14,26 @@ struct RecallPlanTests {
         return ScoredSource(source: source, stepRelevance: kind == .step ? [0: score] : [:], partRelevance: [id: score])
     }
 
-    @Test func switchDefaultsToToday() {
-        #expect(SwitchBoard().arm("recall", default: RecallRendering.Version.v1) == .v1)
+    @Test func belowThresholdIsNotOffered() {
         let scored = [[source("one", score: 0.01)]]
-        #expect(RecallChoice.shortlist(scored, suggestions: []) == RecallChoice.shortlist(scored, suggestions: [], v2: false))
-        #expect(RecallChoice.shortlist(scored, suggestions: []).count == 1)
-        #expect(RecallChoice.shortlist(scored, suggestions: [], v2: true).isEmpty)
+        #expect(RecallChoice.shortlist(scored, suggestions: []).isEmpty)
     }
 
     @Test func thresholdsByKind() {
-        #expect(RecallChoice.shortlist([[source("part", score: 0.62)]], suggestions: [], v2: true).count == 1)
-        #expect(RecallChoice.shortlist([[source("step", kind: .step, score: 0.65)]], suggestions: [], v2: true).isEmpty)
-        #expect(RecallChoice.shortlist([[source("step", kind: .step, score: 0.68)]], suggestions: [], v2: true).count == 1)
+        #expect(RecallChoice.shortlist([[source("part", score: 0.62)]], suggestions: []).count == 1)
+        #expect(RecallChoice.shortlist([[source("step", kind: .step, score: 0.65)]], suggestions: []).isEmpty)
+        #expect(RecallChoice.shortlist([[source("step", kind: .step, score: 0.68)]], suggestions: []).count == 1)
     }
 
     @Test func noGlobalCapOnVersions() {
         let scored = (1...8).map { [source("route\($0)", score: 0.8)] }
-        #expect(RecallChoice.shortlist(scored, suggestions: []).count == 6)
-        #expect(RecallChoice.shortlist(scored, suggestions: [], v2: true).count == 8)
-        #expect(RecallChoice.shortlist(Array(scored.reversed()), suggestions: [], v2: true).count == 8)
+        #expect(RecallChoice.shortlist(scored, suggestions: []).count == 8)
+        #expect(RecallChoice.shortlist(Array(scored.reversed()), suggestions: []).count == 8)
     }
 
     @Test func trustLabelOfferedWithLowerWeight() {
         let result = RecallChoice.shortlist([[source("a", score: 0.6), source("b", score: 0.6)]],
-            suggestions: [], v2: true, trust: ["a": .notYetVerified])
+            suggestions: [], trust: ["a": .notYetVerified])
         #expect(result.map(\.routeID) == ["b", "a"])
         #expect(result.last?.relevance == 0.6)
     }
@@ -92,7 +87,7 @@ struct RecallPlanTests {
 
     @Test func kIsThreePerRow() {
         let candidates = (1...5).map { source("route\($0)", score: 0.9 - Double($0) * 0.01) }
-        let result = RecallChoice.shortlist([candidates, candidates], suggestions: [], v2: true)
+        let result = RecallChoice.shortlist([candidates, candidates], suggestions: [])
         #expect(result.filter { $0.needPosition == 0 }.count == 3)
         #expect(result.filter { $0.needPosition == 1 }.count == 3)
     }

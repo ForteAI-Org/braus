@@ -51,3 +51,26 @@ extension BatchPolicySequenceTests {
         #expect(result.verified == 0)
     }
 }
+
+extension BatchPolicySequenceTests {
+    @Test(arguments: [false, true])
+    @MainActor
+    func policyConsumesTheOriginalAlreadySatisfiedFactWithoutExtraPreparation(_ already: Bool) async throws {
+        let plan = try BatchPlan(arguments: ["batch", "Fixture", "--window", "Document", "--seat", "--",
+            "act", "Next", "--expect", "{\"element\":\"Next\",\"present\":true}", "--then", "act", "Next"])
+        var performed = 0
+        var prepared = 0
+        let result = try await BatchSequence.runPolicy(plan.steps, expectations: plan.expectations, entryScene: scene,
+            prepare: { _, _ in prepared += 1; return scene }) { index, _ in
+                performed += 1
+                return ActOutcome(index == 1 ? .actedUnverified : .foundActed, "step", scene: scene,
+                    check: .init(condition: .structuralEffect, method: .sceneDifference,
+                                 verdict: index == 1 ? .failed : .passed, performed: .requested),
+                    noop: index == 1 && already ? .statePresent : nil)
+            }
+        #expect(performed == (already ? 2 : 1))
+        #expect(prepared == performed)
+        #expect(result.verified == (already ? 1 : 0))
+        #expect(result.conclusion == (already ? .ranToEnd : .stopped(at: 0, reason: .expectedAbsent)))
+    }
+}

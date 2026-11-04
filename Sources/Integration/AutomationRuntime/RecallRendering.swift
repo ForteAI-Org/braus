@@ -1,14 +1,9 @@
 import Foundation
 import Memory
-import Switches
 
 /// RecallRendering composes complete memory parts and guide sections under one character budget.
 /// Fixed language is supplied by ModelText at the boundary, keeping this value transformation independent of MCP.
 public nonisolated enum RecallRendering {
-    public enum Version: String, Sendable {
-        case v1, v2
-        public static var current: Self { SwitchBoard.current.arm("recall", default: .v1) }
-    }
     public typealias TrustLabel = RecallTrust
     public static let choiceGuide = "recall.choice"
     public static let answerBudget = 4_000

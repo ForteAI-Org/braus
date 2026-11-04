@@ -16,7 +16,6 @@ import PhaseSignposts
 import PrivateSymbols
 import SeatCore
 import TaskRouting
-import Switches
 
 /// CallDispatcher runs a call in its scope and recorder, borrowing state kept alive by the facade.
 final class CallDispatcher {
@@ -26,10 +25,8 @@ final class CallDispatcher {
     private let recording: (any CapabilityRecording)?
     let toolList: ToolList
     private let surface: ToolSurface
-    private let usesFixedList: Bool
     private var guides: AppGuides?
     private let resolveGuideApp: @MainActor @Sendable (String) -> OpenedApp
-    private var guideProvider: GuideCapability?
     private var directNames: Set<String> = []
 
     @TaskLocal
@@ -38,7 +35,6 @@ final class CallDispatcher {
     @MainActor
     final class CallPresentation {
         var head: GuideHead?
-        var index: GuideIndex?
         var notices: [String] = []
     }
     private var search: CapabilitySearch?
@@ -46,12 +42,8 @@ final class CallDispatcher {
     private var callableDefinitions: [JSONValue] = []
     private(set) var entries: [CatalogueEntry] = []
     private let channels: AutomationChannels
-    var adapters: AppAdapters? {
-        didSet { rebuildRegistry() }
-    }
-    var router: TaskRouter? {
-        didSet { rebuildRegistry() }
-    }
+    let adapters: AppAdapters?
+    let router: TaskRouter?
     private unowned let producerSecrets: ProducerSecrets
     private unowned let sceneText: SceneTextPolicy
     private unowned let taskCycle: TaskCycleHandler
@@ -88,7 +80,6 @@ final class CallDispatcher {
         formatter: ResultFormatter,
         capabilities: [any CapabilityProviding],
         recording: (any CapabilityRecording)?,
-        loading: ToolLoading = .upfront,
         list: ToolList = .init(attendance: .none, level: .actConnectors),
         guides: AppGuides? = nil,
         resolveGuideApp: @escaping @MainActor @Sendable (String) -> OpenedApp = {
@@ -97,7 +88,6 @@ final class CallDispatcher {
     ) {
         self.toolList = list
         self.surface = ToolCatalogue.currentSurface
-        self.usesFixedList = ToolCatalogue.currentSurface == .v2 && TaskCycleArm.current == .v2
         self.guides = guides
         self.resolveGuideApp = resolveGuideApp
         var providers: [String: any CapabilityProviding] = [:]
@@ -131,11 +121,6 @@ final class CallDispatcher {
         self.sceneText = sceneText
         self.taskCycle = taskCycle
         self.formatter = formatter
-        if let provider = guides?.capability(resolve: resolveGuideApp, todo: { taskCycle.todo?.rows.map(\.title) ?? [] }) {
-            self.guideProvider = provider
-            do { self.registry = try CapabilityRegistry(core: registry.all + provider.contracts, registered: []) }
-            catch { preconditionFailure("Invalid guide composition: \(error)") }
-        }
         self.entries = ToolCatalogue.catalogue(channels: channels, registry: registry).filter { permits($0.contract) }
         self.search = CapabilitySearch(entries: entries)
         self.frozenDefinitions = definitions(surface: surface)
@@ -146,45 +131,15 @@ final class CallDispatcher {
         } + ToolCatalogue.availableDefinitions(for: served, surface: surface).filter {
             ToolCatalogue.adapterTools.contains($0["name"].string ?? "")
         }
-        let directDefinitions = loading == .harnessSearch
-            ? ToolCatalogue.harnessDefinitions(core: frozenDefinitions, entries: entries, list: list)
-            : frozenDefinitions
-        self.directNames = Set(directDefinitions.compactMap { $0["name"].string })
+        self.directNames = Set(frozenDefinitions.compactMap { $0["name"].string })
     }
 
     /// Installs profile guides prepared before the first call, retaining the session's fixed tool list.
     func installProfileGuides(_ guides: AppGuides) throws {
         guard self.guides == nil else { return }
-        let taskCycle = self.taskCycle
-        if let provider = guides.capability(resolve: resolveGuideApp, todo: { taskCycle.todo?.rows.map(\.title) ?? [] }) {
-            registry = try CapabilityRegistry(core: registry.all + provider.contracts, registered: [])
-            guideProvider = provider
-        }
         self.guides = guides
-        entries = ToolCatalogue.catalogue(channels: channels, registry: registry).filter { permits($0.contract) }
-        search = CapabilitySearch(entries: entries)
-        callableDefinitions += entries.filter { $0.contract.id.rawValue == "read_guide" }.map { entry in
-            .object(["name": .string(entry.contract.id.rawValue), "description": .string(entry.contract.description),
-                "inputSchema": entry.contract.inputSchema,
-                "annotations": .object(["readOnlyHint": .bool(entry.contract.effect == .read)])])
-        }
     }
 
-    private func rebuildRegistry() {
-        guard !usesFixedList else { return }
-        let registered = registry.all.filter {
-            if case .registered = $0.origin { return true }
-            return false
-        }
-        do {
-            registry = try CapabilityRegistry(
-                core: ToolCatalogue.contracts(for: served, adapters: adapters) + (guideProvider?.contracts ?? []),
-                registered: registered
-            )
-        } catch {
-            preconditionFailure("Invalid capability composition: \(error)")
-        }
-    }
 
     /// The channels this instance serves: those composed, `.adapters` while `adapters` is set and `.web` while
     /// `router` is and the web is composed.
@@ -198,7 +153,7 @@ final class CallDispatcher {
     var guidesEnabled: Bool { guides != nil }
 
     var toolDefinitions: [JSONValue] {
-        usesFixedList ? frozenDefinitions : definitions(surface: surface)
+        frozenDefinitions
     }
 
     func installSearch(_ search: CapabilitySearch) { self.search = search }
@@ -213,37 +168,16 @@ final class CallDispatcher {
 
     /// Validates against all callable contracts while advertising only the frozen core list.
     private func callDefinitions(surface: ToolSurface) -> [JSONValue] {
-        usesFixedList ? callableDefinitions : definitions(surface: surface)
+        callableDefinitions
     }
 
     private func definitions(surface: ToolSurface) -> [JSONValue] {
-        if usesFixedList {
-            return ToolCatalogue.definitions(for: toolList, channels: channels)
-        }
-        let definitions = ToolCatalogue.definitions(for: served, surface: surface) + registry.all.compactMap { contract in
-            guard case .registered = contract.origin, permits(contract) else { return nil }
-            return .object([
-                "name": .string(contract.id.rawValue),
-                "description": .string(contract.description),
-                "inputSchema": contract.inputSchema,
-                "annotations": .object(["readOnlyHint": .bool(contract.effect == .read)])
-            ])
-        }
-        guard TaskCycleArm.current == .v2 else { return definitions }
-        return definitions.map { definition in
-            guard let name = definition["name"].string, registeredContract(name)?.effect != .read,
-                  registeredContract(name) != nil, var tool = definition.object,
-                  var schema = tool["inputSchema"]?.object, var fields = schema["properties"]?.object else { return definition }
-            fields["step"] = .object(["type": .string("string"), "pattern": .string("^r[1-9][0-9]*$")])
-            schema["properties"] = .object(fields)
-            tool["inputSchema"] = .object(schema)
-            return .object(tool)
-        }
+        ToolCatalogue.definitions(for: toolList, channels: channels)
     }
 
     func resolvedCall(_ name: String, arguments: JSONValue, validatingArguments: Bool = true) throws -> (name: String, arguments: JSONValue) {
         try validateDirectName(name)
-        guard name == "call", surface == .v2 else { return (name, arguments) }
+        guard name == "call" else { return (name, arguments) }
         guard let target = arguments["name"].string, !["call", "find", "human_step"].contains(target),
               let contract = entries.first(where: { $0.contract.id.rawValue == target })?.contract, permits(contract),
               Set(arguments.object?.keys.map { $0 } ?? []).isSubset(of: ["name", "arguments"]) else { throw unknownTool() }
@@ -252,7 +186,6 @@ final class CallDispatcher {
     }
 
     private func validateDirectName(_ name: String) throws {
-        guard usesFixedList else { return }
         guard directNames.contains(name) else { throw unknownTool() }
     }
 
@@ -261,13 +194,13 @@ final class CallDispatcher {
     }
 
     private func consumesRoutingStep(_ contract: CapabilityContract) -> Bool {
-        TaskCycleArm.current == .v2 && contract.effect != .read
+        contract.effect != .read
             && contract.inputSchema["properties"]["step"] == .object([
                 "type": .string("string"), "pattern": .string("^r[1-9][0-9]*$")])
     }
 
     private func validate(_ arguments: JSONValue, contract: CapabilityContract) throws {
-        var arguments = ToolArguments.admitted(arguments, surface: surface)
+        var arguments = arguments
         var schema = contract.inputSchema
         if consumesRoutingStep(contract),
            var input = schema.object, var properties = input["properties"]?.object {
@@ -306,7 +239,7 @@ final class CallDispatcher {
             notice: notice,
             output: output,
             surface: surface,
-            guideHead: Self.presentation?.head, guideIndex: Self.presentation?.index
+            guideHead: Self.presentation?.head
         )
     }
 
@@ -366,7 +299,6 @@ final class CallDispatcher {
         _ arguments: JSONValue,
         surface requestedSurface: ToolSurface? = nil
     ) async throws -> JSONValue {
-        try BatchMode.validateConfiguration()
         let surface = requestedSurface ?? self.surface
         // runCall validates the target inside its task-state observation, so direct and
         // delegated invalid calls publish the same failure. Host admission keeps eager validation.
@@ -386,19 +318,6 @@ final class CallDispatcher {
         _ arguments: JSONValue,
         admittedSurface surface: ToolSurface
     ) async throws -> JSONValue {
-        if BatchMode.usesGestures, (["act", "select", "menu"] + ToolArguments.inputTools).contains(name),
-           let supplied = arguments.object?["then"] {
-            guard let following = supplied.array, following.count < BatchPolicy.maximumSteps,
-                  var first = arguments.object else { throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.rows.v1")), cause: "invalid_arguments") }
-            first.removeValue(forKey: "then")
-            first.removeValue(forKey: "session")
-            first["operation"] = .string(name)
-            var batch: [String: JSONValue] = ["steps": .array([.object(first)] + following)]
-            if let session = arguments.object?["session"] { batch["session"] = session }
-            return try await BatchMode.$isExpandingGestures.withValue(true) {
-                try await call("batch", .object(batch), surface: surface)
-            }
-        }
         callSequence += 1
         let sequence = callSequence
         guard let sink = taskStateSink else {
@@ -435,8 +354,8 @@ final class CallDispatcher {
     }
 
     private func runCall(_ name: String, _ arguments: JSONValue, surface: ToolSurface) async throws -> JSONValue {
-        if name == "human_step" || (surface == .v1 && ["find", "call"].contains(name)) { throw unknownTool() }
-        if name == "find", surface == .v2 {
+        if name == "human_step" { throw unknownTool() }
+        if name == "find" {
             try Task.checkCancellation()
             if let contract = registry.contract(for: .init(rawValue: "find")) { try validate(arguments, contract: contract) }
             guard let query = arguments["query"].string,
@@ -464,15 +383,14 @@ final class CallDispatcher {
         }
         if let contract = registry.contract(for: .init(rawValue: name)) {
             guard permits(contract) || name == "open_session" else { throw unknownTool() }
-            if registeredContract(name) != nil || (surface == .v2 && entries.contains { $0.contract.id == contract.id }) {
-                try validate(arguments, contract: contract)
-            }
+            // Every served schema is authoritative, including core tools in the initial list.
+            // Refuse malformed arguments before routing, transcripts, recording or any app access.
+            try validate(arguments, contract: contract)
         }
-        let arguments = ToolArguments.admitted(arguments, surface: surface)
-        if usesFixedList, name == "act", arguments["verb"].string == "triple_click" {
+        if name == "act", arguments["verb"].string == "triple_click" {
             throw AutomationFailure(ModelText.text(.init(rawValue: "catalogue.enum")), cause: "invalid_arguments")
         }
-        let gesture = TaskCycleArm.current == .v2 && !["open_session", "close_session", "plan", "end", "ask_person", MemoryTaskTool.name].contains(name)
+        let gesture = !["open_session", "close_session", "plan", "end", "ask_person", "reconcile_call", MemoryTaskTool.name].contains(name)
             && registry.effectClass(of: name, arguments: arguments) != .read
         var transition: StepTransition?
         if gesture {
@@ -485,9 +403,6 @@ final class CallDispatcher {
                 }
                 if tool.takesSession {
                     guard let id = session.id else { throw Self.noSession }
-                    guard surface == .v2 || arguments["session"].string == id.uuidString else {
-                        throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")), cause: "invalid_arguments")
-                    }
                 }
                 _ = try ToolArguments.callRequest(name, arguments)
                 if name == "batch" {
@@ -544,7 +459,7 @@ final class CallDispatcher {
             guard !(error is CancellationError) else { throw error }
             let (kept, reason) = shown.minimize(text: String(describing: error))
             let failure: any Error = !shown.knowsNoText && reason != nil ? AutomationFailure(kept) : error
-            if ResultFormatter.usesOutcomeV2, AgentTool(rawValue: name)?.requiresConfirmedStart == true {
+            if AgentTool(rawValue: name)?.requiresConfirmedStart == true {
                 Self.taskStateCall?.facts.append(.callFailed(tool: name,
                     reason: (error as? AutomationFailure)?.cause ?? String(reflecting: type(of: error))))
                 return formatter.thrown(error, tool: name, mayHaveActed: output.mayHaveActed, minimized: kept, surface: surface)
@@ -569,7 +484,7 @@ final class CallDispatcher {
         confidentialScope(of: name, arguments, in: &scope)
         guard ["type_text", "insert_text", "batch"].contains(name) else { return scope }
         let rows = name == "batch" ? (arguments["steps"].array ?? []) : [arguments]
-        let current = session.id.map { surface == .v2 || arguments["session"].string == $0.uuidString } ?? false
+        let current = session.id != nil
         for (position, row) in rows.enumerated() {
             let operation = name == "batch" ? (row["operation"].string ?? "") : name
             guard let step = try? Step(operation, row, inBatch: name == "batch") else {
@@ -650,20 +565,11 @@ final class CallDispatcher {
     }
 
     private func toolCall(_ name: String, _ arguments: JSONValue, surface: ToolSurface) async throws -> JSONValue {
-        if name == "read_guide", let guideProvider {
-            try Task.checkCancellation()
-            try formatter.transcribe("→ \(name)", arguments)
-            let result = try await guideProvider.call(.init(rawValue: name), arguments: arguments,
-                context: .init(sessionID: session.id))
-            try Task.checkCancellation()
-            try formatter.transcribe("← \(name)", result)
-            let text = try result.string ?? String(decoding: JSONValue.canonicalEncoder().encode(result), as: UTF8.self)
-            return MCPRouter.textResult(producerSecrets.withheld(text))
-        }
-        if TaskCycleArm.current == .v2 {
+        do {
             if name == "plan" || name == "end" { return try await taskCycle.cycleCall(name, arguments) }
+            if name == "reconcile_call" { return try await reconcileCall(arguments) }
             if name == MemoryTaskTool.name { throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle.legacy_tool.v2")), cause: "unknown_tool") }
-        } else if name == MemoryTaskTool.name { return try await taskCycle.call(arguments) }
+        }
         let before = sceneText.checkpoint()
         // A session that ended leaves no scene to compare the next one against.
         defer { if session.id == nil { sceneText.contextHolds(after: .newSession) } }
@@ -678,6 +584,38 @@ final class CallDispatcher {
             try formatter.transcribe("← \(name) error: \(error). \(guidance)")
             throw error
         }
+    }
+
+    /// Appends one supported observation to this producer's unresolved ledger. It never invokes an app.
+    private func reconcileCall(_ arguments: JSONValue) async throws -> JSONValue {
+        guard let directory = session.memoryDirectory else {
+            throw AutomationFailure(ModelText.text(.init(rawValue: "reconcile_call.archive")), cause: "memory_unavailable")
+        }
+        let call = try ToolArguments.requiredString(arguments, "call")
+        let evidence = try ToolArguments.requiredString(arguments, "evidence")
+        guard let finding = CallReconciliation.Finding(rawValue: try ToolArguments.requiredString(arguments, "finding")),
+              finding != .unknown else {
+            throw AutomationFailure(ModelText.text(.init(rawValue: "reconcile_call.finding")), cause: "invalid_arguments")
+        }
+        let memory = MemoryService.shared(for: directory)
+        let owned = try await memory.unresolvedCalls(source: producer.source, streamID: producer.streamID, excludingExecutor: nil)
+        guard owned.contains(where: { $0.eventID == call }) else {
+            throw AutomationFailure(ModelText.text(.init(rawValue: "reconcile_call.unowned")), cause: "not_reconciled")
+        }
+        let note = arguments["note"].string.map { producerSecrets.recordMinimization.minimize(text: $0).0 }
+        let fact = try CallReconciliation(callEventID: call, kind: .observed, finding: finding,
+            evidenceEventID: evidence, declaredBy: .agent, recordedAtMS: memory.clock.calendarMS(), detail: note)
+        try formatter.transcribe("→ reconcile_call", arguments)
+        do {
+            // The store atomically checks later completed read evidence, producer, resource and data context.
+            try await memory.reconcile(fact)
+        } catch {
+            throw AutomationFailure(ModelText.text(.init(rawValue: "reconcile_call.unsupported")), cause: "not_reconciled")
+        }
+        let value: JSONValue = .object(["status": .string("reconciled"), "call": .string(call),
+            "finding": .string(finding.rawValue), "evidence": .string(evidence)])
+        try formatter.transcribe("← reconcile_call", value)
+        return MCPRouter.toolResult(value)
     }
 
     private func adapterArguments(_ name: String, app: String, arguments: JSONValue) -> JSONValue {
@@ -816,13 +754,21 @@ final class CallDispatcher {
                 notice = Self.suspended(error)
             }
             await producerSecrets.collect(from: recorder)
-            if request.tool != .batch, TaskCycleArm.current == .v2,
+            if request.tool != .batch,
                registry.effectClass(of: name, arguments: arguments) != .read,
                !["open_session", "close_session"].contains(name) {
                 taskCycle.noteGesture(eventID: recorder.eventID, outcome: output.lastCheck?.verdict.rawValue ?? "unknown",
                     uncertain: output.lastCheck?.limits.contains(.deliveryUncertain) != false)
             }
-            return try finish(surface: surface, shownName, value, notice: notice)
+            var presented = value
+            if notice == nil, case .appCall = request,
+               registry.effectClass(of: name, arguments: arguments) == .read,
+               output.lastCheck?.condition == .adapterRead, output.lastCheck?.verdict == .passed {
+                presented = value.adding("recorded_call", .string(recorder.eventID))
+                let receipt = ModelText.render(.init(rawValue: "reconcile_call.receipt"), ["call": .minimized(recorder.eventID)])
+                output.modelText = output.modelText.map { $0 + "\n" + receipt }
+            }
+            return try finish(surface: surface, shownName, presented, notice: notice)
         } catch {
             let cancelled = error is CancellationError
             let notice: String?
@@ -902,8 +848,8 @@ final class CallDispatcher {
     }
 
     /// Why `request` may not run now (P2-06): it repeats a call of this producer whose effect is not known, or acts on the
-    /// resource such a call reached, and no later fact resolved it. A read-only call, and `memory_task`, always run. The
-    /// refusal holds across restarts, since it reads the archive; what resolves it is `memory_task reconcile`.
+    /// resource such a call reached, and no later fact resolved it. A read-only call and the local reconciliation capability remain available.
+    /// The refusal holds across restarts until compatible recorded read evidence resolves it.
     private func uncertaintyRefusal(
         _ requests: [AgentCallRequest],
         capability: CapabilityContract? = nil
@@ -1127,8 +1073,8 @@ final class CallDispatcher {
         if let contract = registeredContract(name) {
             try formatter.transcribe("→ \(shownName)", arguments)
             if contract.takesSession {
-                if surface == .v2, session.id == nil { throw Self.noSession }
-                guard let id = session.id, surface == .v2 || arguments["session"].string == id.uuidString else {
+                if session.id == nil { throw Self.noSession }
+                guard let id = session.id else {
                     throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")),
                         cause: session.id == nil ? "no_session" : "invalid_arguments")
                 }
@@ -1146,8 +1092,8 @@ final class CallDispatcher {
         try formatter.transcribe("→ \(shownName)", arguments)
         let value: JSONValue
         if !["status", "windows", "apps", "open_session", "app_capabilities", "app_call"].contains(name) {
-            if surface == .v2, session.id == nil { throw Self.noSession }
-            guard let id = session.id, surface == .v2 || arguments["session"].string == id.uuidString else {
+            if session.id == nil { throw Self.noSession }
+            guard let id = session.id else {
                 throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1")),
                         cause: session.id == nil ? "no_session" : "invalid_arguments")
             }
@@ -1309,10 +1255,9 @@ final class CallDispatcher {
             if session.id != nil, let bundle = session.memoryApplication ?? sceneText.seen.last?.scene.bundleID, let guides {
                 let app = resolveGuideApp(bundle)
                 Self.presentation?.head = guides.head(for: app)
-                Self.presentation?.index = guides.index(for: app)
                 if Self.presentation?.head != nil { guides.noteDelivered(for: app, sections: []) }
             }
-            if TaskCycleArm.current == .v2, session.id != nil {
+            if session.id != nil {
                 if !taskCycle.planGuardArmed { taskCycle.gesturesWithoutPlan = 0 }
                 taskCycle.planGuardArmed = true
             }
@@ -1350,157 +1295,13 @@ final class CallDispatcher {
         case "act", "select", "type_text", "insert_text", "press_key", "scroll", "drag", "context_menu":
             let step = try Step(name, arguments)
             let refusal = refusalContext(tool: name, arguments: arguments)
-            let done = try await ScreenExpectation.$current.withValue(ToolArguments.gestureExpectation(in: arguments)) { try await perform(step, dispatch: CallScope.current.dispatch(of: step.texts, at: 0)) }
+            try ToolArguments.rejectGestureExpectation(in: arguments)
+            let done = try await perform(step, dispatch: CallScope.current.dispatch(of: step.texts, at: 0))
             value = await outcome(surface: surface, done, refusal: refusal)
             output.lastResult = .outcome(done.kind, message: done.message)
             output.lastCheck  = done.withStatedCheck.check
         case "batch":
-            if BatchMode.isEnabled {
-                return try await runPolicyBatch(arguments, recorder: recorder, surface: surface)
-            }
-            guard let rows = arguments["steps"].array, (1...20).contains(rows.count) else {
-                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.rows.v1")))
-            }
-            let steps = try rows.map { try Step(string($0, "operation"), $0) }
-            // Each step is a call of its own, the batch's child at its position, recorded planned with it.
-            let children = recorder.map { parent in
-                steps.indices.compactMap { makeRecorder(sessionID: session.id, parent: parent, position: $0) }
-            }
-            if let recorder, let children, children.count == steps.count {
-                do {
-                    try await recorder.begin(
-                        batch      : zip(children, steps).map { ($0, $1.callRequest) },
-                        app        : memoryApplication,
-                        attribution: taskCycle.openTask?.attribution
-                    )
-                } catch {
-                    for child in children { await producerSecrets.collect(from: child) }
-                    throw Self.unconfirmed(error)
-                }
-                for child in children { await producerSecrets.collect(from: child) }
-            }
-            var results: [JSONValue] = []
-            var complete = true
-            var verified = 0
-            // The steps that started: a step the memory refused to start never ran, and is skipped.
-            var started  = 0
-            var memoryNotice: String?
-            // Steps saved only in part: said in the answer, without stopping the batch as a suspension does.
-            var stepGaps: [String] = []
-            func noteGap(of child: CallRecorder?, at index: Int) async {
-                guard let gap = await child?.recordingGap else { return }
-                stepGaps.append((ModelText.text(.init(rawValue: "call_dispatcher.gap.v1"))
-                    + "\(index + 1)"
-                    + ModelText.text(.init(rawValue: "call_dispatcher.gap.v1.2"))
-                    + "\(gap)"
-                    + ModelText.text(.init(rawValue: "call_dispatcher.gap.v1.3"))))
-            }
-            for (index, step) in steps.enumerated() {
-                if Task.isCancelled {
-                    // The cancellation ends the call as before; the steps it leaves unrun are recorded as never
-                    // run, as after a stop, so none stays planned in the memory.
-                    for child in (children ?? []).dropFirst(started) { try? await child.skip() }
-                    throw CancellationError()
-                }
-                let child = children?.indices.contains(index) == true ? children?[index] : nil
-                var rowTransition: StepTransition?
-                do {
-                    if TaskCycleArm.current == .v2, let row = try ToolArguments.step(in: rows[index]) {
-                        rowTransition = try await taskCycle.step(to: row, gesture: step.callRequest.tool.rawValue)
-                    }
-                } catch {
-                    Self.taskStateCall?.facts.append(.callFailed(tool: name,
-                        reason: (error as? AutomationFailure)?.cause ?? String(reflecting: type(of: error))))
-                    complete = false
-                    results.append(.object(["status": .string("error"), "message": .string(Self.batchStepFailure(error))]))
-                    break
-                }
-                if let child {
-                    do {
-                        try await child.startStep()
-                    } catch {
-                        Self.taskStateCall?.facts.append(.callFailed(tool: name, reason: "memory_unconfirmed"))
-                        complete = false
-                        var failure: [String: JSONValue] = ["status": .string("error"),
-                                                "message": .string(Self.unconfirmed(error).description),
-                                                "guidance": .string(ModelText.text(.init(rawValue: "call_dispatcher.child.v1")))]
-                        if ResultFormatter.usesOutcomeV2 { failure["_failure_cause"] = .string("memory_unconfirmed") }
-                        results.append(.object(failure))
-                        try formatter.transcribe("← batch step \(index + 1) not run: \(error)")
-                        break
-                    }
-                }
-                started += 1
-                let refusal = refusalContext(tool: try string(rows[index], "operation"), arguments: rows[index])
-                let result: ActOutcome
-                let dispatch = CallScope.current.dispatch(of: step.texts, at: index)
-                do {
-                    let minimization = await child?.admittedMinimization() ?? CallMinimization.current
-                    result = try await CallMinimization.$current.withValue(minimization) {
-                        try await CallRecorder.$current.withValue(child) { try await self.perform(step, dispatch: dispatch) }
-                    }
-                }
-                catch {
-                    Self.taskStateCall?.facts.append(.callFailed(tool: name,
-                        reason: (error as? AutomationFailure)?.cause ?? String(reflecting: type(of: error))))
-                    do {
-                        try await child?.end(
-                            error is CancellationError ? .cancelled : .failed,
-                            result: error is CancellationError ? nil : .error(message: String(describing: error)),
-                            tool  : step.callRequest.tool
-                        )
-                    } catch let failure {
-                        memoryNotice = Self.suspended(failure)
-                    }
-                    if let child { taskCycle.noteGesture(eventID: child.eventID, outcome: "unknown", uncertain: true) }
-                    await noteGap(of: child, at: index)
-                    let guidance = session.id == nil
-                        ? ModelText.text(.init(rawValue: "call_dispatcher.guidance.v1.3"))
-                        : ModelText.text(.init(rawValue: "call_dispatcher.guidance.v1.4"))
-                    let failed: JSONValue = .object(["status": .string("error"), "message": .string(Self.batchStepFailure(error)),
-                        "guidance": .string(guidance)])
-                    results.append(failed)
-                    try formatter.transcribe("← batch step \(index + 1) error: \(error)")
-                    complete = false
-                    break
-                }
-                var value = await outcome(surface: surface, result, refusal: refusal)
-                if let row = rowTransition?.finished {
-                    let line = ModelText.render(.init(rawValue: "task_cycle.transition.v2"),
-                        ["row": .rowID(row), "verdict": .rowVerdict(rowTransition?.verdict ?? .unknown)])
-                    value = value.adding("message", .string([value["message"].string, line].compactMap { $0 }.joined(separator: "\n")))
-                }
-                results.append(value)
-                do {
-                    try await child?.end(.completed, result: .outcome(result.kind, message: result.message),
-                                         tool: step.callRequest.tool, check: result.withStatedCheck.check)
-                } catch {
-                    memoryNotice = Self.suspended(error)
-                }
-                await noteGap(of: child, at: index)
-                if let child {
-                    taskCycle.noteGesture(eventID: child.eventID, outcome: result.withStatedCheck.check?.verdict.rawValue ?? "unknown",
-                        uncertain: result.withStatedCheck.check?.limits.contains(.deliveryUncertain) != false)
-                    await producerSecrets.collect(from: child)
-                }
-                try formatter.transcribe("← batch step \(index + 1)", value)
-                let accepted = result.kind == .foundActed
-                    || (result.kind == .actedNoop && step.isToggle)
-                if !accepted || memoryNotice != nil { complete = false; break }
-                verified += 1
-            }
-            for child in (children ?? []).dropFirst(started) {
-                do { try await child.skip() } catch { memoryNotice = memoryNotice ?? Self.suspended(error) }
-            }
-            var summary: [String: JSONValue] = ["status": .string(complete ? "completed" : "stopped"),
-                                                "steps": .array(results),
-                                                "attemptedSteps": .number(Double(started)),
-                                                "verifiedSteps": .number(Double(verified)),
-                                                "requested": .number(Double(steps.count))]
-            let notes = (memoryNotice.map { [$0] } ?? []) + stepGaps
-            if !notes.isEmpty { summary["memory"] = .string(notes.joined(separator: " ")) }
-            value = .object(summary)
-            output.lastResult = .batch(stopped: !complete, attempted: started, verified: verified)
+            return try await runPolicyBatch(arguments, recorder: recorder, surface: surface)
         case "close_session":
             await session.close()
             formatter.resetRefusals()
@@ -1510,10 +1311,6 @@ final class CallDispatcher {
             value = .object(result)
             output.lastResult = .closed(message: ModelText.text(.init(rawValue: "call_dispatcher.warning.v1")))
         default: throw AutomationFailure((ModelText.text(.init(rawValue: "call_dispatcher.warning.v1.2")) + "\(name)"))
-        }
-        if name == "status", TaskCycleArm.current == .v2 {
-            return value.adding("switches", .object(SwitchBoard.current.values.mapValues(JSONValue.string)))
-                .adding("switches_invalid", .object(SwitchBoard.invalid.mapValues(JSONValue.string)))
         }
         return value
     }
@@ -1550,6 +1347,7 @@ final class CallDispatcher {
             for child in children {
                 do { try await child.skip() } catch { notice = Self.suspended(error) }
             }
+            try Task.checkCancellation()
             let notRun = Outcome(gesture: .notSent, effect: .notApplicable, recovery: .doNotRepeat)
             var lines = steps.indices.map { "\($0 + 1). \(notRun.row) — \(reason.rawValue)" }
             lines.append(ModelText.text(.init(rawValue: "batch.stopped.v2")) + reason.rawValue)
@@ -1562,6 +1360,9 @@ final class CallDispatcher {
             if let notice { answer["memory"] = .string(notice) }
             return .object(answer)
         }
+        if let id = session.id, let window = session.observedWindowNumber {
+            formatter.noteScene(entry, sessionID: id, windowNumber: window)
+        }
         let plan = BatchPolicy.BatchPlanFacts(steps: facts, bundleID: bundleID ?? entry.bundleID)
         var conclusion = BatchConclusion.ranToEnd
         var decision = BatchPolicy.validate(plan, entryScene: entry)
@@ -1571,6 +1372,8 @@ final class CallDispatcher {
         var attempted = 0
         var memoryNotice: String?
         for index in steps.indices {
+            // Cancellation has no result reader. Finish the durable child cleanup before propagating it.
+            if Task.isCancelled { break }
             if AutomationCallInterruption.current?.wasInterrupted == true { decision = .stop(.personInControl) }
             else if InterruptibleWait.current?.stopRequested == true || ContinuousClock.now >= deadline { decision = .stop(.timeCap) }
             if case .stop(let reason) = decision {
@@ -1612,13 +1415,14 @@ final class CallDispatcher {
             }
             let child = children.indices.contains(index) ? children[index] : nil
             do {
-                if TaskCycleArm.current == .v2, let row = try ToolArguments.step(in: rows[index]) {
+                if let row = try ToolArguments.step(in: rows[index]) {
                     _ = try await taskCycle.step(to: row, gesture: step.callRequest.tool.rawValue)
                 }
             } catch {
                 conclusion = .stopped(at: index, reason: AutomationCallInterruption.current?.wasInterrupted == true ? .personInControl : .refused)
                 break
             }
+            if Task.isCancelled { break }
             if AutomationCallInterruption.current?.wasInterrupted == true {
                 conclusion = .stopped(at: index, reason: .personInControl)
                 break
@@ -1631,6 +1435,8 @@ final class CallDispatcher {
             }
             attempted += 1
             let beforeWindow = session.observedWindowNumber
+            let refusal = refusalContext(tool: step.callRequest.tool.rawValue, arguments: rows[index])
+            var deliveryStarted = false
             do {
                 let rawResult = try await BatchStepBoundary.perform(until: deadline) {
                     try await ScreenExpectation.$current.withValue(facts[index].expectation) {
@@ -1650,6 +1456,8 @@ final class CallDispatcher {
                                 if InterruptibleWait.current?.stopRequested == true {
                                     return ActOutcome(.refused, "time_cap", notSent: .humanIntervention)
                                 }
+                                try Task.checkCancellation()
+                                deliveryStarted = true
                                 return try await perform(step, dispatch: dispatch)
                             }
                         }
@@ -1661,7 +1469,12 @@ final class CallDispatcher {
                                 && AutomationCallInterruption.current?.wasInterrupted == true)
                 earlier.append(result.outcome)
                 scene = result.scene
-                lines.append("\(index + 1). \(result.outcome.row) — \(result.message.replacingOccurrences(of: "\n", with: " "))")
+                let stable = refusal.flatMap {
+                    $0.sessionID == session.id && $0.windowNumber == session.observedWindowNumber ? $0 : nil
+                }
+                let shown = await formatter.outcomeSummary(result, refusal: stable, surface: surface)
+                let row = ["gesture", "effect", "recovery"].compactMap { shown[$0].string }.joined(separator: " · ")
+                lines.append("\(index + 1). \(row) — \(shown["_outcome_message"].string ?? "")")
                 do {
                     try await child?.end(.completed, result: .outcome(result.kind, message: result.message),
                                          tool: step.callRequest.tool, check: result.withStatedCheck.check)
@@ -1678,7 +1491,7 @@ final class CallDispatcher {
                 let announced: Bool
                 if case .window? = facts[index].expectation { announced = true } else { announced = false }
                 decision = BatchPolicy.afterStep(result.outcome,
-                    expectedAbsent: BatchPolicy.expectedAbsent(facts[index], outcome: result.outcome, sceneBefore: before),
+                    expectedAbsent: BatchPolicy.expectedAbsent(facts[index], outcome: result),
                     unexpectedSurface: beforeWindow != session.observedWindowNumber && !announced,
                     nextTargetPresent: nextPresent, isLastStep: next == steps.count)
                 if AutomationCallInterruption.current?.wasInterrupted == true { decision = .stop(.personInControl) }
@@ -1687,10 +1500,22 @@ final class CallDispatcher {
                 if memoryNotice != nil { decision = .stop(.error) }
                 if case .stop(let reason) = decision { conclusion = .stopped(at: index, reason: reason); break }
             } catch {
+                scene = nil
                 let reason: BatchStopReason = BatchPolicy.stopReason(for: error, deadlineReached: ContinuousClock.now >= deadline,
                     personInControl: AutomationCallInterruption.current?.wasInterrupted == true)
                 do {
-                    if reason == .personInControl || reason == .timeCap {
+                    if Task.isCancelled {
+                        if deliveryStarted, let child {
+                            taskCycle.noteGesture(eventID: child.eventID, outcome: "unknown", uncertain: true)
+                        }
+                        // A cancelled delivery may already have taken effect. Preserve that uncertainty;
+                        // only classification or persistence before delivery can attest no gesture.
+                        let check: OperationCheck = deliveryStarted
+                            ? OperationCheck(condition: .none, method: .none, verdict: .unknown,
+                                limits: [.deliveryUncertain, .noAfterScene], performed: .uncertain)
+                            : .unchecked(performed: .none)
+                        try await child?.end(.cancelled, result: nil, tool: step.callRequest.tool, check: check)
+                    } else if reason == .personInControl || reason == .timeCap {
                         let check = OperationCheck(condition: .none, method: .none, verdict: .unknown,
                             limits: [.deliveryUncertain, .noAfterScene], performed: .uncertain)
                         let stopped = ActOutcome(.actedUnverified, reason.rawValue, check: check)
@@ -1714,6 +1539,7 @@ final class CallDispatcher {
         for child in children.dropFirst(attempted) {
             do { try await child.skip() } catch { memoryNotice = memoryNotice ?? Self.suspended(error) }
         }
+        try Task.checkCancellation()
         let stopped: Bool
         if case .stopped(let position, let reason) = conclusion {
             stopped = true

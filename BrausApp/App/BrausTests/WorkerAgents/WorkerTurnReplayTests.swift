@@ -32,7 +32,7 @@ struct WorkerTurnReplayTests {
         let work = root.appending(path: "work")
         let host = WorkerAgentHost(workingDirectory: work, bridgeExecutable: script,
             session: { DesktopUnavailableSession() }, agents: { _ in (provider, script) },
-            seatLine: { SeatFacts(legacyText: "Braus seat: no session is open.") })
+            seatLine: { SeatFacts() })
         let selection = ModelSelection(provider: provider == .claude ? .claudeCode : .codex, model: "", effort: .medium)
         for index in 0..<3 {
             if index == 2 {

@@ -1,11 +1,4 @@
-//
-//  TaskReferenceTests.swift
-//  Braus
-//
-//  Created by Tommaso Mazzarini on 12/10/2026.
-//
-
-import AutomationMCP
+@testable import AutomationMCP
 @testable import AutomationRuntime
 import EngineCore
 import Foundation
@@ -14,22 +7,35 @@ import Memory
 @testable import SQLiteMemory
 import Testing
 
-/// TaskReferenceTests prove the structural reference `<task id>/<output>` on the path that knows its role (review F12): kept
-/// when the producer's own task declared that output (in an earlier task, or in the statement written), with its version
-/// checked; minimized as any text when it names nothing the archive vouches for (an unknown task, another producer's, an
-/// output never declared, a version that is not the task's); never a way past the protection of secrets. Kept through an
-/// update and a reopening, and read by the Recall as the dependency the source's attempt stated.
+/// Exercises structural-reference admission at the decoder and task-store boundary.
 @MainActor
-@Suite("Structural references to a task's output, through the tool and SQLite", .serialized, .automaticSelection)
+@Suite("Structural references at the task producer boundary", .serialized)
 struct TaskReferenceTests {
     typealias P = ProcedureLearningTests
 
-    /// A task of `tools`'s producer that ended declaring the output `invoice_file`: its id and its attempt's.
-    static func earlierTask(_ tools: AutomationTools) async throws -> (task: String, attempt: String) {
-        let begun = try await P.task(tools, #"{"operation":"begin","goal":"Download the invoice","recall":false}"#)
-        let task = try #require(begun["task"].string), attempt = try #require(begun["attempt"].string)
-        _ = try await P.task(tools, #"{"operation":"end","outcome":"completed","outputs":[{"name":"invoice_file","kind":"file","value":"/tmp/inv.pdf","source":"observation"}]}"#)
-        return (task, attempt)
+    private static func content(_ arguments: String) throws -> TaskRevisionContent {
+        guard case .begin(let content, _, _) = try MemoryTaskTool.decode(P.json(arguments),
+            minimization: ValueMinimization(), messageRef: nil) else {
+            throw AutomationFailure("Expected task content in this fixture")
+        }
+        return content
+    }
+
+    private static func checkpoint(_ arguments: String) throws -> TaskCheckpointDraft {
+        let request = try MemoryTaskTool.decode(P.json(arguments), minimization: ValueMinimization(), messageRef: nil)
+        switch request {
+        case .checkpoint(let draft, _, _, _), .end(let draft, _, _, _): return draft
+        default: throw AutomationFailure("Expected a checkpoint in this fixture")
+        }
+    }
+
+    static func earlierTask(memory: MemoryService, producer: TaskProducer) async throws -> OpenTask {
+        let open = try await TaskChannel.begin(content(#"{"operation":"begin","goal":"Download the invoice","recall":false}"#),
+            producer: producer, traceID: nil, memory: memory)
+        _ = try await TaskChannel.checkpoint(open,
+            checkpoint(#"{"operation":"end","outcome":"completed","outputs":[{"name":"invoice_file","kind":"file","value":"/tmp/inv.pdf","source":"observation"}]}"#),
+            producer: producer, memory: memory)
+        return open
     }
 
     static func references(_ session: LearningSession, task: String) throws -> [String] {
@@ -40,90 +46,102 @@ struct TaskReferenceTests {
             """, in: session)
     }
 
-    @Test("an admitted reference and its version are kept as given, through an update of the task and a reopening of the archive")
+    @Test("an admitted reference and its version survive revision and archive reopening")
     func keptThroughUpdateAndReopening() async throws {
         let session = P.photoSession(try W.directory())
-        let tools = P.tools(session, stream: "references")
-        let earlier = try await Self.earlierTask(tools)
-        let reference = earlier.task + "/invoice_file"
-        let begun = try await P.task(tools, #"{"operation":"begin","goal":"Email the invoice","recall":false,"inputs":[{"name":"attachment","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(reference)","source_version":"\#(earlier.attempt)"},{"name":"by_revision","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(reference)","source_version":"1"}]}"#)
-        let task = try #require(begun["task"].string)
-        let revised = try await P.task(tools, #"{"operation":"update","revision":1,"goal":"Email the invoice to Luca","inputs":[{"name":"recipient","value":"luca@example.com"}]}"#)
-        #expect(revised["status"].string == "revised")
-        let expected = ["attachment=\(reference)@\(earlier.attempt)", "by_revision=\(reference)@1"]
-        #expect(try Self.references(session, task: task).filter { !$0.hasPrefix("recipient") } == expected + expected, "both revisions")
-        await RecallLifecycleTests.close(session)
-        // Reopened: the store reads the same rows, and the task's revision gives them back to the producer.
         let memory = MemoryService.shared(for: session.directory)
         let producer = try TaskProducer(source: .app, streamID: "references")
-        let read = try await memory.perform { try await $0.tasks.revision(2, of: task, for: producer) }
+        let earlier = try await Self.earlierTask(memory: memory, producer: producer)
+        let reference = earlier.taskID + "/invoice_file"
+        let raw = #"{"operation":"begin","goal":"Email the invoice","recall":false,"inputs":[{"name":"attachment","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(reference)","source_version":"\#(earlier.attemptID)"},{"name":"by_revision","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(reference)","source_version":"1"}]}"#
+        let begun = try await TaskChannel.begin(Self.content(raw), producer: producer, traceID: nil, memory: memory)
+        let previous = try await TaskChannel.revision(1, of: begun.taskID, producer: producer, memory: memory)
+        guard case .update(let update, _) = try MemoryTaskTool.decode(
+            P.json(#"{"operation":"update","revision":1,"goal":"Email the invoice to Luca","inputs":[{"name":"recipient","value":"luca@example.com"}]}"#),
+            minimization: ValueMinimization(), messageRef: nil) else {
+            Issue.record("Expected a revision fixture")
+            await RecallLifecycleTests.close(session)
+            return
+        }
+        let revised = try await TaskChannel.revise(begun, expecting: 1,
+            content: update.applied(to: previous.content, messageRef: nil), reason: nil, producer: producer, memory: memory)
+        #expect(revised.revision == 2)
+        let expected = ["attachment=\(reference)@\(earlier.attemptID)", "by_revision=\(reference)@1"]
+        #expect(try Self.references(session, task: begun.taskID).filter { !$0.hasPrefix("recipient") } == expected + expected)
+        await RecallLifecycleTests.close(session)
+        let reopened = MemoryService.shared(for: session.directory)
+        let read = try await reopened.perform { try await $0.tasks.revision(2, of: begun.taskID, for: producer) }
         #expect(read?.content.inputs.first { $0.name == "attachment" }?.sourceRef == reference)
-        #expect(read?.content.inputs.first { $0.name == "attachment" }?.sourceVersion == earlier.attempt)
+        #expect(read?.content.inputs.first { $0.name == "attachment" }?.sourceVersion == earlier.attemptID)
         await RecallLifecycleTests.close(session)
     }
 
-    /// The version beside a reference that is not admitted is minimized as any text too: an attempt's id has no credential's
-    /// shape and stays, naming nothing the reference can use.
-    @Test("a reference that names nothing the archive vouches for is minimized as any text; a plain output name is unchanged")
+    @Test("unresolved references name no data and plain output names are unchanged")
     func unresolvedReferencesInventNothing() async throws {
         let session = P.photoSession(try W.directory())
-        let tools = P.tools(session, stream: "references")
-        let other = P.tools(session, source: .mcp, stream: "another-client")
-        let earlier = try await Self.earlierTask(tools)
-        let foreign = try await Self.earlierTask(other)
-        let unknown = UUID().uuidString
+        let memory = MemoryService.shared(for: session.directory)
+        let producer = try TaskProducer(source: .app, streamID: "references")
+        let other = try TaskProducer(source: .mcp, streamID: "another-client")
+        let earlier = try await Self.earlierTask(memory: memory, producer: producer)
+        let foreign = try await Self.earlierTask(memory: memory, producer: other)
         let inputs: [(String, String, String?)] = [
-            ("unknown_task", "\(unknown)/invoice_file", nil),
-            ("undeclared_output", "\(earlier.task)/report_file", nil),
-            ("foreign_task", "\(foreign.task)/invoice_file", nil),
-            ("wrong_attempt", "\(earlier.task)/invoice_file", UUID().uuidString),
-            ("later_revision", "\(earlier.task)/invoice_file", "7"),
+            ("unknown_task", "\(UUID().uuidString)/invoice_file", nil),
+            ("undeclared_output", "\(earlier.taskID)/report_file", nil),
+            ("foreign_task", "\(foreign.taskID)/invoice_file", nil),
+            ("wrong_attempt", "\(earlier.taskID)/invoice_file", UUID().uuidString),
+            ("later_revision", "\(earlier.taskID)/invoice_file", "7"),
             ("plain_name", "invoice_file", nil),
-            ("lower_case", "\(earlier.task.lowercased())/invoice_file", nil),
+            ("lower_case", "\(earlier.taskID.lowercased())/invoice_file", nil)
         ]
         let list = inputs.map { name, reference, version in
             #"{"name":"\#(name)","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(reference)""#
                 + (version.map { #","source_version":"\#($0)""# } ?? "") + "}"
         }.joined(separator: ",")
-        let begun = try await P.task(tools, #"{"operation":"begin","goal":"Email the invoice","recall":false,"inputs":[\#(list)]}"#)
-        let task = try #require(begun["task"].string)
-        let stored = try Self.references(session, task: task)
+        let begun = try await TaskChannel.begin(Self.content(#"{"operation":"begin","goal":"Email the invoice","recall":false,"inputs":[\#(list)]}"#),
+            producer: producer, traceID: nil, memory: memory)
+        let stored = try Self.references(session, task: begun.taskID)
         #expect(stored == [
             "unknown_task=[withheld]@-", "undeclared_output=[withheld]@-", "foreign_task=[withheld]@-",
             "wrong_attempt=[withheld]@\(inputs[3].2 ?? "")", "later_revision=[withheld]@7", "plain_name=invoice_file@-",
-            "lower_case=\(earlier.task.lowercased())/invoice_file@-",
-        ], "\(stored)")
+            "lower_case=\(earlier.taskID.lowercased())/invoice_file@-"
+        ])
         await RecallLifecycleTests.close(session)
     }
 
-    @Test("secrets stay withheld: a credential in the output's name, and a declared secret, never reach SQLite")
+    @Test("declared secrets and credential-shaped references never reach SQLite")
     func secretsStayWithheld() async throws {
         let session = P.photoSession(try W.directory())
-        let tools = P.tools(session, stream: "references")
-        let earlier = try await Self.earlierTask(tools)
-        let credential = "sk-ant-1234567890abcdefghijklmnopqrstuvwxyz"
-        let begun = try await P.task(tools, #"{"operation":"begin","goal":"Email the invoice","recall":false,"inputs":[{"name":"pin","value":"731942","secret":true},{"name":"token_ref","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(earlier.task)/\#(credential)"},{"name":"pin_ref","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(earlier.task)/invoice_731942"}]}"#)
-        let task = try #require(begun["task"].string)
+        let memory = MemoryService.shared(for: session.directory)
+        let producer = try TaskProducer(source: .app, streamID: "references")
+        let earlier = try await Self.earlierTask(memory: memory, producer: producer)
+        let credential = "sk-test-REFERENCE-FIXTURE01234567890123456789"
+        let raw = #"{"operation":"begin","goal":"Email the invoice","recall":false,"inputs":[{"name":"pin","value":"731942","secret":true},{"name":"token_ref","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(earlier.taskID)/\#(credential)"},{"name":"pin_ref","kind":"file","value":"/tmp/inv.pdf","source":"previous_output","source_ref":"\#(earlier.taskID)/invoice_731942"}]}"#
+        let begun = try await TaskChannel.begin(Self.content(raw), producer: producer, traceID: nil, memory: memory)
+        let taskID = begun.taskID
         let everything = try P.rows("""
             SELECT ifnull(source_ref, '') || ' ' || ifnull(text_value, '') FROM memory_task_values
-            WHERE task_id = (SELECT task_id FROM memory_tasks WHERE task_uuid = '\(task)')
+            WHERE task_id = (SELECT task_id FROM memory_tasks WHERE task_uuid = '\(taskID)')
             """, in: session).joined(separator: " ")
-        #expect(!everything.contains(credential) && !everything.contains("731942"), "\(everything)")
+        #expect(!everything.contains(credential) && !everything.contains("731942"))
         await RecallLifecycleTests.close(session)
     }
 
-    @Test("a checkpoint's output derived from another output it declares keeps its reference to the task being written")
+    @Test("outputs derived from this task retain only references to outputs the checkpoint declares")
     func sameTaskReferenceInCheckpoint() async throws {
         let session = P.photoSession(try W.directory())
-        let tools = P.tools(session, stream: "references")
-        let begun = try await P.task(tools, #"{"operation":"begin","goal":"Download and rename the invoice","recall":false}"#)
-        let task = try #require(begun["task"].string)
-        _ = try await P.task(tools, #"{"operation":"checkpoint","outputs":[{"name":"invoice_file","kind":"file","value":"/tmp/inv.pdf","source":"observation"},{"name":"renamed","kind":"file","value":"/tmp/renamed.pdf","source":"derived","source_ref":"\#(task)/invoice_file"},{"name":"stray","kind":"file","value":"/tmp/x.pdf","source":"derived","source_ref":"\#(task)/never_declared"}]}"#)
+        let memory = MemoryService.shared(for: session.directory)
+        let producer = try TaskProducer(source: .app, streamID: "references")
+        let begun = try await TaskChannel.begin(Self.content(#"{"operation":"begin","goal":"Download and rename the invoice","recall":false}"#),
+            producer: producer, traceID: nil, memory: memory)
+        let taskID = begun.taskID
+        _ = try await TaskChannel.checkpoint(begun,
+            Self.checkpoint(#"{"operation":"checkpoint","outputs":[{"name":"invoice_file","kind":"file","value":"/tmp/inv.pdf","source":"observation"},{"name":"renamed","kind":"file","value":"/tmp/renamed.pdf","source":"derived","source_ref":"\#(taskID)/invoice_file"},{"name":"stray","kind":"file","value":"/tmp/x.pdf","source":"derived","source_ref":"\#(taskID)/never_declared"}]}"#),
+            producer: producer, memory: memory)
         let stored = try P.rows("""
             SELECT name || '=' || ifnull(source_ref, '-') FROM memory_task_values
-            WHERE task_id = (SELECT task_id FROM memory_tasks WHERE task_uuid = '\(task)') ORDER BY position
+            WHERE task_id = (SELECT task_id FROM memory_tasks WHERE task_uuid = '\(taskID)') ORDER BY position
             """, in: session)
-        #expect(stored == ["invoice_file=-", "renamed=\(task)/invoice_file", "stray=[withheld]"], "\(stored)")
+        #expect(stored == ["invoice_file=-", "renamed=\(taskID)/invoice_file", "stray=[withheld]"])
         await RecallLifecycleTests.close(session)
     }
 
@@ -139,7 +157,7 @@ struct TaskReferenceTests {
             #expect(!bindings.isEmpty && bindings.allSatisfy { produced ? TaskOutputReference($0)?.output == "invoice_file" : $0 == "[withheld]" },
                     "\(bindings)")
             let tools = P.tools(session, stream: "dependent")
-            let begun = try await P.task(tools, #"{"operation":"begin","goal":"Email invoice INV-2026-044 to Luca","inputs":[{"name":"invoice","value":"INV-2026-044"},{"name":"recipient","value":"luca@example.com"}],"needs":[{"text":"Email the invoice INV-2026-044 to luca@example.com"}]}"#)
+            let begun = try await HistoricalRecallFixture.beginQuery(tools, #"{"operation":"begin","goal":"Email invoice INV-2026-044 to Luca","inputs":[{"name":"invoice","value":"INV-2026-044"},{"name":"recipient","value":"luca@example.com"}],"needs":[{"text":"Email the invoice INV-2026-044 to luca@example.com"}]}"#)
             let need = try #require(begun["recall"]["needs"].array?.first)
             let conditions = need["selection"]["conditions"].array?.compactMap { $0["kind"].string } ?? []
             #expect(conditions.contains("input_produced") == produced, "\(need)")

@@ -3,6 +3,7 @@ import AutomationMCP
 import AutomationRuntime
 import EngineCore
 import Foundation
+import ChatCore
 import LocalMCP
 import Memory
 import Router
@@ -10,13 +11,10 @@ import SQLiteMemory
 import Testing
 @testable import braus
 
-/// P12 through `braus chat --channels adapters`: the `files` adapter reached by `app_call` over the chat's own router,
-/// as a provider's child sends it, with the chat's memory in front. The test reads the disk itself; the memory holds
-/// each call under the task open when it was made, with its dispatch and arguments whose content is the marker; no
-/// file of the chat's folders (the memory, the history) holds a byte of what was written or read.
-///
-/// Offline: the real `ChatSession` on temporary folders, never started, its adapter replaced by one on a temporary
-/// root with a Trash of the test's. No app, Seat, account, personal file or network.
+/// P12 exercises files through compact `call` requests from a synthetic provider over the chat's MCP bridge.
+/// Each adapter call belongs to the real plan's task, with its dispatch and minimized arguments in the archive.
+/// The injected files adapter, provider script and replies use temporary folders outside the chat's own data.
+/// No app, Seat, account, personal file or network is used.
 @MainActor
 @Suite("P12: files through the chat's router, on the record")
 struct ChatFilesTests {
@@ -48,7 +46,6 @@ struct ChatFilesTests {
 
     @Test("adapters: write, read, edit and trash through tools/call land on the disk, are recorded under the open task with their dispatch, and leave the content in no file of the chat's")
     func filesThroughTheRouter() async throws {
-        let chat = try ChatChannelsTests.Chat(["--channels", "adapters"])
         let home = URL.temporaryDirectory.appending(path: "braus-chat-files-\(UUID().uuidString)", directoryHint: .isDirectory)
         let trash = home.appending(path: "Trash", directoryHint: .isDirectory)
         let root = home.appending(path: "Home", directoryHint: .isDirectory)
@@ -56,46 +53,52 @@ struct ChatFilesTests {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
         defer { try? FileManager.default.removeItem(at: home) }
-        chat.session.tools.adapters = AppAdapters([FilesAdapter(root: root, trash: { url in
+        func request(_ name: String, _ arguments: [String: LocalMCP.JSONValue]) -> LocalMCP.JSONValue {
+            .object(["name": .string(name), "arguments": .object(arguments)])
+        }
+        func capability(_ verb: String, _ arguments: [String: LocalMCP.JSONValue], writes: Bool = true) -> LocalMCP.JSONValue {
+            request("call", ["name": .string("files." + verb), "arguments": .object(arguments.merging(
+                writes ? ["step": .string("r1")] : [:], uniquingKeysWith: { _, value in value }))])
+        }
+        let requests = [
+            request("plan", ["request": .string("Write a note"), "rows": .array([.object(["title": .string("Write and check the note")])])]),
+            capability("write", ["path": .string("~/note.txt"), "text": .string(Self.written)]),
+            capability("read", ["path": .string("~/note.txt")], writes: false),
+            capability("edit", ["path": .string("~/note.txt"), "find": .string("quiet"), "replace": .string("loud")]),
+            capability("write", ["path": .string("~/note.txt"), "text": .string("gone\n")]),
+            capability("move_to_trash", ["path": .string("~/note.txt")]),
+            request("end", ["outcome": .string("completed")])
+        ]
+        let provider = try ChatChannelsTests.Chat.provider(in: home, requests: requests)
+        let adapters = AppAdapters([FilesAdapter(root: root, trash: { url in
             let moved = trash.appendingPathComponent(url.lastPathComponent)
             try FileManager.default.moveItem(at: url, to: moved)
             return moved
         })], approver: ChatFileWriteApproval())
-        let trace = "p12-chat-\(UUID().uuidString)"
-        chat.session.tools.producer = CallProducer(source: .cli, streamID: "p12-chat", traceID: trace)
-        chat.session.router.resume()
-        var number = 0
-        func call(_ verb: String, _ arguments: [String: LocalMCP.JSONValue]) async throws -> LocalMCP.JSONValue {
-            number += 1
-            let response = await chat.session.router.handle(.object([
-                "jsonrpc": .string("2.0"), "id": .number(Double(number)), "method": .string("tools/call"),
-                "params": .object(["name": .string("app_call"), "arguments": .object([
-                    "app": .string("files"), "verb": .string(verb), "arguments": .object(arguments),
-                ])]),
-            ]))
-            return try #require(response?["result"], "\(String(describing: response))")
-        }
+        let chat = try ChatChannelsTests.Chat(["--channels", "adapters"], provider: provider, adapters: adapters)
+        let replies: [LocalMCP.JSONValue]
+        do { replies = try await chat.runProvider(in: home) }
+        catch { await chat.end(); throw error }
+        try #require(replies.count == requests.count)
+        for reply in replies { #expect(reply["error"] == .null, "\(reply)") }
+        let task = try #require(Self.answer(replies[0]["result"])["task"].string)
+        let trace = try #require(chat.session.current?.conversation.id.uuidString)
+        #expect(Self.answer(replies[6]["result"])["status"] == .string("ended"))
+        #expect(chat.session.tools.openTask == nil)
 
-        _ = try await chat.session.tools.call("memory_task", .object([
-            "operation": .string("begin"), "goal": .string("Write a note"), "remaining": .string("Write a note"),
-        ]))
-        let task = try #require(chat.session.tools.openTask?.taskID)
-
-        let wrote = Self.answer(try await call("write", ["path": .string("~/note.txt"), "text": .string(Self.written)]))
+        let wrote = Self.answer(replies[1]["result"])
         #expect(wrote["outcome"] == .string("found_acted"), "\(wrote)")
-        #expect(try Data(contentsOf: root.appending(path: "note.txt")) == Data(Self.written.utf8))
-        let read = Self.answer(try await call("read", ["path": .string("~/note.txt")]))
+        let read = Self.answer(replies[2]["result"])
         #expect(read["result"]["text"] == .string(Self.written), "\(read)")
-        let edited = Self.answer(try await call("edit", ["path": .string("~/note.txt"), "find": .string("quiet"), "replace": .string("loud")]))
+        let edited = Self.answer(replies[3]["result"])
         #expect(edited["outcome"] == .string("found_acted"), "\(edited)")
-        #expect(try Data(contentsOf: root.appending(path: "note.txt")) == Data(Self.written.replacingOccurrences(of: "quiet", with: "loud").utf8))
-        let refused = Self.answer(try await call("write", ["path": .string("~/note.txt"), "text": .string("gone\n")]))
+        let refused = Self.answer(replies[4]["result"])
         #expect(refused["outcome"] == .string("refused"), "\(refused)")
-        let trashed = Self.answer(try await call("move_to_trash", ["path": .string("~/note.txt")]))
+        let trashed = Self.answer(replies[5]["result"])
         #expect(trashed["outcome"] == .string("found_acted"), "\(trashed)")
-        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "note.txt").path)
-                && FileManager.default.fileExists(atPath: trash.appending(path: "note.txt").path))
-        chat.session.router.pause()
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "note.txt").path))
+        #expect(try Data(contentsOf: trash.appending(path: "note.txt"))
+                == Data(Self.written.replacingOccurrences(of: "quiet", with: "loud").utf8))
 
         // The record, under the task, each call dispatched to files.<verb>, content the marker.
         let memory = MemoryService.shared(for: chat.root.appending(path: "Knowledge"))
@@ -113,7 +116,7 @@ struct ChatFilesTests {
         }
         #expect(verbs == ["write", "read", "edit", "write", "move_to_trash"] && attributed && dispatched, "\(verbs)")
         #expect(arguments.allSatisfy { !$0.contains("quiet line") && !$0.contains("loud") }, "\(arguments)")
-        #expect(arguments[0].contains(ValueMinimization.marker) && arguments[1] == #"{"path":"~/note.txt"}"#, "\(arguments)")
+        #expect(arguments.first?.contains(ValueMinimization.marker) == true && arguments.dropFirst().first == #"{"path":"~/note.txt"}"#, "\(arguments)")
 
         // No file of the chat's (memory, history, support) holds the content, with the memory open and once it is
         // closed, its WAL folded in; the disk does, outside them.

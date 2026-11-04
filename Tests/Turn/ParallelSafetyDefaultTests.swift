@@ -15,7 +15,7 @@ import ModelTransports
             let name = definition["name"].string ?? ""
             #expect(!tools.isParallelSafe(name, arguments: .object([:])))
         }
-        for name in ["observe", "memory_task", "plan", "unknown", "call"] {
+        for name in ["observe", "plan", "end", "unknown", "call"] {
             #expect(!tools.isParallelSafe(name, arguments: .object([:])))
         }
     }
@@ -45,7 +45,7 @@ import ModelTransports
         let reads = FakeReads(parallelSafe: parallelSafe)
         let tools = AutomationTools(session: TurnTestSession(), capabilities: [reads], recording: reads)
         for name in ["fake.first", "fake.second"] {
-            #expect(tools.isParallelSafe(name, arguments: .object([:])) == parallelSafe)
+            #expect(tools.isParallelSafe("call", arguments: .object(["name": .string(name), "arguments": .object([:])])) == parallelSafe)
         }
         let host = TestTurnHost()
         var admitted = 0
@@ -57,8 +57,8 @@ import ModelTransports
         let forward = tools.record
         tools.record = { records.append($0); try forward?($0) }
         let transport = TurnTestTransport([
-            [.toolCall(.init(id: "one", name: "fake.first", arguments: Data("{}".utf8))),
-             .toolCall(.init(id: "two", name: "fake.second", arguments: Data("{}".utf8)))],
+            [.toolCall(.init(id: "one", name: "call", arguments: Data(#"{"name":"fake.first","arguments":{}}"#.utf8))),
+             .toolCall(.init(id: "two", name: "call", arguments: Data(#"{"name":"fake.second","arguments":{}}"#.utf8)))],
             [.delta("Done.")]
         ])
         var transcript: [String] = []
@@ -105,7 +105,7 @@ import ModelTransports
             active += 1
             records.append("begin " + name)
             await Task.yield()
-            if arguments["operation"].string == "write" { state += 1 }
+            if name == "plan", arguments["request"].string != nil { state += 1 }
             records.append("end \(name) \(state)")
             active -= 1
             return .object(["content": .array([.object(["text": .string(String(state))])])])
@@ -118,8 +118,9 @@ import ModelTransports
         let calls = [
             ToolCall(id: "one", name: "observe", arguments: Data("{}".utf8)),
             ToolCall(id: "two", name: "observe", arguments: Data("{}".utf8)),
-            ToolCall(id: "three", name: "memory_task", arguments: Data(#"{"operation":"write"}"#.utf8)),
-            ToolCall(id: "four", name: "memory_task", arguments: Data(#"{"operation":"status"}"#.utf8))
+            ToolCall(id: "three", name: "plan", arguments: Data(
+                #"{"request":"Write the document","rows":[{"title":"Write"}]}"#.utf8)),
+            ToolCall(id: "four", name: "end", arguments: Data(#"{"outcome":"completed"}"#.utf8))
         ]
         let messages = try await loop.results(of: calls).map(\.text)
         return (messages, records)

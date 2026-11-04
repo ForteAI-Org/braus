@@ -1,6 +1,5 @@
 import Foundation
 import Capabilities
-import Switches
 
 /// SessionProfileFile reads strict JSON overrides relative to the profile's file.
 public nonisolated enum SessionProfileFile {
@@ -35,7 +34,7 @@ public nonisolated enum SessionProfileFile {
         if let raw = object["options"] {
             guard let fields = raw as? [String: Any] else { throw .invalidValue(key: "options") }
             try keys(fields, allowed: ["harnessWebSearch", "seatWarmSeconds", "holdsFromPlanToEnd", "providerCredential",
-                                      "effort", "guides", "forbiddenApps", "switches"])
+                                      "effort", "guides", "forbiddenApps"])
             options.harnessWebSearch = try value(fields, "harnessWebSearch", default: options.harnessWebSearch)
             options.seatWarmSeconds = try value(fields, "seatWarmSeconds", default: options.seatWarmSeconds)
             guard options.seatWarmSeconds >= 0 else { throw .invalidValue(key: "seatWarmSeconds") }
@@ -43,7 +42,6 @@ public nonisolated enum SessionProfileFile {
             options.providerCredential = try value(fields, "providerCredential", default: options.providerCredential)
             options.effort = try value(fields, "effort", default: options.effort)
             options.forbiddenApps = try value(fields, "forbiddenApps", default: options.forbiddenApps)
-            options.switches = try value(fields, "switches", default: options.switches)
             if fields["guides"] != nil {
                 let paths: [String] = try value(fields, "guides", default: [])
                 options.guides = []
@@ -54,20 +52,10 @@ public nonisolated enum SessionProfileFile {
         let mandate = try optionalPath(object, "mandate", relativeTo: url, mustExist: true) ?? base.mandate
         let name: String = try value(object, "name", default: base.name)
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw .invalidValue(key: "name") }
-        try validateSwitches(options.switches)
         return SessionProfile(attendance: try value(object, "attendance", default: base.attendance),
             level: try value(object, "level", default: base.level), memory: try value(object, "memory", default: base.memory),
             archive: archive, catalogue: try value(object, "catalogue", default: base.catalogue),
             takeover: try value(object, "takeover", default: base.takeover), mandate: mandate, options: options, name: name)
-    }
-
-    /// Rejects conflicts before a composition installs the board once at startup.
-    public static func validateSwitches(_ values: [String: String],
-        environment: [String: String] = ProcessInfo.processInfo.environment) throws(ProfileError) {
-        let inherited = SwitchBoard.fromEnvironment(environment).values
-        for (key, value) in values where inherited[key] != nil && inherited[key] != value {
-            throw .invalidValue(key: "switches")
-        }
     }
 
     private static func keys(_ object: [String: Any], allowed: Set<String>) throws(ProfileError) {

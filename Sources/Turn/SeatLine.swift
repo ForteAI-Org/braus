@@ -26,18 +26,6 @@ nonisolated public struct SeatLine: Sendable {
 
     public static let dataTag = "braus_state"
 
-    /// Preserves the original notice, seat and review order byte for byte.
-    @MainActor
-    public static func legacy(
-        notice: String?,
-        seat: SeatFacts?,
-        reviewing: Bool
-    ) -> String? {
-        let pieces = [notice, seat?.legacyText, reviewing ? TurnInstructions.humanInterventionInstructions : nil]
-            .compactMap { $0 }
-        return pieces.isEmpty ? nil : pieces.joined(separator: "\n\n")
-    }
-
     /// Renders complete instructions followed by complete facts, or throws before any provider call.
     public static func render(
         pieces: [Piece],
@@ -47,8 +35,7 @@ nonisolated public struct SeatLine: Sendable {
     ) throws -> String? {
         var instructions: [String] = []
         if pieces.contains(.stoppedTask) {
-            instructions.append(ModelText.text(.init(rawValue: TaskCycleArm.current == .v2
-                ? "task_cycle.stopped.v2" : "seat_line.stopped.v2")))
+            instructions.append(ModelText.text(.init(rawValue: "task_cycle.stopped.v2")))
         }
         if pieces.contains(.reviewAfterPerson) {
             instructions.append(ModelText.text(.init(rawValue: "seat_line.review.v2")))

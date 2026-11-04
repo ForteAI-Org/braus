@@ -3,7 +3,7 @@
 //  Braus
 //
 
-import AutomationMCP
+@testable import AutomationMCP
 import AutomationRuntime
 import LocalMCP
 import Testing
@@ -37,7 +37,8 @@ struct BrowserEngineInstructionsTests {
     @Test("collect_posts is offered to every provider, and named for bulk reading, exactly when the web is composed")
     func collectPostsFollowsTheWeb() {
         for channels: AutomationChannels in [[], [.native], [.web], [.native, .web], .all] {
-            let names = AutomationTools.definitions(for: channels).compactMap { $0["name"].string }
+            let names = ToolCatalogue.availableDefinitions(for: channels).compactMap { $0["name"].string }
+            #expect(!AutomationTools.definitions(for: channels).contains { $0["name"].string == "collect_posts" })
             #expect(names.contains("collect_posts") == channels.contains(.web), "\(channels)")
             #expect(AutomationTools.instructions(for: channels).contains(AutomationTools.bulkReading)
                         == channels.contains(.web), "\(channels)")

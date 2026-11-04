@@ -28,7 +28,7 @@ public final class ActionBarrier {
 
     /// The tools admitted while the barrier is closed: none acts on an app, a page or a service.
     public static var admittedWhileClosed: Set<String> {
-        TaskCycleArm.current == .v2 ? ["status", "close_session", "plan", "end"] : ["status", "close_session", "memory_task"]
+        ["status", "close_session", "plan", "end"]
     }
 
     public private(set) var refused: Refused?
@@ -72,7 +72,7 @@ public final class ActionBarrier {
     /// Why `name` is not admitted now, or nil when it is.
     public func refusal(of name: String, _ arguments: JSONValue) -> String? {
         refresh()
-        let completing = TaskCycleArm.current == .v2 && name == "end" && arguments["outcome"].string == "completed"
+        let completing = name == "end" && arguments["outcome"].string == "completed"
         guard completing || !Self.admittedWhileClosed.contains(name) else { return nil }
         if persistenceUnavailable {
             return "Not run: Braus cannot read this context's persisted refusals. Restore the refusal store before acting."

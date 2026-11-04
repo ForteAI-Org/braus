@@ -341,8 +341,8 @@ enum MemoryCommand {
         await runtime.finish()
     }
 
-    /// Shows and maintains the Recall's index with the configuration this process resolves (`BRAUS_RECALL`,
-    /// `BRAUS_RECALL_MODELS`): `--recall-status` prints the generations, the entries, the vectors still to compute and
+    /// Shows and maintains the Recall's index with the fixed product configuration and the installed model
+    /// directory (`BRAUS_RECALL_MODELS`): `--recall-status` prints the generations, the entries, the vectors still to compute and
     /// the index work pending, without running any; `--recall-rebuild` queues a rebuild of the whole catalogue and runs
     /// the index work until it is done or `--within <seconds>` passes; `--recall-explain <text>` scores every part of
     /// the current generation against a text and prints the most relevant (`--limit`), recording no query and

@@ -99,7 +99,6 @@ final class WorkerAgentHost: TurnHosting {
         let tools  = AutomationTools(session: driven, channels: channels,
                                      adapters: channels.contains(.adapters) ? (adapters ?? .standard(approver: adapterApprover)) : nil,
                                      offersWeb: offersWeb, profile: composedProfile)
-        if let adapters, channels.contains(.adapters) { tools.adapters = adapters }
         self.tools = tools
         self.barrier = barrier
     }

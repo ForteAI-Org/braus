@@ -245,14 +245,3 @@ public nonisolated struct GuideHead: Sendable {
         self.text = text
     }
 }
-
-/// GuideIndex is a selected guide's ordered section titles.
-public nonisolated struct GuideIndex: Sendable {
-    public let header: AppGuide.Header
-    public let titles: [String]
-
-    public init(header: AppGuide.Header, titles: [String]) {
-        self.header = header
-        self.titles = titles
-    }
-}

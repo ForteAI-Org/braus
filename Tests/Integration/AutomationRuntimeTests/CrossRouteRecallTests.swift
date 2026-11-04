@@ -52,26 +52,26 @@ struct CrossRouteRecallTests {
     static func learn(on app: String, _ session: LearningSession) async throws {
         let memory = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
-        let tools = P.tools(session, stream: "learn")
+        let tools = P.tools(session, stream: "learn", profile: SessionProfile.app.replacing(memory: .learn))
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Search lamps on the shop","recall":false,
+            {"request":"Search lamps on the shop",
              "inputs":[{"name":"query","value":"lamps"}]}
             """#)
         _ = try await P.call(tools, "open_session", #"{"app":"\#(app)"}"#)
         let id = try #require(session.id).uuidString
         _ = try await P.call(tools, "type_text", #"{"session":"\#(id)","target":"Search","text":"lamps"}"#)
         _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Go"}"#)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string, "\(ended)")
-        let interpreted = try await P.task(tools, #"{"operation":"interpret","candidate":"\#(candidate)","#
+        _ = try await P.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await P.candidateIDFixture(tools, session)
+        let interpreted = try await P.interpretFixture(tools, session, #"{"operation":"interpret","candidate":"\#(candidate)","#
                                                   + Self.interpretation + "}")
         #expect(interpreted["status"].string != "error", "\(interpreted)")
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
     }
 
-    /// A new task on the same search, its need set on `app`.
+    /// A typed service query for the same search, with its need set on `app`; no model catalogue is invoked.
     static func need(on app: String, _ session: LearningSession) async throws -> JSONValue {
-        let begun = try await P.task(P.tools(session, stream: "ask-\(app)"), #"""
+        let begun = try await HistoricalRecallFixture.beginQuery(P.tools(session, stream: "ask-\(app)"), #"""
             {"operation":"begin","goal":"Search lamps on the shop","remaining":"Search lamps on the shop",
              "inputs":[{"name":"query","value":"lamps"}],
              "needs":[{"text":"Search lamps on the shop","app":"\#(app)"}]}

@@ -105,7 +105,7 @@ struct TaskRouterTests {
             return
         }
         #expect(route == .adapter(adapter))
-        #expect(message.contains("app_call"))
+        #expect(message.contains("use find") && message.contains("then call"))
     }
 
     @Test("Rule 3: an adapter that cannot run, or is not built yet, is skipped with its reason")
@@ -194,4 +194,18 @@ struct TaskRouterTests {
         #expect(Set(replaced).count == replaced.count)
     }
 
+}
+
+
+extension TaskRouterTests {
+    @Test func adapterAdviceNamesTheCurrentDiscoveryAndCallContract() {
+        guard case .use(.adapter("calendar"), let message) = router.route(
+            opening: "Calendar", named: false, context: ready) else {
+            Issue.record("The available adapter was not offered")
+            return
+        }
+        #expect(message.contains("use find") && message.contains("then call"))
+        #expect(!message.contains("app_call") && !message.contains("app_capabilities"))
+        #expect(message.contains("discovered name and arguments"))
+    }
 }

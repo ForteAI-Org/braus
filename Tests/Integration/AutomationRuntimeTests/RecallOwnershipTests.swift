@@ -15,7 +15,7 @@ import Memory
 import Testing
 
 /// RecallOwnershipTests prove who decides the index of an archive two processes share: the product's configuration owns
-/// it; a configuration chosen for one process by `BRAUS_RECALL` is a guest that keeps the owner's generations in line
+/// it; an injected comparison configuration is a guest that keeps the owner's generations in line
 /// with the catalogue, never starts, abandons or promotes one, and says it answered over the owner's index. Without that
 /// rule, two owners of different configurations retire each other's generations, which the control case shows.
 @MainActor
@@ -59,7 +59,7 @@ struct RecallOwnershipTests {
         let request = try RecallRequest(taskID: "t", attemptID: "a", revision: 1, reason: .initial,
                                         remainingWork: "Export the invoice for the team as fattura_9",
                                         values: [try TaskValue(name: "output_name", kind: .text, content: .text("fattura_9"), source: .request)])
-        let answered = try await guest.prepare(request)
+        let answered = try await guest.prepare(request, availableChannels: HistoricalRecallFixture.nativeChannels)
         #expect(answered.searchStatus == .limited && answered.notes.contains { $0.contains("archive's own configuration") }, "\(answered.notes)")
         #expect(!answered.sources.isEmpty, "the guest still answers over the owner's index")
         await memory.close()
@@ -67,12 +67,19 @@ struct RecallOwnershipTests {
         MemoryService.forget(directory)
     }
 
-    @Test("an override equal to the product's configuration owns the index; a different one is a guest")
-    func ownershipFromTheEnvironment() {
-        #expect(RecallConfiguration.resolved(environment: [:]).ownsIndex)
-        #expect(RecallConfiguration.resolved(environment: ["BRAUS_RECALL": RecallConfiguration.chosen.channel.rawValue]).ownsIndex)
-        let other: RecallConfiguration.Channel = RecallConfiguration.chosen.channel == .lexical ? .hybrid : .lexical
-        #expect(!RecallConfiguration.resolved(environment: ["BRAUS_RECALL": "\(other.rawValue):e5-small"]).ownsIndex)
+    @Test("environment comparisons cannot replace the product configuration; model resources remain configurable")
+    func productConfigurationDoesNotHaveAnEnvironmentOverride() {
+        let normal = RecallConfiguration.resolved(environment: [:])
+        for override in ["lexical", "semantic:e5-small", "hybrid:unknown", "invalid"] {
+            let resolved = RecallConfiguration.resolved(environment: ["BRAUS_RECALL": override])
+            #expect(resolved == normal)
+            #expect(resolved.ownsIndex)
+        }
+        let resources = URL(fileURLWithPath: "/synthetic-recall-models", isDirectory: true)
+        let resolved = RecallConfiguration.resolved(environment: ["BRAUS_RECALL_MODELS": resources.path])
+        #expect(resolved.modelsDirectory == resources)
+        #expect(resolved.channel == RecallConfiguration.chosen.channel)
+        #expect(resolved.model == RecallConfiguration.chosen.model)
     }
 
     @Test("the control: two owners of different configurations on one archive abandon or retire each other's generations")

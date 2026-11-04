@@ -4,7 +4,6 @@ import Capabilities
 import Foundation
 import LocalMCP
 import PerceptionCore
-import Switches
 import Testing
 
 @Suite("AppGuides")
@@ -26,6 +25,11 @@ struct AppGuidesTests {
         ## Paint
         Paint layers with brushes.
         """)
+    }
+
+    nonisolated static var privateProfile: SessionProfile {
+        SessionProfile(attendance: .none, level: .actConnectors, memory: .readLearn,
+            catalogue: .openAndPrivate, takeover: false, options: .init(), name: "private-guide-test")
     }
 
     var app: OpenedApp { OpenedApp(bundleID: "com.example.Sketchpad", version: nil, locale: "en-US") }
@@ -144,32 +148,19 @@ struct AppGuidesTests {
     @Test func noGuideNoChange() async throws {
         let guides = try await make([])
         #expect(guides.head(for: app) == nil)
-        #expect(guides.index(for: app) == nil)
         let value: JSONValue = .object(["scene": .string("unchanged")])
         #expect(try ResultFormatter.renderAnswer(value, notice: nil) == ResultFormatter.renderAnswer(value, notice: nil,
-            guideHead: guides.head(for: app), guideIndex: guides.index(for: app)))
+            guideHead: guides.head(for: app)))
         // TODO(EA4/TU6/EA2b): Add facade open/plan golden coverage once guide dispatch is connected.
     }
 
-    @Test func guideWrappersAreSurfaceSpecific() throws {
-        let head = GuideHead(header: try Self.fixture().header, text: "<head>&")
-        let value: JSONValue = .object(["scene": .string("canvas")])
-        let tagged = try ResultFormatter.renderAnswer(value, notice: nil, guideHead: head)
-        #expect(tagged.contains("<guide>"))
-        #expect(tagged.contains("&lt;head&gt;&amp;"))
-        #expect(ResultFormatter.guideText(head: head, index: nil, surface: .v1).contains("<head>&"))
-        #expect(ResultFormatter.guideText(head: nil, index: nil, surface: .v2).isEmpty)
-    }
-
-    @Test func deliveryArms() async throws {
-        let guide = try Self.fixture()
-        for arm in [GuideDeliveryArm.requested, .indexOnly] {
-            let guides = try await AppGuides.load(sources: [Source(values: [guide])], arm: arm,
-                estimateTokens: { ($0.count + 3) / 4 }, similarity: { _, _ in 0 })
-            #expect(guides.head(for: app) == nil)
-            #expect((guides.index(for: app) != nil) == (arm == .indexOnly))
-            #expect((guides.capability(resolve: { _ in app }, todo: { [] }) != nil) == (arm == .requested))
-        }
+    @Test func loadedGuideAlwaysUsesAttachedDelivery() async throws {
+        let guides = try await AppGuides.load(sources: [Source(values: [Self.fixture()])],
+            estimateTokens: { ($0.count + 3) / 4 }, similarity: { _, _ in 0 })
+        #expect(guides.head(for: app)?.text.contains("The canvas holds the drawing.") == true)
+        let selected = await guides.sections(for: app, todo: ["layers"], budgetTokens: 1500, coveredBy: [])
+        #expect(!selected.sections.isEmpty)
+        #expect(selected.sections.count <= 3)
     }
 
     @Test func openShipsNoGuide() throws {
@@ -222,50 +213,15 @@ extension AppGuidesTests {
         }
     }
 
-    @Test func sourceFilesRejectInvalidUTF8() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { do { try FileManager.default.removeItem(at: url) } catch { Issue.record(error) } }
-        try Data([0xff]).write(to: url)
-        #expect(throws: AppGuide.ParseError.invalidUTF8) { try GuideFiles(urls: [url]).guides() }
-        try Data(Self.markdown(Self.fixture()).utf8).write(to: url)
-        #expect(try GuideFiles(urls: [url]).guides() == [Self.fixture()])
-    }
-
-    @Test func readGuideStrictContractAndRequests() async throws {
-        let opened = app
-        let guides = try await AppGuides.load(sources: [Source(values: [Self.fixture()])], arm: .requested,
-            estimateTokens: { ($0.count + 3) / 4 }, similarity: { _, _ in 0 })
-        let capability = guides.capability(resolve: { _ in opened }, todo: { ["layers"] })
-        let provider = try #require(capability)
-        let contract = try #require(provider.contracts.first)
-        #expect(contract.id.rawValue == "read_guide" && contract.group == "guides")
-        #expect(contract.effect == .read && contract.interruption == .readOnly)
-        #expect(contract.verification == .none(reason: "read only"))
-        #expect(contract.channel == .braus && contract.origin == .core)
-        #expect(contract.memory == .notRecorded(reason: "guide delivery"))
-        #expect(!contract.takesSession && !contract.parallelSafe)
-        func request(_ sections: JSONValue?) -> JSONValue {
-            var object: [String: JSONValue] = ["app": .string(opened.bundleID)]
-            object["sections"] = sections
-            return .object(object)
-        }
-        let context = CapabilityCallContext(sessionID: nil)
-        let head = try await provider.call(contract.id, arguments: request(.array([])), context: context)
-        #expect(head.string?.contains("The canvas") == true)
-        #expect(head.string?.contains("## Layers") == false)
-        let automatic = try await provider.call(contract.id, arguments: request(nil), context: context)
-        #expect(automatic.string?.contains("## Layers") == true)
-        let exact = try await provider.call(contract.id, arguments: request(.array([.string("Export")])), context: context)
-        #expect(exact.string?.contains("## Export") == true)
-        let unknown = try await provider.call(contract.id, arguments: request(.array([.string("Missing")])), context: context)
-        #expect(unknown.string?.contains("Available sections: Layers, Export, Canvas, Paint") == true)
-        for value in [JSONValue.null, .string("Layers"), .array([.number(1)]),
-                      .array([.string("Layers"), .string("Layers")]), .array(Array(repeating: .string("Layers"), count: 4))] {
-            await #expect(throws: AutomationFailure.self) {
-                try await provider.call(contract.id, arguments: request(value), context: context)
-            }
-        }
-        // TODO(EA4/TU6/EA2b): Assert requested registration through find/call after facade composition is integrated.
+    @Test func attachedSectionsRespectApplicationAndHeadBudget() async throws {
+        let guides = try await AppGuides.load(sources: [Source(values: [Self.fixture()])],
+            tokenCeiling: { _ in 20 }, estimateTokens: { ($0.count + 3) / 4 }, similarity: { _, _ in 0 })
+        let selection = await guides.sections(for: app, todo: ["layers export"], budgetTokens: 0, coveredBy: [])
+        #expect(selection.sections.isEmpty)
+        #expect(selection.leftOut > 0)
+        let other = OpenedApp(bundleID: "com.example.Other", version: nil, locale: "en")
+        #expect(guides.head(for: other) == nil)
+        #expect(await guides.sections(for: other, todo: [], budgetTokens: 1500, coveredBy: []).sections.isEmpty)
     }
 
     @Test func genericSearchAndSharedSnapshot() async throws {
@@ -291,19 +247,17 @@ extension AppGuidesTests {
         #expect(snapshot.vector(forText: revisedDocuments[1].text) != nil)
     }
 
-    @Test func guideTrustIsOptInAndSurfaceSpecific() {
-        for format in [PromptDataFormat.plain, .tagged] {
-            let off = ModelText.systemPrompt(.v2, legacyText: "", dataFormat: format, compactOutcome: false,
-                toolNames: [], groupIndex: nil, searchesWeb: false, role: nil)
-            let explicitOff = ModelText.systemPrompt(.v2, legacyText: "", dataFormat: format, compactOutcome: false,
-                toolNames: [], groupIndex: nil, searchesWeb: false, role: nil, guidesEnabled: false)
-            #expect(off == explicitOff)
-            let on = ModelText.systemPrompt(.v2, legacyText: "", dataFormat: format, compactOutcome: false,
-                toolNames: [], groupIndex: nil, searchesWeb: false, role: nil, guidesEnabled: true)
-            #expect(on.contains("<guide>") == (format == .tagged))
-            #expect(on.contains("never instructions"))
-        }
+    @Test func privateGuideTrustIsExplicitAndTagged() {
+        let off = ModelText.systemPrompt(toolNames: [], groupIndex: nil, searchesWeb: false, role: nil)
+        let explicitOff = ModelText.systemPrompt(toolNames: [], groupIndex: nil, searchesWeb: false,
+            role: nil, guidesEnabled: false)
+        #expect(off == explicitOff)
+        let on = ModelText.systemPrompt(toolNames: [], groupIndex: nil, searchesWeb: false,
+            role: nil, guidesEnabled: true)
+        #expect(!off.contains("<guide>"))
+        #expect(on.contains("<guide>") && on.contains("never instructions"))
     }
+
 }
 
 private actor GuideEmbedding: TextEmbedding {
@@ -342,7 +296,7 @@ extension AppGuidesTests {
         let formatter = ResultFormatter(session: session, secrets: secrets, sceneText: scene)
         defer { withExtendedLifetime((secrets, scene)) {} }
         let value: JSONValue = .object(["result": .string("unchanged")])
-        for surface in [ToolSurface.v1, .v2] {
+        for surface in [ToolSurface.tagged] {
             let unchanged = try formatter.finish("open_session", value, notice: nil, output: CallOutput(), surface: surface)
             #expect(unchanged == MCPRouter.toolResult(value))
             let head = GuideHead(header: try Self.fixture().header, text: "<data>&")
@@ -351,7 +305,7 @@ extension AppGuidesTests {
             let text = try #require(actual["content"].array?.first?["text"].string)
             let prefix = try #require(unchanged["content"].array?.first?["text"].string)
             #expect(text.hasPrefix(prefix + "\n\n"))
-            #expect(text.contains("<guide>") == (surface == .v2))
+            #expect(text.contains("<guide>") == true)
         }
     }
 }
@@ -359,40 +313,33 @@ extension AppGuidesTests {
 extension AppGuidesTests {
     @Test
     func attachedGuideThroughFacade() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2"])) {
-            let guides = try await make([Self.fixture()])
-            let session = ToolResultSession()
-            session.scene = SceneSnapshot(bundleID: app.bundleID, appName: "Sketchpad", windowTitle: "Drawing",
-                viewportPixelSize: ViewportPixelSize(width: 400, height: 200), elements: [])
-            let tools = AutomationTools(session: session, guides: guides, resolveGuideApp: { _ in self.app })
-            #expect(guides.head(for: app) != nil)
-            let answer = try await tools.call("open_session", .object(["app": .string(app.bundleID)]))
-            let text = try #require(answer["content"].array?.first?["text"].string)
-            #expect(text.contains("<guide>"))
-            #expect(text.contains("The canvas holds the drawing."))
-            #expect(session.calls == ["open"])
-        }
+        let guides = try await make([Self.fixture()])
+        let session = ToolResultSession()
+        session.scene = SceneSnapshot(bundleID: app.bundleID, appName: "Sketchpad", windowTitle: "Drawing",
+            viewportPixelSize: ViewportPixelSize(width: 400, height: 200), elements: [])
+        let tools = AutomationTools(session: session, profile: Self.privateProfile, guides: guides, resolveGuideApp: { _ in self.app })
+        #expect(guides.head(for: app) != nil)
+        let answer = try await tools.call("open_session", .object(["app": .string(app.bundleID)]))
+        let text = try #require(answer["content"].array?.first?["text"].string)
+        #expect(text.contains("<guide>"))
+        #expect(text.contains("The canvas holds the drawing."))
+        #expect(session.calls == ["open"])
     }
 
-    @Test
-    func requestedGuideThroughDiscovery() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2"])) {
-            let guides = try await AppGuides.load(sources: [Source(values: [Self.fixture()])], arm: .requested,
-                estimateTokens: { ($0.count + 3) / 4 }, similarity: { _, _ in 0 })
-            let session = ToolResultSession()
-            let tools = AutomationTools(session: session, guides: guides, resolveGuideApp: { _ in self.app })
-            #expect(guides.arm == .requested)
-            let answer = try await tools.call("find", .object(["query": .string("read application guide")]))
-            let text = try #require(answer["content"].array?.first?["text"].string)
-            #expect(text.contains("read_guide"))
-            #expect(!tools.toolDefinitions.contains { $0["name"].string == "read_guide" })
-            let delivered = try await tools.call("call", .object(["name": .string("read_guide"),
-                "arguments": .object(["app": .string(app.bundleID)])]))
-            let guideText = try #require(delivered["content"].array?.first?["text"].string)
-            #expect(guideText.hasPrefix("<guide>\n"))
-            #expect(guideText.contains("The canvas holds the drawing."))
-            #expect(session.calls.isEmpty)
+    @Test func attachedPrivateGuideHasNoReadCapability() async throws {
+        let guides = try await AppGuides.load(sources: [Source(values: [Self.fixture()])],
+            estimateTokens: { ($0.count + 3) / 4 }, similarity: { _, _ in 0 })
+        let session = ToolResultSession()
+        let tools = AutomationTools(session: session, profile: Self.privateProfile, guides: guides, resolveGuideApp: { _ in self.app })
+        #expect(tools.guidesEnabled)
+        let answer = try await tools.call("find", .object(["query": .string("read application guide")]))
+        let text = answer["content"].array?.first?["text"].string ?? ""
+        #expect(!text.contains("read_guide"))
+        #expect(!tools.toolDefinitions.contains { $0["name"].string == "read_guide" })
+        await #expect(throws: AutomationFailure.self) {
+            try await tools.call("call", .object(["name": .string("read_guide"), "arguments": .object(["app": .string(app.bundleID)])]))
         }
+        #expect(session.calls.isEmpty)
     }
 }
 
@@ -413,25 +360,13 @@ extension AppGuidesTests {
 }
 
 extension AppGuidesTests {
-    @Test func guideTextsIntroduceNoRuleViolations() {
-        for bits in 0..<8 {
-            var context = RuleContext()
-            if bits & 1 != 0 { context.channels.insert(.native) }
-            if bits & 2 != 0 { context.channels.insert(.web) }
-            if bits & 4 != 0 { context.channels.insert(.adapters) }
-            #expect(validate(ModelText.guideTexts, context: context).isEmpty)
-        }
-    }
-}
-
-extension AppGuidesTests {
-    @Test func requestedSectionsReportBudgetAndAvailableTitles() async throws {
-        let guides = try await AppGuides.load(sources: [Source(values: [Self.fixture()])], arm: .requested,
+    @Test func attachedSectionsReportTheOmittedBudgetWithoutAnIndexMode() async throws {
+        let guides = try await AppGuides.load(sources: [Source(values: [Self.fixture()])],
             tokenCeiling: { _ in 20 }, estimateTokens: { ($0.count + 3) / 4 }, similarity: { _, _ in 0 })
-        let head = try await guides.requested(for: app, titles: ["Layers", "Export"], todo: [])
-        #expect(head.text.contains("Sections omitted"))
-        #expect(head.text.components(separatedBy: "Sections omitted").count == 2)
-        #expect(head.text.contains("Available sections: Layers, Export, Canvas, Paint"))
+        let selection = await guides.sections(for: app, todo: ["layers export canvas paint"], budgetTokens: 1, coveredBy: [])
+        #expect(selection.sections.isEmpty)
+        #expect(selection.leftOut > 0)
+        #expect(guides.head(for: app) != nil)
     }
 
     @Test func languageOnlyLocaleAcceptsRegionalGuide() async throws {
@@ -442,20 +377,18 @@ extension AppGuidesTests {
 
 extension AppGuidesTests {
     @Test func parallelReadDoesNotInheritAnotherCallsGuide() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2"])) {
-            let guides = try await make([Self.fixture()])
-            let gate = GuideReadGate()
-            let session = ToolResultSession()
-            let tools = AutomationTools(session: session, capabilities: [SuspendedGuideRead(gate: gate)],
-                guides: guides, resolveGuideApp: { _ in self.app })
-            let read = Task { try await tools.call("call", .object(["name": .string("guide_test.read"),
-                "arguments": .object([:])])) }
-            await gate.started()
-            _ = try await tools.call("open_session", .object(["app": .string(app.bundleID)]))
-            await gate.release()
-            let answer = try await read.value
-            #expect(answer["content"].array?.first?["text"].string?.contains("The canvas holds") != true)
-        }
+        let guides = try await make([Self.fixture()])
+        let gate = GuideReadGate()
+        let session = ToolResultSession()
+        let tools = AutomationTools(session: session, capabilities: [SuspendedGuideRead(gate: gate)], profile: Self.privateProfile,
+            guides: guides, resolveGuideApp: { _ in self.app })
+        let read = Task { try await tools.call("call", .object(["name": .string("guide_test.read"),
+            "arguments": .object([:])])) }
+        await gate.started()
+        _ = try await tools.call("open_session", .object(["app": .string(app.bundleID)]))
+        await gate.release()
+        let answer = try await read.value
+        #expect(answer["content"].array?.first?["text"].string?.contains("The canvas holds") != true)
     }
 }
 
@@ -491,6 +424,28 @@ extension AppGuidesTests {
         func call(_ id: CapabilityID, arguments: JSONValue, context: CapabilityCallContext) async throws -> JSONValue {
             await gate.pause()
             return .string("Read complete.")
+        }
+    }
+}
+
+extension AppGuidesTests {
+    @MainActor
+    @Test func openCompositionIgnoresInjectedPrivateGuide() async throws {
+        let guide = try await make([Self.fixture()])
+        let session = ToolResultSession()
+        let tools = AutomationTools(session: session, profile: SessionProfile(attendance: .none, level: .actConnectors, memory: .readLearn,
+                catalogue: .open, takeover: false, options: .init(), name: "open"), guides: guide,
+                                    resolveGuideApp: { _ in self.app })
+        #expect(tools.guides == nil)
+        #expect(!tools.guidesEnabled)
+        #expect(!tools.toolDefinitions.contains { $0["name"].string == "read_guide" })
+        let answer = try await tools.call("open_session", .object(["app": .string(app.bundleID)]))
+        let text = answer["content"].array?.first?["text"].string ?? ""
+        #expect(!text.contains("<guide>"))
+        #expect(!text.contains("The canvas holds the drawing."))
+        await #expect(throws: AutomationFailure.self) {
+            try await tools.call("call", .object(["name": .string("read_guide"),
+                "arguments": .object(["app": .string(app.bundleID)])]))
         }
     }
 }

@@ -3,12 +3,11 @@ import Engine
 import EngineCore
 import Foundation
 import PerceptionCore
-import Switches
 import Testing
 
 struct ChooseInContextMenuStopTests {
-    @Test(arguments: ["off", "on"])
-    func stopAfterRightClickPreventsFurtherInput(_ arm: String) async {
+    @Test
+    func stopAfterRightClickPreventsFurtherInput() async {
         let wait = InterruptibleWait()
         let actuator = UncertainDeliveryTests.StoppingActuator(wait, fails: false)
         let element = SceneElement(id: "control|target", kind: .control, label: "Target",
@@ -18,14 +17,12 @@ struct ChooseInContextMenuStopTests {
             elements: [element]), frame: CGRect(x: 0, y: 0, width: 800, height: 600))
         let engine = ActionEngine(.init(scenes: ActionEngineTests.ScriptedScenes([window]), actuator: actuator,
             windows: ActionEngineTests.ScriptedWindows([[]])), pause: { _ in })
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": arm])) {
-            await InterruptibleWait.$current.withValue(wait) {
-                let result = await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X",
-                    input: .contextMenu(on: "Target", item: "Copy")))
-                #expect(actuator.calls == 1)
-                #expect(result.scene == nil)
-                #expect(!Task.isCancelled)
-            }
+        await InterruptibleWait.$current.withValue(wait) {
+            let result = await engine.deliver(InputRequest(processID: 42, bundleID: "com.x", appName: "X",
+                input: .contextMenu(on: "Target", item: "Copy")))
+            #expect(actuator.calls == 1)
+            #expect(result.scene == nil)
+            #expect(!Task.isCancelled)
         }
     }
 }

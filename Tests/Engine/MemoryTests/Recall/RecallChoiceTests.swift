@@ -58,7 +58,7 @@ struct RecallChoiceTests {
     @Test("the shortlist keeps the most relevant versions per need, a name each, even one the automatic selector names nothing in")
     func shortlistKeepsTheSource() {
         let photo = S.scored(S.photo(), steps: [2: 0.91, 3: 0.91, 4: 0.91, 5: 0.91, 6: 0.91], parts: ["photo/block-1": 0.95])
-        let other = S.scored(S.photo(route: "other"), steps: [3: 0.2], parts: [:])
+        let other = S.scored(S.photo(route: "other"), steps: [3: 0.70], parts: [:])
         let unrelated = S.scored(S.photo(route: "none"), steps: [:], parts: [:], floor: 0)
         let paraphrase = S.select([photo], need: "Turn the open picture clockwise and export it as PNG", app: S.preview)
         let italian = S.select([photo], need: "Ruota l'immagine e salvala in PNG", app: S.preview)

@@ -1,10 +1,6 @@
 import AutomationRuntime
 import Capabilities
 import Foundation
-import Switches
-
-/// GuideDeliveryArm chooses delivery timing without changing guide content.
-public nonisolated enum GuideDeliveryArm: String, Sendable, Codable { case attached, requested, indexOnly }
 
 /// AppGuides selects compatible guides and complete, uncovered sections within the caller's remaining budget.
 /// Loading and index construction finish before publication; the main actor retains only prepared values.
@@ -15,7 +11,6 @@ public final class AppGuides {
         case headExceedsCeiling
     }
 
-    public let arm: GuideDeliveryArm
     private let guides: [AppGuide]
     private let search: GuideSearch
     private let tokenCeiling: @Sendable (String) -> Int
@@ -27,7 +22,6 @@ public final class AppGuides {
     public init(
         guides: [AppGuide],
         search: GuideSearch,
-        arm: GuideDeliveryArm = .attached,
         tokenCeiling: @escaping @Sendable (String) -> Int = { _ in 1500 },
         estimateTokens: @escaping @Sendable (String) -> Int,
         coverThreshold: Double = 0.85,
@@ -35,7 +29,6 @@ public final class AppGuides {
     ) {
         self.guides = guides
         self.search = search
-        self.arm = arm
         self.tokenCeiling = tokenCeiling
         self.estimateTokens = estimateTokens
         self.coverThreshold = coverThreshold
@@ -50,7 +43,6 @@ public final class AppGuides {
         search: GuideSearch? = nil,
         vectors: CatalogueVectors? = nil,
         embedding: (any TextEmbedding)? = nil,
-        arm: GuideDeliveryArm? = nil,
         tokenCeiling: @escaping @Sendable (String) -> Int = { _ in 1500 },
         estimateTokens: @escaping @Sendable (String) -> Int,
         coverThreshold: Double = 0.85,
@@ -64,19 +56,13 @@ public final class AppGuides {
             }
         }
         let prepared = search ?? GuideSearch(guides: guides, vectors: vectors, embedding: embedding)
-        let selectedArm = arm ?? SwitchBoard.current.arm("guide_delivery", default: GuideDeliveryArm.attached)
-        return await AppGuides(guides: guides, search: prepared, arm: selectedArm, tokenCeiling: tokenCeiling,
+        return await AppGuides(guides: guides, search: prepared, tokenCeiling: tokenCeiling,
             estimateTokens: estimateTokens, coverThreshold: coverThreshold, similarity: similarity)
     }
 
     public func head(for app: OpenedApp) -> GuideHead? {
-        guard arm == .attached, let guide = guide(for: app) else { return nil }
+        guard let guide = guide(for: app) else { return nil }
         return GuideHead(header: guide.header, text: guide.head)
-    }
-
-    public func index(for app: OpenedApp) -> GuideIndex? {
-        guard arm == .indexOnly, let guide = guide(for: app) else { return nil }
-        return GuideIndex(header: guide.header, titles: guide.sections.map(\.title))
     }
 
     /// Uses memory text from the same app, then spends only the budget left after the head and memory.
@@ -86,39 +72,11 @@ public final class AppGuides {
         budgetTokens: Int,
         coveredBy memory: [MemoryPartSummary]
     ) async -> GuideSelection {
-        guard arm == .attached, let guide = guide(for: app) else {
+        guard let guide = guide(for: app) else {
             return GuideSelection(sections: [], overlaps: [])
         }
         let candidates = await search.sections(for: guide, query: todo.joined(separator: "\n"))
         return await select(candidates, guide: guide, budgetTokens: budgetTokens, memory: memory)
-    }
-
-    func requested(for app: OpenedApp, titles: [String]?, todo: [String]) async throws -> GuideHead {
-        guard let guide = guide(for: app) else { throw GuideCapability.Failure.unavailable }
-        let candidates: [AppGuide.Section]
-        if let titles {
-            candidates = try titles.map { title in
-                guard let section = guide.sections.first(where: { $0.title == title }) else {
-                    throw GuideCapability.Failure.unknownSection
-                }
-                return section
-            }
-        } else { candidates = await search.sections(for: guide, query: todo.joined(separator: "\n")) }
-        let selection = await select(candidates, guide: guide, budgetTokens: tokenCeiling(app.bundleID), memory: [])
-        var blocks = [guide.head] + selection.sections.map { "## " + $0.title + "\n" + $0.body }
-        if selection.leftOut > 0 {
-            blocks.append(ModelText.render(.init(rawValue: "guide.omitted"), ["count": .count(selection.leftOut)]))
-        }
-        if titles != nil { blocks.append(availableSections(for: app)) }
-        let text = blocks.joined(separator: "\n\n")
-        noteDelivered(for: app, sections: selection.sections.map(\.title))
-        return GuideHead(header: guide.header, text: text)
-    }
-
-    func availableSections(for app: OpenedApp) -> String {
-        guard let guide = guide(for: app) else { return "" }
-        return ModelText.render(.init(rawValue: "guide.available"),
-            ["titles": .minimized(guide.sections.map(\.title).joined(separator: ", "))])
     }
 
     /// Records only content retained by the delivery budget, within the dispatcher's current call.

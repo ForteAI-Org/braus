@@ -4,7 +4,6 @@ import LocalMCP
 import Foundation
 import ModelTransports
 import Testing
-import Switches
 import Turn
 
 @MainActor
@@ -23,8 +22,8 @@ struct TurnHostContractTests {
         var events: [TurnRunEvent] = []
         let outcome = try await runner.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
             contextWindow: 4096), role: "Edit documents.")) { events.append($0) }
-        #expect(transport.messages.first?.first?.text == TurnInstructions.compose(role: "Edit documents."))
-        #expect(transport.messages.first?.last?.text == "Braus seat: no session is open.\n\nHello")
+        #expect(transport.messages.first?.first?.text == testTurnInstructions(role: "Edit documents."))
+        #expect(transport.messages.first?.last?.text == "<braus_state>\nsession: closed\ntask: none\n</braus_state>\n\nHello")
         #expect(outcome.usage?.total == 12)
         #expect(outcome.rounds == 1)
         #expect(events.last == .usage(.init(tokens: .init(input: 10, output: 2), contextTokens: 12,
@@ -57,7 +56,7 @@ extension TurnHostContractTests {
         let arguments = values.compactMap { $0.string }
         let index = try #require(arguments.firstIndex(of: "--append-system-prompt"))
         let snapshot: JSONValue = .object([
-            "appText": .bool(arguments[index + 1] == TurnInstructions.compose(role: nil)),
+            "appText": .bool(arguments[index + 1] == testTurnInstructions()),
             "ending": .string("completed"), "prompt": received["standardInput"],
             "reply": .string(replies), "toolCalls": .number(Double(outcome.toolCalls)),
             "usage": try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(outcome.usage))
@@ -76,7 +75,7 @@ extension TurnHostContractTests {
         let host = TestTurnHost()
         let runner = testTurnRunner(host: host, root: root)
         let transport = TurnTestTransport([
-            [.toolCall(.init(id: "one", name: "status", arguments: Data("{}".utf8))),
+            [.toolCall(.init(id: "one", name: "observe", arguments: Data("{}".utf8))),
              .completed(.init(inputTokens: 1, outputTokens: 2, duration: .zero))],
             [.delta("ok"), .completed(.init(inputTokens: 1, outputTokens: 2, duration: .zero))]
         ])
@@ -87,7 +86,7 @@ extension TurnHostContractTests {
         }
         let messages = try #require(transport.messages.first)
         let snapshot: JSONValue = .object([
-            "appText": .bool(messages.first?.text == TurnInstructions.compose(role: nil)),
+            "appText": .bool(messages.first?.text == testTurnInstructions()),
             "ending": .string("completed"), "prompt": .string(try #require(messages.last).text),
             "reply": .string(replies), "toolCalls": .number(Double(outcome.toolCalls)),
             "usage": try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(outcome.usage))
@@ -100,51 +99,72 @@ extension TurnHostContractTests {
 }
 
 extension TurnHostContractTests {
-    @Test func seatLineV2HasTheSamePromptInBothHosts() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["seat_line": "v2", "tool_surface": "v2"])) {
-            let root = try testTurnRoot()
-            defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
-            let source = URL(filePath: #filePath).deletingLastPathComponent()
-            let script = root.appending(path: "provider.py")
-            try FileManager.default.copyItem(at: source.appending(path: "Fixtures/provider.py"), to: script)
-            try FileManager.default.copyItem(at: source.deletingLastPathComponent()
-                .appending(path: "Chat/Fixtures/claude-turn1.jsonl"), to: root.appending(path: "reply.jsonl"))
-            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
-            let host = TestTurnHost()
-            let app = testTurnRunner(host: host, root: root.appending(path: "app"))
-            let transport = TurnTestTransport([[.delta("ok"), .completed(.init(inputTokens: 1,
-                outputTokens: 1, duration: .zero))]])
-            _ = try await app.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
-                contextWindow: nil), reviewingHumanIntervention: true)) { _ in }
-            let cli = testTurnRunner(host: host, root: root.appending(path: "cli"), allowsSuspension: false)
-            _ = try await cli.run(.init(prompt: "Hello", route: .commandLine(provider: .claude,
-                executable: script, model: nil, effort: nil, environment: [:], allowsWebSearch: false),
-                reviewingHumanIntervention: true)) { _ in }
-            let received = try JSONDecoder().decode(JSONValue.self,
-                from: Data(contentsOf: root.appending(path: "received.json")))
-            #expect(received["standardInput"].string == transport.messages.first?.last?.text)
-            try await app.close()
-            try await cli.close()
-        }
+    @Test func structuredFactsHaveTheSamePromptInBothHosts() async throws {
+        let root = try testTurnRoot()
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let source = URL(filePath: #filePath).deletingLastPathComponent()
+        let script = root.appending(path: "provider.py")
+        try FileManager.default.copyItem(at: source.appending(path: "Fixtures/provider.py"), to: script)
+        try FileManager.default.copyItem(at: source.deletingLastPathComponent()
+            .appending(path: "Chat/Fixtures/claude-turn1.jsonl"), to: root.appending(path: "reply.jsonl"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        let host = TestTurnHost()
+        let app = testTurnRunner(host: host, root: root.appending(path: "app"))
+        let transport = TurnTestTransport([[.delta("ok"), .completed(.init(inputTokens: 1,
+            outputTokens: 1, duration: .zero))]])
+        _ = try await app.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
+            contextWindow: nil), reviewingHumanIntervention: true)) { _ in }
+        let cli = testTurnRunner(host: host, root: root.appending(path: "cli"), allowsSuspension: false)
+        _ = try await cli.run(.init(prompt: "Hello", route: .commandLine(provider: .claude,
+            executable: script, model: nil, effort: nil, environment: [:], allowsWebSearch: false),
+            reviewingHumanIntervention: true)) { _ in }
+        let received = try JSONDecoder().decode(JSONValue.self,
+            from: Data(contentsOf: root.appending(path: "received.json")))
+        #expect(received["standardInput"].string == transport.messages.first?.last?.text)
+        try await app.close()
+        try await cli.close()
     }
 }
 
 extension TurnHostContractTests {
     @Test func directNameOutsideProfileIsRefusedByRunner() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["tool_surface": "v2", "task_cycle": "v2"])) {
-            let root = try testTurnRoot()
-            defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
-            let host = TestTurnHost()
-            let runner = testTurnRunner(host: host, root: root)
-            let transport = TurnTestTransport([
-                [.toolCall(.init(id: "one", name: "status", arguments: Data("{}".utf8))),
-                 .completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))],
-                [.delta("done"), .completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))]
-            ])
-            _ = try await runner.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
-                contextWindow: nil))) { _ in }
-            #expect(transport.messages.dropFirst().flatMap { $0 }.contains { $0.text.contains("Unknown tool.") })
-            try await runner.close()
-        }
+        let root = try testTurnRoot()
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let host = TestTurnHost()
+        let runner = testTurnRunner(host: host, root: root)
+        let transport = TurnTestTransport([
+            [.toolCall(.init(id: "one", name: "status", arguments: Data("{}".utf8))),
+             .completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))],
+            [.delta("done"), .completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))]
+        ])
+        _ = try await runner.run(.init(prompt: "Hello", route: .modelLoop(transport: transport,
+            contextWindow: nil))) { _ in }
+        #expect(transport.messages.dropFirst().flatMap { $0 }.contains { $0.text.contains("Unknown tool.") })
+        try await runner.close()
+    }
+}
+
+
+extension TurnHostContractTests {
+    @Test func malformedArgumentsCountAsAttemptsWithoutDoubleCountingDecodedCalls() async throws {
+        let root = try testTurnRoot()
+        defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
+        let tools = AutomationTools(session: TurnTestSession())
+        let host = TestTurnHost()
+        let runner = TurnRunner(tools: tools, configuration: .init(workingDirectory: root,
+            bridgeExecutable: URL(filePath: "/bin/cat"), allowsSuspension: true), host: host)
+        let transport = TurnTestTransport([
+            [.toolCall(.init(id: "bad", name: "act", arguments: Data("{".utf8))),
+             .toolCall(.init(id: "read", name: "observe", arguments: Data("{}".utf8))),
+             .completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))],
+            [.delta("Reported."), .completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))]
+        ])
+        _ = try await runner.run(.init(prompt: "Inspect the synthetic state", route: .modelLoop(
+            transport: transport, contextWindow: nil))) { _ in }
+        #expect(tools.configurationEvidence["tool_attempts"]["act"] == .number(1))
+        #expect(tools.configurationEvidence["tool_attempts"]["observe"] == .number(1))
+        #expect(tools.configurationEvidence["tool_attempts"].object?.count == 2)
+        #expect(transport.messages.last?.filter { $0.role == .tool }.count == 2)
+        try await runner.close()
     }
 }

@@ -12,8 +12,8 @@ import Memory
 /// RecallConfiguration is how the Recall searches: the channel, the local model of the semantic channel and the
 /// folder its files are installed in, the document format, the thresholds of each channel and the weight of the
 /// lexical score in the combined one. The defaults are the configuration the Recall by the agent's choice was measured
-/// with (`chosen`); `BRAUS_RECALL` and `BRAUS_RECALL_MODELS` override them for a process, for a comparison and for
-/// diagnosis. The model's files are installed by an explicit setup step; when they are missing the semantic channel is
+/// with (`chosen`). `BRAUS_RECALL_MODELS` supplies the installed model directory.
+/// The model's files are installed by an explicit setup step; when they are missing the semantic channel is
 /// unavailable and the lexical one answers, the answer saying so.
 nonisolated public struct RecallConfiguration: Sendable, Equatable {
 
@@ -32,11 +32,8 @@ nonisolated public struct RecallConfiguration: Sendable, Equatable {
     public var hybridWeight: Double
     /// How the lexical score weighs a query's words (`LexicalIndex.Weighting`).
     public var lexicalWeighting: LexicalIndex.Weighting
-    /// Whether this configuration owns the archive's index. The product's configuration does, in the app, the MCP
-    /// server and the command line alike, so their workers build the same generation together. A configuration chosen
-    /// for one process by `BRAUS_RECALL` (a comparison, a diagnosis) is a guest: its worker keeps the live generations in
-    /// line with the catalogue and never starts, abandons or promotes one, and its queries answer over the owner's index,
-    /// saying so. Two owners of different configurations on one archive would retire each other's generations.
+    /// Whether this instance owns the archive's index. Product instances share the chosen configuration;
+    /// injected comparison configurations can remain guests without promoting or retiring generations.
     public var ownsIndex: Bool = true
 
     public init(channel: Channel, model: EmbeddingModelManifest?, modelsDirectory: URL?, format: RecallDocument.Format,
@@ -67,26 +64,11 @@ nonisolated public struct RecallConfiguration: Sendable, Equatable {
         KnowledgeLocation.support(environment: environment).appendingPathComponent("Models", isDirectory: true)
     }
 
-    /// The configuration of this process: the chosen default, with what the environment overrides.
+    /// Resolves the single product configuration and its installed model directory.
     public static func resolved(environment: [String: String] = ProcessInfo.processInfo.environment) -> RecallConfiguration {
         var configuration = Self.chosen
         configuration.modelsDirectory = environment["BRAUS_RECALL_MODELS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? Self.defaultModelsDirectory(environment: environment)
-        if let word = environment["BRAUS_RECALL"] {
-            let parts = word.split(separator: ":").map(String.init)
-            if let channel = parts.first.flatMap(Channel.init(rawValue:)) { configuration.channel = channel }
-            if parts.count > 1 { configuration.model = EmbeddingModelManifest.known[parts[1]] }
-            if configuration.channel == .lexical { configuration.model = nil }
-            configuration.ownsIndex = configuration == Self.resolvedDefault(configuration.modelsDirectory)
-        }
-        return configuration
-    }
-
-    /// The chosen configuration with a models folder, to tell an override that changes nothing from one that does.
-    static func resolvedDefault(_ modelsDirectory: URL?) -> RecallConfiguration {
-        var configuration = Self.chosen
-        configuration.modelsDirectory = modelsDirectory
-        if configuration.channel == .lexical { configuration.model = nil }
         return configuration
     }
 
@@ -97,8 +79,7 @@ nonisolated public struct RecallConfiguration: Sendable, Equatable {
     /// `recall-calibration-v3.json`. The thresholds only shape the automatic selector's suggestion a proposal shows; the
     /// shortlist does not read them. The model's files come from an explicit setup step into the models folder; until
     /// they are installed, or when they are refused, the lexical index answers, at its own thresholds, and every answer
-    /// says the semantic channel is unavailable and why. A process that asks another configuration (`BRAUS_RECALL`) is a
-    /// guest of the archive's index.
+    /// says the semantic channel is unavailable and why.
     public static let chosen = RecallConfiguration(
         channel           : .hybrid,
         model             : .graniteEmbedding107MMultilingual,

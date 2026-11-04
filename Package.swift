@@ -264,8 +264,6 @@ let package = Package(
         .executable(name: "braus-chrome-host", targets: ["braus-chrome-host"]),
     ],
     targets: [
-        .target(name: "Switches", path: "Sources/Switches", swiftSettings: pure),
-        .testTarget(name: "SwitchesTests", dependencies: ["Switches"], path: "Tests/SwitchesTests", swiftSettings: suite),
         
         // MARK: Driver
         // Pure types and role protocols. No OS call, no facility import.
@@ -320,7 +318,7 @@ let package = Package(
              "AccessibilityFacts", "EngineCore", "IncrementalText", "ModelTransports", "SeatDriving",
              // A worker's tools reach the desktop through the broker's own conformer of their session role.
              "AutomationRuntime", "Engine", "Memory", "LocalEmbedding", "PhaseSignposts",
-             "InteractionListener", "InteractionObservation", "ScreenCapture", "Switches"]
+             "InteractionListener", "InteractionObservation", "ScreenCapture"]
         ),
 
         // MARK: Driver tools
@@ -347,10 +345,10 @@ let package = Package(
         // AutomationRuntime, Memory, SQLiteMemory and SeatBroker for the Seat rung's wiring oracle alone (M05): test
         // target only.
         driverTests("SeatSession", ["SeatSession", "SeatCore", "CursorGuard", "SeatInput", "SeatDriving", "EngineCore",
-                                    "AutomationRuntime", "Memory", "SQLiteMemory", "SeatBroker", "Switches"]),
+                                    "AutomationRuntime", "Memory", "SQLiteMemory", "SeatBroker"]),
         driverTests("TargetReader", ["TargetReader"]),
 
-        .testTarget(name: "ReplayTests", dependencies: ["Switches", "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore", "LocalMCP", "Memory"], path: "Tests/Replay", resources: [.copy("Fixtures")], swiftSettings: suite),
+        .testTarget(name: "ReplayTests", dependencies: ["AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore", "LocalMCP", "Memory"], path: "Tests/Replay", resources: [.copy("Fixtures")], swiftSettings: suite),
         .testTarget(name: "SceneTextTests", dependencies: ["PerceptionCore", "AutomationMCP", "Memory"], path: "Tests/SceneText", resources: [.copy("Fixtures")], swiftSettings: suite),
 
         // MARK: Broker tests
@@ -440,10 +438,10 @@ let package = Package(
 
         // MARK: Engine
         // Outcomes, the verification rule, policies and the roles an actuator and a scene source fill. Pure.
-        engine("EngineCore", ["PerceptionCore", "Switches"], settings: pure),
+        engine("EngineCore", ["PerceptionCore"], settings: pure),
 
         // The act and observe cycle over the roles: resolve, gesture, verify, outcome. Nonisolated on purpose.
-        engine("Engine", ["EngineCore", "PerceptionCore", "PhaseSignposts", "Switches"], settings: pure),
+        engine("Engine", ["EngineCore", "PerceptionCore", "PhaseSignposts"], settings: pure),
 
         // The foreground `Actuating`: synthetic events at the HID system tap.
         engine("HIDActuation", ["EngineCore"], settings: pure),
@@ -513,15 +511,15 @@ let package = Package(
         // adopted window, routed commands inside a Turn, no activation.
         integration("SeatDriving", ["SeatCore", "SeatSession", "SeatCapture", "SeatInput", "WindowPlacement",
                                     "EngineCore", "PerceptionCore", "Perception", "AccessibilityActions",
-                                    "PhaseSignposts", "Switches"],
+                                    "PhaseSignposts"],
                     settings: pure),
 
         // MARK: Engine tools
         .target(name: "Turn",
                 dependencies: ["ChatCore", "CLIProviders", "LocalMCP", "ModelTransports", "AutomationRuntime",
-                               "AutomationMCP", "AgentLoop", "Capabilities", "Switches"], path: "Sources/Turn", swiftSettings: facility),
+                               "AutomationMCP", "AgentLoop", "Capabilities"], path: "Sources/Turn", swiftSettings: facility),
         .testTarget(name: "TurnTests", dependencies: ["Turn", "ChatCore", "CLIProviders", "LocalMCP", "ModelTransports",
-                                                    "AutomationMCP", "AutomationRuntime", "TestScratch", "Switches",
+                                                    "AutomationMCP", "AutomationRuntime", "TestScratch",
                                                     "EngineCore", "PerceptionCore", "AgentLoop"],
                     path: "Tests/Turn", resources: [.copy("Fixtures")], swiftSettings: facility),
         .target(name: "AgentLoop", dependencies: ["ModelTransports", "ChatCore", "LocalMCP", "AutomationRuntime"],
@@ -538,8 +536,8 @@ let package = Package(
                     "WorkspaceActivation", "Memory", "SQLiteMemory", "LiveScenes", "PerceptionCore",
                     "SeatDriving", "SeatCore", "SeatSession", "PrivateSymbols", "WindowPlacement", "LocalEmbedding",
                     // The one reader of an app's names in the person's languages (`BundleNames`); MacDriver depends on nothing.
-                    "MacDriver", "PhaseSignposts", "Switches"]),
-        .target(name: "Capabilities", dependencies: ["LocalMCP", "ChatCore"].map { .target(name: $0) },
+                    "MacDriver", "PhaseSignposts"]),
+        .target(name: "Capabilities", dependencies: ["LocalMCP"].map { .target(name: $0) },
                 path: "Sources/Capabilities", swiftSettings: pure),
         .target(name: "CapabilityRegistrations", dependencies: ["Capabilities"].map { .target(name: $0) },
                 path: "Sources/CapabilityRegistrations", swiftSettings: facility),
@@ -550,7 +548,7 @@ let package = Package(
         integration("AutomationMCP", ["Capabilities", "CapabilityRegistrations", "ChatCore",
                                      "AutomationRuntime", "LocalMCP", "EngineCore", "PerceptionCore", "Memory",
                                      "PrivateSymbols", "SeatCore", "WindowServerListing", "PhaseSignposts",
-                                     "AppAdapters", "TaskRouting", "Switches", "LocalEmbedding"]),
+                                     "AppAdapters", "TaskRouting", "LocalEmbedding"]),
         // The task router's rules and its catalogue of default routes: pure, and consulted before a session opens.
         integration("TaskRouting", settings: pure),
         // The session before the drivers: it sends each open to the web, the native driver or the desktop
@@ -666,7 +664,7 @@ let package = Package(
         .testTarget(name: "AgentLoopTests", dependencies: ["AgentLoop", "ModelTransports", "ChatCore",
                                                          "LocalMCP", "AutomationRuntime"],
                     path: "Tests/AgentLoop", swiftSettings: suite),
-        .testTarget(name: "ChatTests", dependencies: ["Switches", "ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
+        .testTarget(name: "ChatTests", dependencies: ["ChatCore", "CLIProviders", "FileConversations", "LocalMCP",
                                                     "AutomationMCP", "AutomationRuntime", "EngineCore", "PerceptionCore",
                                                     "TestScratch", "AppAdapters", "TaskRouting", "Capabilities", "Engine", "SeatDriving", "SeatSession", "Memory", "SQLiteMemory",
                                                     "braus-bridge"],
@@ -674,13 +672,13 @@ let package = Package(
         .testTarget(
             name: "BrausCLITests",
             dependencies: ["braus", "Turn", "EngineCore", "PerceptionCore", "ChatCore", "AutomationRuntime", "Perception",
-                           "Memory", "SQLiteMemory", "SeatBroker", "SeatDriving", "FileConversations", "TestScratch", "Switches",
+                           "Memory", "SQLiteMemory", "SeatBroker", "SeatDriving", "FileConversations", "TestScratch",
                            "AppAdapters", "ModelTransports", "LocalMCP", "CLIProviders"],
             path: "Tests/Engine/BrausCLITests",
             swiftSettings: facility
         ),
-        engineTests("EngineCore", ["EngineCore", "PerceptionCore", "Switches"]),
-        engineTests("Engine", ["Engine", "EngineCore", "PerceptionCore", "Switches"]),
+        engineTests("EngineCore", ["EngineCore", "PerceptionCore"]),
+        engineTests("Engine", ["Engine", "EngineCore", "PerceptionCore"]),
         engineTests("Memory", ["Memory", "EngineCore", "PerceptionCore"],
                     resources: [.copy("Fixtures/misfire-corpus.json"),
                                 .copy("Fixtures/misfire-corpus.md"), .copy("Privacy/Fixtures/sensitivity-cases.json")]),

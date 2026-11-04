@@ -1,5 +1,4 @@
 import CoreGraphics
-import Switches
 import EngineCore
 import PerceptionCore
 import Testing
@@ -38,8 +37,8 @@ struct GestureExpectTests {
         #expect(already.check?.verdict == .failed)
         #expect(already.noop == .statePresent)
     }
-    @Test func boundExpectationIsCheckedEvenWithTheSchemaOff() async {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["expect": "off"])) {
+    @Test func boundBatchExpectationIsAlwaysChecked() async {
+        do {
             let before = PerceivedWindow(scene: scene("12"), frame: .zero)
             let after = PerceivedWindow(scene: scene("124"), frame: .zero)
             let engine = ActionEngine(.init(scenes: ActionEngineTests.ScriptedScenes([after]),

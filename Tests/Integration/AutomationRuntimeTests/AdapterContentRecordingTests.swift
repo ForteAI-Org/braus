@@ -75,10 +75,15 @@ struct AdapterContentRecordingTests {
         var lines = [String]()
         tools.record   = { lines.append($0) }
         tools.producer = CallProducer(source: .mcp, streamID: "mcp-profile", traceID: "content-\(scenario.name)")
+        _ = try await tools.call("plan", .object(["request": .string("Exercise the adapter"),
+            "rows": .array([.object(["title": .string("Exercise the adapter")])])]))
         var answers = [String]()
         for call in scenario.calls {
-            let answer = try await tools.call("app_call", .object([
-                "app": .string(adapter.name), "verb": .string(call.verb), "arguments": .object(call.arguments),
+            let writes = adapter.verbs.first { $0.name == call.verb }?.safety != .read
+            var arguments = call.arguments
+            if writes { arguments["step"] = .string("r1") }
+            let answer = try await tools.call("call", .object([
+                "name": .string(adapter.name + "." + call.verb), "arguments": .object(arguments)
             ]))
             answers.append(String(describing: answer))
         }
@@ -104,16 +109,20 @@ struct AdapterContentRecordingTests {
                                     adapters: AppAdapters([MailAdapter(transport: CanaryMail())]))
         var lines = [String]()
         tools.record = { lines.append($0) }
-        _ = try await tools.call("app_call", .object([
-            "app": .string("mail"), "verb": .string("find_messages"),
-            "arguments": .object(["query": .string(Self.canary)]),
+        _ = try await tools.call("call", .object([
+            "name": .string("mail.find_messages"),
+            "arguments": .object(["query": .string(Self.canary)])
         ]))
-        let answer = try #require(lines.last)
-        let json = try JSONDecoder().decode(JSONValue.self, from: Data(answer.dropFirst("← app_call ".count).utf8))
+        let responsePrefix = "← mail.find_messages "
+        let responses = lines.filter { $0.hasPrefix(responsePrefix) }
+        try #require(responses.count == 1, "The resolved capability owns one result transcript: \(lines)")
+        let json = try JSONDecoder().decode(JSONValue.self, from: Data(responses[0].dropFirst(responsePrefix.count).utf8))
         let message = try #require(json["result"]["messages"].array?.first)
         #expect(message["subject"].string == "[withheld]" && message["sender"].string == "[withheld]")
         #expect(message["id"].string == "<m1@x>" && message["read"] == .bool(false), "ids and states stay")
-        #expect(lines.first?.contains(#""query":"[withheld]""#) == true, "\(lines)")
+        let requests = lines.filter { $0.hasPrefix("→ mail.find_messages ") }
+        #expect(requests.count == 1 && requests.first?.contains(#""query":"[withheld]""#) == true, "\(lines)")
+        #expect(lines.allSatisfy { !$0.contains(Self.canary) }, "No transcript line keeps the content")
     }
 }
 

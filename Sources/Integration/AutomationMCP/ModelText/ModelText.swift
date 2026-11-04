@@ -47,7 +47,6 @@ public nonisolated enum ModelText {
     }
 
     public static var catalogue: [Entry] {
-        guard TaskCycleArm.current == .v2 else { return allCatalogue }
         return allCatalogue.filter { entry in
             guard !entry.key.rawValue.contains("memory_task"), !entry.text.contains("memory_task") else { return false }
             switch entry.delivery {

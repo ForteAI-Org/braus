@@ -495,9 +495,15 @@ struct MemoryWiringTests {
         let session   = RecordedSession(directory: directory)
         let tools     = AutomationTools(session: session)
         tools.producer = CallProducer(source: .mcp, streamID: "mcp-profile", traceID: "message-7")
-        _ = try await tools.call("status", .object([:]))
-        _ = try await tools.call("act", .object(["session": .string(session.id!.uuidString), "target": .string("Save")]))
-        _ = try? await tools.call("act", .object(["session": .string("stale"), "target": .string("Save")]))
+        _ = try await tools.call("call", .object(["name": .string("status"), "arguments": .object([:])]))
+        _ = try await tools.call("plan", .object(["request": .string("Exercise confirmed and failed operations"),
+            "rows": .array([.object(["title": .string("Exercise the operation path")])])]))
+        _ = try await tools.call("act", .object(["step": .string("r1"), "target": .string("Save")]))
+        let invalid = try? await tools.call("act", .object(["session": .string("stale"), "target": .string("Save")]))
+        #expect(invalid == nil || invalid?["isError"].bool == true, "An obsolete argument never reaches the recorder")
+        session.failsOnTarget = "Unavailable"
+        let failed = try await tools.call("act", .object(["step": .string("r1"), "target": .string("Unavailable")]))
+        #expect(failed["isError"].bool == true)
         let service = MemoryService.shared(for: directory)
         #expect(await service.flush(within: .seconds(10)))
         let written = await service.status()
@@ -509,7 +515,7 @@ struct MemoryWiringTests {
         if case .outcome(let kind, _)? = calls[1].progress.result { #expect(kind == .foundActed) }
         else { Issue.record("act outcome missing") }
         #expect(calls[1].event.app?.bundleID == W.bundle)
-        #expect(calls[2].progress.status == .failed, "a call the tool refused is recorded as failed")
+        #expect(calls[2].progress.status == .failed, "a failure after confirmed start is recorded as failed")
         await service.close()
     }
 
@@ -520,23 +526,23 @@ struct MemoryWiringTests {
         let tools     = AutomationTools(session: RecordedSession(directory: directory),
                                         adapters: AppAdapters([NoteAdapter()]))
         tools.producer = CallProducer(source: .mcp, streamID: "mcp-profile", traceID: "message-8")
-        _ = try await tools.call("app_capabilities", .object(["app": .string("Notes")]))
-        let answer = try await tools.call("app_call", .object([
-            "app"      : .string("notes"),
-            "verb"     : .string("create_note"),
-            "arguments": .object(["title": .string("Braus test"), "body": .string("Zoë's canary-4127 body")]),
-        ]))
+        let found = try await tools.call("find", .object(["query": .string("Create a note in Notes")])).payload
+        #expect(found["capabilities"].array?.contains { $0["name"].string == "notes.create_note" } == true)
+        _ = try await tools.call("plan", .object(["request": .string("Create the synthetic note"),
+            "rows": .array([.object(["title": .string("Create the synthetic note")])])]))
+        let answer = try await tools.call("call", .object(["name": .string("notes.create_note"),
+            "arguments": .object(["step": .string("r1"), "title": .string("Braus test"), "body": .string("Zoë's canary-4127 body")])]))
         #expect(String(describing: answer).contains("ok Created Braus test."))
         let service = MemoryService.shared(for: directory)
         #expect(await service.flush(within: .seconds(10)))
         let calls = try await service.calls(inTrace: "message-8")
-        #expect(calls.map(\.request.tool) == [.appCapabilities, .appCall])
+        #expect(calls.map(\.request.tool) == [.appCall], "Discovery has no operation record; the one dispatched adapter call does")
         #expect(calls.allSatisfy { $0.event.app?.bundleID == "com.apple.Notes" })
-        if case .appCall(_, let verb, let arguments) = calls[1].request {
+        if case .appCall(_, let verb, let arguments) = calls[0].request {
             #expect(verb == "create_note")
             #expect(arguments == #"{"body":"[withheld]","title":"Braus test"}"#)
         } else { Issue.record("app_call request missing") }
-        if case .outcome(let kind, _)? = calls[1].progress.result { #expect(kind == .foundActed) }
+        if case .outcome(let kind, _)? = calls[0].progress.result { #expect(kind == .foundActed) }
         else { Issue.record("app_call outcome missing") }
         await service.close()
         #expect(try archiveOccurrences(of: "canary-4127", in: directory.appendingPathComponent("memory.sqlite")).isEmpty)
@@ -561,8 +567,10 @@ struct MemoryWiringTests {
             let session = RecordedSession(directory: place.directory)
             let tools   = AutomationTools(session: session)
             tools.producer = place.producer
-            _ = try await tools.call("status", .object([:]))
-            _ = try await tools.call("act", .object(["session": .string(session.id!.uuidString), "target": .string(place.learns.label)]))
+            _ = try await tools.call("call", .object(["name": .string("status"), "arguments": .object([:])]))
+            _ = try await tools.call("plan", .object(["request": .string("Exercise this archive's own control"),
+                "rows": .array([.object(["title": .string("Exercise this archive's own control")])])]))
+            _ = try await tools.call("act", .object(["step": .string("r1"), "target": .string(place.learns.label)]))
             let service  = MemoryService.shared(for: place.directory)
             let recorder = CallRecorder(memory: service, brain: W.brain(service), context: ActionContext(
                 source: place.producer.source, streamID: place.producer.streamID, traceID: nil, sessionID: nil))
@@ -683,6 +691,7 @@ final class RecordedSession: AutomationSessionOperating {
 
     let directory: URL
     let id: UUID? = UUID()
+    var failsOnTarget: String?
 
     init(directory: URL) { self.directory = directory }
 
@@ -692,7 +701,8 @@ final class RecordedSession: AutomationSessionOperating {
     func open(application: String, window: String?) async throws -> SceneSnapshot { throw AutomationFailure("not here") }
     func observe() async throws -> SceneSnapshot { throw AutomationFailure("not here") }
     func act(target: String, verb: ActionVerb, section: String?, desiredState: ControlState?) async throws -> ActOutcome {
-        ActOutcome(.foundActed, "clicked '\(target)'")
+        if target == failsOnTarget { throw AutomationFailure("The synthetic session failed after its confirmed start") }
+        return ActOutcome(.foundActed, "clicked '\(target)'")
     }
     func select(control: String, item: String) async throws -> ActOutcome { ActOutcome(.foundActed, "selected") }
     func classify(_ input: InputRequest.Input, section: String?) async -> TextTargetClass { AttestedFields.classify(input) }

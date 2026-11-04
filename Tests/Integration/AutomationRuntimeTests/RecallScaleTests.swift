@@ -109,18 +109,18 @@ struct RecallScaleTests {
         let tools = ProcedureLearningTests.tools(session, stream: "load-\(index % 8)")
         let id = session.id!.uuidString
         let begun = try await ProcedureLearningTests.task(tools, #"""
-            {"operation":"begin","goal":"\#(verb) the \#(object) \#(qualifier)","recall":false,
+            {"request":"\#(verb) the \#(object) \#(qualifier)",
              "inputs":[{"name":"output_name","value":"item_\#(index)"}]}
             """#)
-        guard begun["status"].string == "begun" else { throw RecallCorpus.Failure("begin \(index): \(begun)") }
+        guard begun["status"].string == "planned" else { throw RecallCorpus.Failure("begin \(index): \(begun)") }
         _ = try await ProcedureLearningTests.call(tools, "open_session", #"{"app":"\#(app)"}"#)
         _ = try await ProcedureLearningTests.call(tools, "act", #"{"session":"\#(id)","target":"Item \#(index)"}"#)
         _ = try await ProcedureLearningTests.call(tools, "menu", #"{"session":"\#(id)","path":"File > \#(verb)…"}"#)
         _ = try await ProcedureLearningTests.call(tools, "type_text", #"{"session":"\#(id)","target":"Untitled","text":"item_\#(index)"}"#)
         _ = try await ProcedureLearningTests.call(tools, "press", #"{"session":"\#(id)","button":"OK"}"#)
-        let ended = try await ProcedureLearningTests.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        guard let candidate = ended["candidate"]["id"].string else { throw RecallCorpus.Failure("end \(index): \(ended)") }
-        let interpreted = try await ProcedureLearningTests.task(tools, #"""
+        let ended = try await ProcedureLearningTests.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await ProcedureLearningTests.candidateIDFixture(tools, session)
+        let interpreted = try await ProcedureLearningTests.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)",
              "procedure":{"label":"\#(verb) the \#(object) \#(qualifier) as <output_name>"},
              "steps":[{"step":1,"label":"Select the \#(object) in the list"},{"step":2,"label":"Open the \#(verb) dialog"},

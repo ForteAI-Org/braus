@@ -3,7 +3,6 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
-import Switches
 import Testing
 
 @Suite("Second look")
@@ -11,32 +10,25 @@ struct SecondLookTests {
     @Test("qualification preserves a seen effect", arguments: [SettleResult.settled, .capped, .unavailable],
           [OperationCheck.Verdict.passed, .failed, .unknown])
     func qualification(ending: SettleResult, verdict: OperationCheck.Verdict) {
-        SwitchBoard.$testing.withValue(SwitchBoard(values: ["verdict_v2": "on"])) {
-            let first = ActOutcome(verdict == .passed ? .foundActed : .actedUnverified, "Evidence", check:
-                OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: verdict,
-                               performed: .requested))
-            let result = ActionEngine.qualified(first, after: ending, cap: .milliseconds(300))
-            #expect(result.check?.verdict == (ending == .settled ? verdict : verdict == .passed ? .passed : .unknown))
-            #expect(result.message == first.message)
-            #expect(result.check?.methodVersion == "engine-oracle-2")
-            #expect(ending == .settled || result.check?.limits.contains(ending == .capped ? .settleCapped : .settleUnwatched) == true)
-        }
+        let first = ActOutcome(verdict == .passed ? .foundActed : .actedUnverified, "Evidence", check:
+            OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: verdict,
+                           performed: .requested))
+        let result = ActionEngine.qualified(first, after: ending, cap: .milliseconds(300))
+        #expect(result.check?.verdict == (ending == .settled ? verdict : verdict == .passed ? .passed : .unknown))
+        #expect(result.message == first.message)
+        #expect(result.check?.methodVersion == "engine-oracle-2")
+        #expect(ending == .settled || result.check?.limits.contains(ending == .capped ? .settleCapped : .settleUnwatched) == true)
     }
 
-    @Test("off retains the original scene qualification and version")
-    func off() {
-        for values in [[:], ["verdict_v2": "off", "second_look": "off"]] {
-            SwitchBoard.$testing.withValue(SwitchBoard(values: values)) {
-                #expect(!SecondLook.isEnabled)
-                let first = ActOutcome(.foundActed, "Evidence", check:
-                    OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: .passed,
-                                   performed: .requested))
-                let result = ActionEngine.qualified(first, after: .capped, cap: .milliseconds(300))
-                #expect(result.check?.verdict == .unknown)
-                #expect(result.check?.methodVersion == "engine-oracle-1")
-                #expect(result.message.contains("ended at its cap (300 ms)"))
-            }
-        }
+    @Test("historical check rule identities remain readable")
+    func historicalCheckIdentity() {
+        let historical = OperationCheck(condition: .structuralEffect, method: .sceneDifference,
+            methodVersion: "engine-oracle-1", verdict: .passed, performed: .requested)
+        let result = ActionEngine.qualified(ActOutcome(.foundActed, "Historical proof", check: historical),
+            after: .capped, cap: .milliseconds(300))
+        #expect(result.check?.methodVersion == "engine-oracle-1")
+        #expect(result.check?.verdict == .passed)
+        #expect(OperationCheck.engineVersion == "engine-oracle-2")
     }
 }
 

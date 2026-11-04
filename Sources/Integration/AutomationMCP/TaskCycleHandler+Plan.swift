@@ -191,7 +191,7 @@ extension TaskCycleHandler {
                 "last_state": previous.lastState.map(JSONValue.string) ?? .null])
         }
         let offered = rowsNeedingMemory(todo.rows)
-        if !offered.isEmpty || RecallRendering.Version.current == .v2 {
+        do {
             let delivery = await deliverMemory(for: offered, content: base.content, task: current, owner: owner, memory: memory, baseAnswer: answer, state: state)
             try checkPlan()
             answer.merge(delivery, uniquingKeysWith: { _, new in new })

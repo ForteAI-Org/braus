@@ -24,7 +24,7 @@ struct BrainReadRecorderTests {
                                      app: AppContextIdentity(bundleID: W.bundle))
             let result = try await InterruptibleWait.$current.withValue(wait) {
                 try await tools.call("act", .object([
-                    "session": .string(try #require(session.id).uuidString), "target": .string("Open")
+                    "target": .string("Open")
                 ]))
             }
             #expect(!String(describing: result).contains("Late scene canary"))

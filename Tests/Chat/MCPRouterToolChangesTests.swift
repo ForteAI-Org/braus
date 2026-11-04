@@ -117,3 +117,31 @@ struct MCPRouterToolChangesTests {
         client.close()
     }
 }
+
+extension MCPRouterToolChangesTests {
+    @Test @MainActor
+    func queuedCancellationCountsARefusedAttemptWithoutCallingIt() async throws {
+        var release: CheckedContinuation<Void, Never>?
+        var called: [String] = []
+        var refused: [String] = []
+        let router = MCPRouter(tools: [.object(["name": .string("observe")])], instructions: nil,
+            rejectedToolAttempt: { refused.append($0) }) { name, _ in
+                called.append(name)
+                await withCheckedContinuation { release = $0 }
+                return .string("done")
+            }
+        let active = Task { await router.handle(request("tools/call")) }
+        for _ in 0..<1000 where release == nil { await Task.yield() }
+        let finish = try #require(release)
+        let waiting = Task { await router.handle(request("tools/call", id: 2)) }
+        for _ in 0..<20 { await Task.yield() }
+        _ = await router.handle(.object(["jsonrpc": .string("2.0"), "method": .string("notifications/cancelled"),
+            "params": .object(["requestId": .number(2)])]))
+        finish.resume()
+        _ = await active.value
+        #expect(await waiting.value == nil)
+        await router.drain()
+        #expect(called == ["observe"])
+        #expect(refused == ["observe"])
+    }
+}

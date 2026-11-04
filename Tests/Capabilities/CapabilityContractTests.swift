@@ -15,11 +15,12 @@ struct CapabilityContractTests {
     }
 
     @Test func everyServedToolHasAnExplicitContract() throws {
-        let definitions = AutomationTools.definitions(for: [.native, .web, .adapters])
+        let definitions = ToolCatalogue.availableDefinitions(for: [.native, .web, .adapters])
         let contracts = ToolCatalogue.contracts(for: [.native, .web, .adapters])
         let core = contracts.filter { $0.origin == .core }
-        #expect(core.count == definitions.count + 3)
-        #expect(core.map(\.id.rawValue) == definitions.compactMap { $0["name"].string } + ["find", "call", "triple_click"])
+        #expect(core.count == 26)
+        #expect(AutomationTools.definitions(for: [.native, .web, .adapters]).count == 11)
+        #expect(core.map(\.id.rawValue) == definitions.compactMap { $0["name"].string } + ["find", "call", "triple_click", "reconcile_call"])
         for definition in definitions {
             let contract = try #require(core.first { $0.id.rawValue == definition["name"].string })
             let expected = ToolCatalogue.catalogueNames.contains(contract.id.rawValue)
@@ -38,16 +39,16 @@ struct CoreEffectClassTests {
     @Test func coreEffectClassesAndSessions() throws {
         let contracts = ToolCatalogue.contracts(for: [.native, .web, .adapters])
         let registry = try CapabilityRegistry(core: contracts, registered: [])
-        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "find", "memory_task"]
+        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "find", "plan", "end"]
         let noSession: Set<String> = ["status", "windows", "apps", "open_session", "app_capabilities",
-                                      "app_call", "memory_task", "find", "call"]
+                                      "app_call", "plan", "end", "find", "call", "reconcile_call"]
         for contract in contracts where contract.origin == .core {
             let name = contract.id.rawValue
-            let channel: Channel = ["status", "windows", "apps", "memory_task", "find", "close_session"].contains(name)
+            let channel: Channel = ["status", "windows", "apps", "plan", "end", "find", "close_session", "reconcile_call"].contains(name)
                 ? .braus : (["app_call", "app_capabilities"].contains(name) ? .adapter
                     : (name == "collect_posts" ? .web : .seat))
             #expect(contract.channel == channel)
-            if ["memory_task", "find", "call"].contains(name) {
+            if ["plan", "end", "find", "call", "reconcile_call"].contains(name) {
                 guard case .notRecorded = contract.memory else {
                     Issue.record("The interaction cycle owns its own record")
                     continue
@@ -60,6 +61,15 @@ struct CoreEffectClassTests {
             #expect(contract.effect == (reads.contains(contract.id.rawValue) ? .read : .write))
             #expect(contract.takesSession == !noSession.contains(contract.id.rawValue))
         }
+        for name in ["plan", "end"] {
+            let contract = try #require(contracts.first { $0.id.rawValue == name })
+            #expect(contract.interruption == .mutating)
+            let definition = try #require(ToolCatalogue.availableDefinitions(for: []).first { $0["name"].string == name })
+            #expect(definition["annotations"]["readOnlyHint"] == .bool(false))
+        }
+        let recovery = try #require(contracts.first { $0.id.rawValue == "reconcile_call" })
+        #expect(recovery.effect == .write && recovery.interruption == .mutating && recovery.channel == .braus)
+        #expect(!recovery.takesSession && recovery.inputSchema["properties"]["step"] == .null)
         #expect(registry.effectClass(of: "unknown", arguments: .null) == .write)
         #expect(registry.effectClass(of: "app_call", arguments: .null) == .write)
     }
@@ -81,17 +91,21 @@ struct AdapterContractTests {
         ])) == .read)
     }
 
-    @Test func adapterChangesUpdateTheServedEffect() {
-        let tools = AutomationTools(session: DemoSession())
-        let arguments: JSONValue = .object(["app": .string("demo"), "verb": .string("inspect")])
-        #expect(tools.effectClass(of: "app_call", arguments: arguments) == .write)
-        tools.adapters = AppAdapters([DemoAdapter(safeties: [.read])])
-        #expect(tools.effectClass(of: "app_call", arguments: arguments) == .read)
-        tools.adapters = AppAdapters([DemoAdapter(safeties: [.irreversible])])
-        #expect(tools.effectClass(of: "app_call", arguments: arguments) == .irreversible)
-        tools.adapters = nil
-        #expect(tools.effectClass(of: "app_call", arguments: arguments) == .write)
-        #expect(!tools.toolDefinitions.contains { $0["name"].string == "app_call" })
+    @Test func adapterCompositionsServeTheirOwnEffects() throws {
+        let businessArguments: JSONValue = .object(["app": .string("demo"), "verb": .string("inspect")])
+        let callArguments: JSONValue = .object(["name": .string("demo.inspect"), "arguments": .object([:])])
+        for safety in [AdapterVerb.Safety.read, .write, .irreversible] {
+            let tools = AutomationTools(session: DemoSession(), adapters: AppAdapters([DemoAdapter(safeties: [safety])]))
+            let expected = try #require(EffectClass(rawValue: safety.rawValue))
+            #expect(tools.effectClass(of: "app_call", arguments: businessArguments) == expected)
+            #expect(tools.effectClass(of: "call", arguments: callArguments) == expected)
+            let entry = try #require(tools.dispatcher.entries.first { $0.contract.id.rawValue == "demo.inspect" })
+            #expect(entry.contract.effect == expected)
+            #expect(!tools.toolDefinitions.contains { $0["name"].string == "app_call" })
+        }
+        let withoutAdapters = AutomationTools(session: DemoSession())
+        #expect(withoutAdapters.effectClass(of: "app_call", arguments: businessArguments) == .write)
+        #expect(!withoutAdapters.dispatcher.entries.contains { $0.contract.id.rawValue == "demo.inspect" })
     }
 
     @Test func adapterContractsPreserveTheirDeclarations() throws {
@@ -105,7 +119,14 @@ struct AdapterContractTests {
                     ? .readBack(description: verb.readBack) : .none(reason: "no read-back")))
                 #expect(contract.channel == .adapter)
                 #expect(contract.origin == .adapter(adapter.name))
-                #expect(contract.inputSchema == verb.schema)
+                var actualSchema = try #require(contract.inputSchema.object)
+                var actualProperties = try #require(actualSchema["properties"]?.object)
+                let step = actualProperties.removeValue(forKey: "step")
+                actualSchema["properties"] = .object(actualProperties)
+                #expect(JSONValue.object(actualSchema) == verb.schema)
+                #expect(step == (verb.safety == .read ? nil : .object([
+                    "type": .string("string"), "pattern": .string("^r[1-9][0-9]*$")
+                ])))
                 #expect(contract.memory == .agentCall(tool: "app_call"))
                 #expect(contract.interruption == .mutating)
                 #expect(!contract.parallelSafe)

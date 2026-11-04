@@ -209,6 +209,58 @@ def check(root):
 
 # Each identity below is a reviewed non-prose literal, never a general allow rule.
 CLASSIFICATIONS = """
+Sources/Integration/AutomationMCP/CallDispatcher.swift | call | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | directory | 047888972441031f222d3b4eb8bd0b38bf157922c669d75db3b8e175d2a1761b | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | directory | 8b78f91c8ffc07ea39b5b5e1416e12d5d4084fce40d08d74d72e57c96a48b694 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | evidence | edecec53ab11f560816e75a17681eb83886beace01d7fb927d99707d3d031aac | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | fact | 0c875e9878d8eca24958f08bb5c9a25613ecf7a5cbc37e3e1aee93033e84a599 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | fact | 60f09aba19b1f2175129eb4e072f52392fffb4d6f9adbe725c0f2eef023e7dc8 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | fact | 908c690da171a9ae7398390cb0fbc46b35fe48dd7dc517b6ef2fee0f20d4f19b | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | finding | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | finding | b2574a9ea522639294561e1f32b52fd661d2015c6c619dded1c444615b6f8b17 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | finding | e996ee63bc2d00dfcba6388c8ddeee47d4fbce806e00f97d2e6f15e8e697e6cf | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | gesture | 27cd8d71ef427f37070ba3a6f0c88b7ad3b71be5e29ef70880f41c2ff2af635c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | note | 86a431bb16ad4fc733f6a10364bdc60497b32ce829109d65a18aed9cc8cf1b54 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | owned | 0c875e9878d8eca24958f08bb5c9a25613ecf7a5cbc37e3e1aee93033e84a599 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | owned | ebd6f53ee2d04095c465ef9508fce5a58a80c3090029a210392ed41a3e4f592c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | presented | 8d355f4844d074d15364b10d8db80549089422abba1cf0edfd3327068e69e074 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | receipt | 86f0ab3699ec31b180669c834eb30e84c54c374f4c70402de63aebb74d544f98 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | receipt | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | receipt | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | 27cd8d71ef427f37070ba3a6f0c88b7ad3b71be5e29ef70880f41c2ff2af635c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | value | 06496ff7cdba2b6b165c24c3dde5b3bd19224206b28c2cc5334a40cee41bb49c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | value | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | value | e5dd6911470836de9f2cad863f1b900326dbc66b5c5fef476a55e78a974ac4d0 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | value | e996ee63bc2d00dfcba6388c8ddeee47d4fbce806e00f97d2e6f15e8e697e6cf | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | value | edecec53ab11f560816e75a17681eb83886beace01d7fb927d99707d3d031aac | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | 27cd8d71ef427f37070ba3a6f0c88b7ad3b71be5e29ef70880f41c2ff2af635c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | 02b4d3c61e6e8ee13324cdcf8491864f1b84517f8768af01da443019523b331e | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | 27cd8d71ef427f37070ba3a6f0c88b7ad3b71be5e29ef70880f41c2ff2af635c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | 73d3014ffa34b51f254c4690aeb1d0baf61db3ae2f141dd4510962d00b7df6d8 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | 86a431bb16ad4fc733f6a10364bdc60497b32ce829109d65a18aed9cc8cf1b54 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | 91fd750cd24e4f563398cefaa569b0d5d938dbd1b05602633fbfffb1cab59e0b | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | e49fb5f753e8aa4d47de1997cf344e108a4ccc685d45f43a37b7f49085f585e2 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | e996ee63bc2d00dfcba6388c8ddeee47d4fbce806e00f97d2e6f15e8e697e6cf | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | text | edecec53ab11f560816e75a17681eb83886beace01d7fb927d99707d3d031aac | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | agentTool | 27cd8d71ef427f37070ba3a6f0c88b7ad3b71be5e29ef70880f41c2ff2af635c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 27cd8d71ef427f37070ba3a6f0c88b7ad3b71be5e29ef70880f41c2ff2af635c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 27cd8d71ef427f37070ba3a6f0c88b7ad3b71be5e29ef70880f41c2ff2af635c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contract | d33f6725c5db4ca902fb358d22cb82499df619feeea073f8b9d0d2dea5e84775 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contract | 8a2b49b006c72755f21f9d8e8b2bcf4fa20678a466bf4781b7117b230f60afff | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contract | 015be95fa11e8eb348c296805077f84add4e7e6fd816de022d6a173e5e5440de | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contract | 7c3d4616fc1b7e87268aca67f57e9648fbe20a95c322ee9d4abc307dab668f21 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contract | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | 377736fc0f96aafc69f6e055b127c03d15620e3357be41bae960a5583ffb4907 | Runtime identity protocol field or catalogue key; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | Runtime identity protocol field or catalogue key; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | 26ee6a6b811134f84cf521a930afef7eeb4c72846cc0defd1b967e8c71c8ae04 | Runtime identity protocol field or catalogue key; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | 328adf805b3605ede4c6d7a96c75e8961d7b1622e3aeed3af044e758bbbe9fa6 | Runtime identity protocol field or catalogue key; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | Runtime identity protocol field or catalogue key; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | da305fc9c6bf37e87474d1b0514872eab23e4338e9180f60a41ae4cc5a237f0c | Runtime identity protocol field or catalogue key; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | directory | 253d92ad0483952ba9b88a55c21d1d093d13d570cb6181f1e623b06a92443ca5 | Runtime identity protocol field or catalogue key; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | directory | a0ffb03d76496d2d3e6aab6fdb42dbe498ef55e516f9ed9693cd92c88781069c | Runtime identity protocol field or catalogue key; no prose.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | kept | cdfabf4a058b06587e285ee08de7d6b7492e1b183fe7969bc3ab937d1d080545 | Model text catalogue key
 Sources/Integration/AutomationMCP/SceneTextPolicy.swift | notice | 1d30f7278206614ff8f80cb200768e5177e676225b6d690b70c71db66e02325c | Model text catalogue key
 Sources/Integration/AutomationMCP/SceneTextPolicy.swift | notice | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Scene line separator
@@ -239,16 +291,6 @@ Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | requireUn
 Sources/Integration/AutomationMCP/CallDispatcher.swift | stopped | 65329cc8b768423c288d10b26b2e48701c201e5f37928f461af6dfd5a9a6d9ae | Batch tool identifier
 Sources/Integration/AutomationMCP/CallDispatcher.swift | reason | 65329cc8b768423c288d10b26b2e48701c201e5f37928f461af6dfd5a9a6d9ae | Batch tool identifier
 Sources/Integration/AutomationMCP/ToolArguments.swift | available | 1706c6e65ba467fae61caec26716cd1037e3ee730e6d5f77f7c971fc63c3a347 | Batch operation identifier
-Sources/Integration/AutomationMCP/AutomationTools.swift | loading | 26ee6a6b811134f84cf521a930afef7eeb4c72846cc0defd1b967e8c71c8ae04 | Tool loading switch identifier
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | name | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | MCP tool name or protocol field
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | definition | d37360509919173d6a94cbfdad0872a9eb5cc5225e56ff68d00a87b8f4376e65 | MCP tool name or protocol field
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | definition | adbcac1c821c087f541a868dc82707c038315ffe416da56fc07b6c0397d38e92 | MCP tool name or protocol field
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | definition | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | MCP tool name or protocol field
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | definition | 4b1545477be6dc17f3a70e659635a34650696be11c051c0c247ea3a09b73d279 | MCP tool name or protocol field
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | definition | 257286b768ee01518960b3c485f54d2c2a0256fb0f15e7ccd4c58cf61a2ff6cb | MCP tool name or protocol field
-Sources/Integration/AutomationMCP/AutomationTools.swift | prepareCapabilitySearch | c8f794e560fdd051dc0967cdf64e86f5099f315ed62633c2f16ee4910bf65efc | Tool surface switch identifier
-Sources/Integration/AutomationMCP/AutomationTools.swift | prepared | 4cbc91a724544463b473cb01e853810100441b44b118909e0871970d4b767ef8 | Guide delivery switch identifier
-Sources/Integration/AutomationMCP/CallDispatcher.swift | provider | a49ec5811060dc6909e5cb8910db21ae472eb68ddb1ad1195fb1a510c2a86f0b | Guide capability identifier
 Sources/Integration/AutomationMCP/CallDispatcher.swift | notRun | cf743b88215d5968791ba31c92a0e210d0d74ae87f8177880084ecc161f48b25 | Typed outcome row punctuation and dynamic producer message
 Sources/Integration/AutomationMCP/CallDispatcher.swift | lines | 7c3b2b26071f030e3975631aceaee8898861f4915abebc766960316066a0a85b | Typed outcome row punctuation and dynamic producer message
 Sources/Integration/AutomationMCP/CallDispatcher.swift | lines | 873ac102bbc3bb241d4358e55be68ffa3016f51efce8ff63de5acca02e9dd112 | Batch schema field, switch arm or closed protocol code
@@ -262,15 +304,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | sceneText | 1914b3c8107
 Sources/Integration/AutomationMCP/CallDispatcher.swift | sceneText | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/CallDispatcher.swift | sceneText | e8f625c40b0e710f847d6eb25a05c7e10e6291793baf29fdd0adfba55e1e2579 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/CallDispatcher.swift | text | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | 3c22349f8d0b6077e455e7638fb49a4eee40103dc09ce17ed889569f429c91cb | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | 3fe40faae15b6cd0836dce570fae3d61062b3d9cbd73c77fc105daaa68668548 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | 626992da9517ee49930ee1340383a0cc334563d9aa429619a17842d0eeecb524 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | 9b2a344820da3e82bfe8dba723e10565e30024d9cd391b853fbadc55f585c909 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | c13d51c14252cadffd538d6d3887ae5ffe89a08543d8b0c421b2b1814e78af59 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | cf51937bad8b2f6948b8edf1bd3289f3bc332ec610f99df2f5aff0218b3a554b | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | description | 65329cc8b768423c288d10b26b2e48701c201e5f37928f461af6dfd5a9a6d9ae | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | description | 9857c6f25abe8802ac9b6cd9690dcba4c138cbd6df64832b210c2403c99aa531 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/CallDispatcher.swift | answer | 15b0fb141b7672221ecefd53ca5a29ea042e3bc3bad9e08c11df0cebce279c2e | Batch schema field, switch arm or closed protocol code
@@ -281,23 +314,12 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | answer | cfc31bcc34ed7f
 Sources/Integration/AutomationMCP/CallDispatcher.swift | answer | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/CallDispatcher.swift | answer | de9d7f3521c6ad817cdc2c63f60f18037c9b3404b20ac2df1db16e403ef8b784 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/CallDispatcher.swift | answer | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | batch | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | result | 52109349dabf69106e04ec2f493fb8b6ade94ea100227cccce6559ab8b96553f | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/CallDispatcher.swift | result | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/CallDispatcher.swift | binding | d8e1fb7286f3aec8238ba63fe2e71c27b9da32718b8f630c430930b708407604 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | result | f0ecefe16d85c80b8b93058d7d23acd0b7ad811e8fcd7778921a7e334da43543 | Typed outcome row punctuation and dynamic producer message
 Sources/Integration/AutomationMCP/CallDispatcher.swift | binding | fdfae8f8b003b1c6d83c0644d8a7e1458a4f2ee5bbf9e8e5dfa4a20a15e51d3f | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/CallDispatcher.swift | facts | 035fc98bd805985d113c8aa49b03a70942a1b3d0be33e178c4fd87fcf3aaee54 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | first | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | first | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | first | 5240b67121f5d825b710af47fe3ddb69e2efefd528ecd2c5edbb862f7044e559 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | first | 94660352d1e7f346fcf1e7b86db8b53d094b82fec86aad8b699682bb0683cadc | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | first | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/CallDispatcher.swift | memoryNotice | e38694e87fe0f924ca5a1ae896f7531586b0ff9c9fc3abe3f371231026e27f97 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | session | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/CallDispatcher.swift | step | 65329cc8b768423c288d10b26b2e48701c201e5f37928f461af6dfd5a9a6d9ae | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | supplied | 5240b67121f5d825b710af47fe3ddb69e2efefd528ecd2c5edbb862f7044e559 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/CallDispatcher.swift | session | 65329cc8b768423c288d10b26b2e48701c201e5f37928f461af6dfd5a9a6d9ae | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolArguments.swift | object | 035fc98bd805985d113c8aa49b03a70942a1b3d0be33e178c4fd87fcf3aaee54 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolArguments.swift | permitted | 035fc98bd805985d113c8aa49b03a70942a1b3d0be33e178c4fd87fcf3aaee54 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolArguments.swift | permitted | 5240b67121f5d825b710af47fe3ddb69e2efefd528ecd2c5edbb862f7044e559 | Batch schema field, switch arm or closed protocol code
@@ -305,22 +327,13 @@ Sources/Integration/AutomationMCP/ToolArguments.swift | section | 1706c6e65ba467
 Sources/Integration/AutomationMCP/ToolArguments.swift | section | d070c7ecb482689e5aa2de207d3c81eed20a358eadbc5897d4a3418bdc1a75d0 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | batch | 65329cc8b768423c288d10b26b2e48701c201e5f37928f461af6dfd5a9a6d9ae | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | batch | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | 035fc98bd805985d113c8aa49b03a70942a1b3d0be33e178c4fd87fcf3aaee54 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | 5240b67121f5d825b710af47fe3ddb69e2efefd528ecd2c5edbb862f7044e559 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | ab90a03d6237c293754f2d04e65e668271594e0f4aa4ef45dc65f511bc880365 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | e301726d0abdec5d740f9faf97f2ffdcf344566d81c072b809106c2dbc3c1554 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | continuation | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | operations | 035fc98bd805985d113c8aa49b03a70942a1b3d0be33e178c4fd87fcf3aaee54 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | operations | 1706c6e65ba467fae61caec26716cd1037e3ee730e6d5f77f7c971fc63c3a347 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | operations | 626992da9517ee49930ee1340383a0cc334563d9aa429619a17842d0eeecb524 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | operations | d070c7ecb482689e5aa2de207d3c81eed20a358eadbc5897d4a3418bdc1a75d0 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 1706c6e65ba467fae61caec26716cd1037e3ee730e6d5f77f7c971fc63c3a347 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 8dac625925dff4ce3ce795479774c56113af2e44edb49e4dd648038826bc45e2 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 9857c6f25abe8802ac9b6cd9690dcba4c138cbd6df64832b210c2403c99aa531 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | Batch schema field, switch arm or closed protocol code
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | d33f6725c5db4ca902fb358d22cb82499df619feeea073f8b9d0d2dea5e84775 | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | steps | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | steps | 3c22349f8d0b6077e455e7638fb49a4eee40103dc09ce17ed889569f429c91cb | Batch schema field, switch arm or closed protocol code
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | steps | 9b2a344820da3e82bfe8dba723e10565e30024d9cd391b853fbadc55f585c909 | Batch schema field, switch arm or closed protocol code
@@ -331,7 +344,6 @@ Sources/Integration/AutomationMCP/MemoryTaskTool.swift | folder | bc99c824222a2d
 Sources/Integration/AutomationMCP/MemoryTaskTool.swift | named | 6ea2cc6389d4c832777612a884a024a36a4f96b28989ceb22d2356c96c46d873 | Result predicate field or catalogue key
 Sources/Integration/AutomationMCP/MemoryTaskTool.swift | named | e9c99daef27461e8c1813bf6d084281c53bce84bb01f0596eeecfdee5310f65c | Result predicate field or catalogue key
 Sources/Integration/AutomationMCP/ToolArguments.swift | expected | a0b7821a11db531982044ca5ca2e788e2d749d6b696cd3aa4172342f584f2ee1 | Screen expectation field or switch identifier
-Sources/Integration/AutomationMCP/ToolArguments.swift | gestureExpectation | 035fc98bd805985d113c8aa49b03a70942a1b3d0be33e178c4fd87fcf3aaee54 | Screen expectation field or switch identifier
 Sources/Integration/AutomationMCP/ToolArguments.swift | label | 55af5b1d18b0d9ddda33273d987fd0579ef9b07af3a077c79d0accb6c8f17127 | Screen expectation field or switch identifier
 Sources/Integration/AutomationMCP/ToolArguments.swift | label | 94332144d941eb1212c9af7f968e215a7042bf94925c9c10b21de97a2f0cea06 | Screen expectation field or switch identifier
 Sources/Integration/AutomationMCP/ToolArguments.swift | label | a0b7821a11db531982044ca5ca2e788e2d749d6b696cd3aa4172342f584f2ee1 | Screen expectation field or switch identifier
@@ -341,24 +353,7 @@ Sources/Integration/AutomationMCP/ToolArguments.swift | title | 35ff74aeea25311f
 Sources/Integration/AutomationMCP/ToolArguments.swift | title | d4d5a1cb2fb9993d62f7c73871afa5ab17a1129f27f52aa48f5467d7f398b3ed | Screen expectation field or switch identifier
 Sources/Integration/AutomationMCP/ToolArguments.swift | value | 55af5b1d18b0d9ddda33273d987fd0579ef9b07af3a077c79d0accb6c8f17127 | Screen expectation field or switch identifier
 Sources/Integration/AutomationMCP/ToolArguments.swift | word | 55af5b1d18b0d9ddda33273d987fd0579ef9b07af3a077c79d0accb6c8f17127 | Screen expectation field or switch identifier
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | definitions | 035fc98bd805985d113c8aa49b03a70942a1b3d0be33e178c4fd87fcf3aaee54 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | name | 8dac625925dff4ce3ce795479774c56113af2e44edb49e4dd648038826bc45e2 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | name | d33f6725c5db4ca902fb358d22cb82499df619feeea073f8b9d0d2dea5e84775 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 035fc98bd805985d113c8aa49b03a70942a1b3d0be33e178c4fd87fcf3aaee54 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 0aa52ffaa672c5a43dd1b5cf6239a3c3de78a77b37f6dca3f8ea10b9153c84c7 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 35ff74aeea25311f4fe759a6b762c8cd41a79adb23dd5615b92cf215175a63e5 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 411a5bcbae85259b23b885e30cb103f52a774b6dd13c5acd76c30db233a3af7c | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 55af5b1d18b0d9ddda33273d987fd0579ef9b07af3a077c79d0accb6c8f17127 | Screen expectation schema key, tool name or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 73d3014ffa34b51f254c4690aeb1d0baf61db3ae2f141dd4510962d00b7df6d8 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 94332144d941eb1212c9af7f968e215a7042bf94925c9c10b21de97a2f0cea06 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 990c23868b965814b117cf9a6c4dfe45452eadc2171e1f981865ebfc84f10724 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | 9f3becba6e4b1583b3e19441dde4d59622537d9bd54a94d22262785e485384d0 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | a0b7821a11db531982044ca5ca2e788e2d749d6b696cd3aa4172342f584f2ee1 | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | a5b031ab62bc416d720c0410d802ea46b910c4fbe85c50a946ccc658b74e677e | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | d4d5a1cb2fb9993d62f7c73871afa5ab17a1129f27f52aa48f5467d7f398b3ed | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | e31e765b605903c6b93124c2398ebb487b4d6631d23285fecb1a4002aefe2acd | Screen expectation schema key, tool name or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | properties | e49fb5f753e8aa4d47de1997cf344e108a4ccc685d45f43a37b7f49085f585e2 | Screen expectation schema key, tool name or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | emit | df538f7890a3e01d2e32804e93cf5b1806821f5ca910a86c4f7cf6930e9416b5 | Task state input identity, never delivered to the model
 Sources/Integration/AutomationMCP/CallDispatcher.swift | kind | 33d04bd775e7b6c6436742508b41fa693a15bd2c902fcd994253392abd717740 | Task state input identity, never delivered to the model
 Sources/Integration/AutomationMCP/CallDispatcher.swift | kind | 90fc64195972fafd281e48fad08e72110ae816975649efec66e63b1e8c7bc719 | Task state input identity, never delivered to the model
@@ -367,11 +362,8 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | kind | 1483d08d2a555385
 Sources/Integration/AutomationMCP/CallDispatcher.swift | result | 5d165b7159c665eebcf9ea59ad0c8634b16bf9c4e5798157b54322c75a15ee50 | Task state input identity, never delivered to the model
 Sources/Integration/AutomationMCP/CallDispatcher.swift | result | 33d04bd775e7b6c6436742508b41fa693a15bd2c902fcd994253392abd717740 | Task state input identity, never delivered to the model
 Sources/Integration/AutomationMCP/CallDispatcher.swift | result | dbb7a66b09c2d9e668da1f59cdff98ea0b6646ca881c577d6a7884f889801b68 | Task state input identity, never delivered to the model
-Sources/Integration/AutomationMCP/CallDispatcher.swift | child | b0bc9ae44af84d24eec7b177dcd0e7ac1f540f92304a5e2ea9399ab2adf7846b | Typed task state failure code, never delivered to the model
 Sources/Integration/AutomationMCP/Guides/AppGuides.swift | id | db5ef3a0f2df755f0b6116e53d23bd1ac2b6b33e3f36358d3207b9ce5068dec0 | Task state input identity, never delivered to the model
-Sources/Integration/AutomationMCP/AutomationTools.swift | call | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | explicit opening tool identifier permitted at observation level
 Sources/Turn/TurnRunner.swift | router | 4f4af526b4cbb42e1cfceb1995f56582c87e416d3f9e9e450f4a130458c61843 | Task state input identity, never delivered to the model
-Sources/Turn/TurnRunner.swift | surface | 650f8cb3d0a8a5c5f0caded42c8ed46b3001f224775aeff39a6588dc346911b6 | Process switch name, not model prose
 Sources/Turn/TurnRunner.swift | reviewing | 0c8791830c6b23680906f724b0ce6d6a82e0358c776d90a863414094937852a8 | Task state input identity, never delivered to the model
 Sources/Turn/TurnRunner.swift | reviewing | 4e1d81205c42004069a257292c100a409eaea475316b15c0cd7397731cbd3df1 | Task state input identity, never delivered to the model
 Sources/Turn/TurnRunner.swift | reviewing | 8869ad22943e917a9e5aae887407895ca2687608588cb6f5e154e6cc4c617642 | Task state input identity, never delivered to the model
@@ -394,13 +386,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | allowed | e4b90d9db6f8b
 Sources/Integration/AutomationMCP/CallDispatcher.swift | app | 4e5ef144c51cd25230c144c3e1d8e842b9860b7a3cec2699d4e24e6517fc4b20 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | app | 8a2b49b006c72755f21f9d8e8b2bcf4fa20678a466bf4781b7117b230f60afff | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | apps | 4e5ef144c51cd25230c144c3e1d8e842b9860b7a3cec2699d4e24e6517fc4b20 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | 2181f7dd63a13e48a5f6e722a6e1d8ca8e33aa46e3a26d7b8b7d43cbdc9ece9f | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | 4d01709fcd599118652e3b27bd0ca97c802f832183d01f76a034755f2bc62fa3 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | 53559c3195349ffb4472e6f552ad9e6767dde8954c77cd64c9d2cb4040aa94f9 | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | 698c1b5307dd91176b57a7151284d06816553fa414c494f4c5b7677e8a4815ed | local diagnostic, not delivered to the model
-Sources/Integration/AutomationMCP/CallDispatcher.swift | child | 6fea4daeea71a0350d2f95cc6268e2e6cedf0dbc2aaf37aabe15013dad760248 | local diagnostic, not delivered to the model
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | claims | 34179d31127e02f8b120607905a5ccfcacd5270e4dea99a1b4e50ddcd2a64033 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | collected | 1e37124ee6d6c37fc98eac761fd24aa017fd6982f40f73e284a3a12b4e259a9a | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | collected | 7e49e1eb47743009f28005af788ac2e0cc4063b9b73714c355cba249ef35ac6e | protocol key or enumerated value
@@ -422,7 +407,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | content | 8f8f56bf9d4b5
 Sources/Integration/AutomationMCP/CallDispatcher.swift | content | df7e940f72aa93cbcb6d70cc35124b0767c7a0e353043c7c24b660ea9be7b952 | value composition or separator
 Sources/Integration/AutomationMCP/CallDispatcher.swift | content | edecec53ab11f560816e75a17681eb83886beace01d7fb927d99707d3d031aac | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | content | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | current | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | decision | 6ea2cc6389d4c832777612a884a024a36a4f96b28989ceb22d2356c96c46d873 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | definition | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | done | 65329cc8b768423c288d10b26b2e48701c201e5f37928f461af6dfd5a9a6d9ae | protocol key or enumerated value
@@ -430,11 +414,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | done | 807c1ce09850d9ff
 Sources/Integration/AutomationMCP/CallDispatcher.swift | done | a7b7924d4eee5c9f3142a5dfe41a0d842c388bd1168967fdb19228eb0b43fe78 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | done | d070c7ecb482689e5aa2de207d3c81eed20a358eadbc5897d4a3418bdc1a75d0 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | done | e6f9696c8a766ee8c3cd0016078905cddaeb24d54be50406b2faa7a5d211b74a | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failed | 2181f7dd63a13e48a5f6e722a6e1d8ca8e33aa46e3a26d7b8b7d43cbdc9ece9f | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failed | 2ef584c23f99920008a53b0553d7e80861dfba38cff8223414b3c9c6f012c1ac | local diagnostic, not delivered to the model
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failed | 4d01709fcd599118652e3b27bd0ca97c802f832183d01f76a034755f2bc62fa3 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failed | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failed | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | first | 2206783894445eaeca5f31f6f597ba8894da2992f40bd0c435de68a1701ba3b3 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | first | 4e08d9a8d5b4c0f6bcbe777f4b24e62ef23c47d806a0baad81d924c93e773a17 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | first | 59cec297750273ff5513292f8b3e73e32ce331b2cd3b4384d21582e41d590cb7 | protocol key or enumerated value
@@ -444,16 +423,9 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | first | af549b37eec51aa
 Sources/Integration/AutomationMCP/CallDispatcher.swift | first | b32394e3b0e41c2de70a73fa1a985805b7f4fd1a06f0677391377916ff5f28cb | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | first | ca1733b5cdea2efcd28cb357b253498f97440592edd06d89895c4abcb5cfaae5 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | found | 4c4f28a0fc9a4f2950029d5207744506cb1a6c2a836be46bdd126cf6ff507309 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | gap | 118af848d02199e83f9da4baa129f8e5f054fa6e9c4476e76ace440981a7d8de | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | gap | 747a3a42ff73f9c0f7c05eda2e17e74bb89bcbee4423e765b081e663632bc144 | value composition or separator
-Sources/Integration/AutomationMCP/CallDispatcher.swift | gap | a4205eb76818e03576485fa3cf48f1bb2383aa8eeb229b638fba4310f9447d53 | value composition or separator
-Sources/Integration/AutomationMCP/CallDispatcher.swift | gap | b66d47c2a7edb1d2eed6cc97e617416716cceb1afecbf8476b1b788816bda572 | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | gap | dd06c5a58f9f31cd3abf0cc486d1367987fecf004f9f12524f52e205dd6b2c9f | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | guidance | 0367b8ef52e6ba82f3d78b6ff2cf0170eb6d36934cb5670036590b411a719dca | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | guidance | 0bf987a9c3da7bc4467f50985605bb91639a01255e11dd7f07079647ddb28966 | local diagnostic, not delivered to the model
 Sources/Integration/AutomationMCP/CallDispatcher.swift | guidance | 39deb259fc0c9c25af2a75effb00b85652ae9172b43afa13344ef31d110af7e7 | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | guidance | 55b4420e3313796fe4909835e047ba080417c9dbc008a473f721a76a1760d5b8 | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | guidance | f26cde6df84723aa2da6a673e04b813ad0dfa61addfe4e939f4ec99dc29151c7 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | historicalValueRefusal | 9144403ccd467ba7cd67c4233beb1bedcdf497e27e98a6b82f9f6dc006fd5f2a | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | hold | 41de5b6299b94977a0563dacea1e3da9f1ab6df0c6e00cde5ac15c714fa5a675 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | id | 31d22a48a89ba8835780a4d5655d6e4fca0cc07dcb5460b673470b96b3c643d1 | catalogue key
@@ -484,9 +456,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | message | fd3830a0864dd
 Sources/Integration/AutomationMCP/CallDispatcher.swift | named | aa962f43aa13b734bd1704f05204720de1c69a6c1a3969fd131c78c6240e7f57 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | noSession | 70baba36a3857b023c241513a233ec4f4f9c48b6f0f857fcbe1d76e07a7d0421 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | noSession | aacfa3d0db9fdca32c601ca79c5e6fbf8b112a754e75c4eaea7fc1834a285596 | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | notes | 345a71448618954a967cf6a02d03f8fba9c101d54ffdecffb6c5f40b0386af6f | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | notes | 52109349dabf69106e04ec2f493fb8b6ade94ea100227cccce6559ab8b96553f | value composition or separator
-Sources/Integration/AutomationMCP/CallDispatcher.swift | notes | e38694e87fe0f924ca5a1ae896f7531586b0ff9c9fc3abe3f371231026e27f97 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | notice | 160604ce8c92318c1e6b17cfe987db0e3cb83ddc6180b0df0848f404221edf1e | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | notice | 20a0dc61e2cdb290e9e1c3a707f3816dd527e55b0628a64201de88b18d92c799 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | notice | 5b5b01a60ff5b9bc66f0eed91f13a179519191d26c77c0001337e5cae1e972bd | catalogue key
@@ -545,13 +514,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | seconds | 916697f243658
 Sources/Integration/AutomationMCP/CallDispatcher.swift | step | 12cbf220e0a34bbcdd3a3136acc611e01ffa54e1c5b9ce85df7efb1e99c53256 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | step | 1e1d0f251d3a76fa2b1bfc81164078572623403887db02988b504b0492e9f076 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | steps | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | summary | 15b0fb141b7672221ecefd53ca5a29ea042e3bc3bad9e08c11df0cebce279c2e | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | summary | 30169c90f3aaf74996b63cd78591740d04089154a589eda3b1dc5732c86baac9 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | summary | 7093fda846e50b267da144f7b3683ee1dd8838506939f6052b7370dd01fa2ad0 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | summary | 7a33bdf739db75544f7ff1058c560ef3709f5a1fee04c4b291393850723a8d68 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | summary | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | summary | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | summary | de9d7f3521c6ad817cdc2c63f60f18037c9b3404b20ac2df1db16e403ef8b784 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | suspended | 04d5c984ad1517db4e7cd10a5f44737bd402bd9bf9b5ce143f44db948a2b4df1 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | suspended | 1c07ce69f8418f31fdf0400e8f3b6f3813b5c7660f08d1e69fdb5b5ba1ec6419 | value composition or separator
 Sources/Integration/AutomationMCP/CallDispatcher.swift | suspended | 4e1698c19b3f6917e66248e652de896701e8af6e1a0c38b01d91577482443e77 | catalogue key
@@ -1222,7 +1184,6 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | adapterItems | fd3830a
 Sources/Integration/AutomationMCP/ResultFormatter.swift | adapterItems | ffc121712a18c1513ded336647a0ccf7d369ba1927ac68c5d3272ac54535d633 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ResultFormatter.swift | answered | 1f045eb0c10376bc8c09d8890dc96aa5afda8a435c766e180847c76fdb61f03d | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ResultFormatter.swift | app | 4e5ef144c51cd25230c144c3e1d8e842b9860b7a3cec2699d4e24e6517fc4b20 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/ResultFormatter.swift | evidence | edecec53ab11f560816e75a17681eb83886beace01d7fb927d99707d3d031aac | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | 8f8f56bf9d4b554914c506b4248a4da95f8a2484fab8ba7a133775d956902053 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ResultFormatter.swift | item | 2d53b3c21fa5cc786ac46d72b3adf70b60441627a14918f69f8ea164fec2e68b | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ResultFormatter.swift | modelText | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
@@ -1285,84 +1246,9 @@ Sources/Integration/AutomationMCP/StructuredLeaves.swift | pointer | df7e940f72a
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | answer | 35ff74aeea25311f4fe759a6b762c8cd41a79adb23dd5615b92cf215175a63e5 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | answer | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | answer | e7264671971b4ec2dd183760095eff513b20ee03eae97fa3cbfcca9fb81fb8b0 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | calls | 10811257ef359309da90ce314648b9280d7bbf881220695c88d6666d8b58b280 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | calls | 2181f7dd63a13e48a5f6e722a6e1d8ca8e33aa46e3a26d7b8b7d43cbdc9ece9f | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | calls | 5853d1626041f1b501a780743b6ecd11ac821dafacaf4d6045a85046578b139c | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | calls | 7a1e58ba2f33753c260cff5e42101be49fed4087be55c60655697232e605122b | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | calls | c2760b452589bd326ab6eb88909451d40a0f8e67b9c65d941388a881389e2b50 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | calls | cf7e7488b27e308e9f42d4d1b2aecf86f444b6e6b0eea63e8e08221c67311974 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | calls | d89076e461d8f4bd516c0486b59a403936b7ba919b0f7a6853f53f2b4835794b | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | calls | ece336de972f2798d77449b994594051910f38f5c545240a276342cc1c9c75df | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | calls | f19544b17a901437b2eab45bdde15514e8a443c5bcf3192046e44a17d7ebe5ea | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | calls | f485f85e4335d370b5fcf9a00d7922e9b7c2fae48018966eea6963ac62a93070 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | candidateID | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | candidateID | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | candidateID | ca1733b5cdea2efcd28cb357b253498f97440592edd06d89895c4abcb5cfaae5 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | candidateID | de3071b464276f18eed4601e3d8b93609554a1d10d5f41f80c9ac239843d85c4 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checkedResult | 0f27529487e95082cf0bd9f021be1ede2adc650b34db2ba96235d8805ad49bb3 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checkedResult | 4b62d186290abd5651b6ca8a99670b9e820692e11ed5ff8b5e786d6c59475917 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checkedResult | 53a18969b968cdeec492eb5cea8565f508b2692dd00bbf764e06e96af40b5351 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checkedResult | 98dd45c4535472659011d1096d126ccc2103a4d29b7a6b51f9357ccd89d3102e | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checkedResult | ac11f777bb7f3f09af2e42c448ccc679b622e08955d4eeb1705e48e1df621552 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checkedResult | b490b08efe78d3a50d5da066543a5e455697abd85002fe1f55fe04b6d03816c1 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checkedResult | ca1733b5cdea2efcd28cb357b253498f97440592edd06d89895c4abcb5cfaae5 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checkedResult | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checkedResult | fb7ef2d6e25a66840c1edbf21bdc8e7bddc702699f4fc0188072f4cf2a084faa | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | completed | 0019f0139a473c2e25f1f719e7187e7f96b81baccd4564033347f49b1719652d | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | completed | 5f9c87b939afbd1d0b80167f7ae531bf7dffaf5aff1e51144a77e3287235b827 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | completed | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | completed | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | current | 05f8d72691840b57fbc0f6524f36a0234fe14cb5d4e071f6ada3806fbeeed060 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | current | 111e6e0162f5286765f041bb0a8c31e52e9b33cc398c4a7cd73ca5ba64ca38fb | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | current | 3577f29f7f9c4c32c07b59575b274869c2cc03ed33dcc2df8e1bf43fb405d3cc | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | current | 5af3de1a66ed826ddfcddbe8abdb16dc885afc89a537b136bce17957450fa387 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | current | 7fd8a75515662fde1bfbeaa41233f1bc8668e397c4831c5ed683f8689cb3ba3c | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | current | 8b7432f1897e6c28e6691340c7240ec8319d2c8e2ddb0f68e8926e594572dd4a | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | current | b9ce06a01002b74d199af6ebe3f5fb94ceba07ec633822e44fec47b29b9edb7d | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | current | bcef88df4ab5e84dc3c329eda1bcccb91a3e0f685013208649c4d3fdc9f97eef | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | current | d4a057bb0019067f3ffab88f1b835c949df570e7f75e717c784bc3f1d4766895 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | data | 00e2f4b3e3bade25ae3dfb5a954191104f05f52e5086d36af59195f20056bdaa | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | data | 0388ead47e9d5ccfc5320715f4c996c60e31969f4e9c20c4fbaeac83cb990a50 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | data | 1cc997eec36a0010cf3a62ebd40035e7b675389fcaeddf12376cfa2034d9b565 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | directory | 253d92ad0483952ba9b88a55c21d1d093d13d570cb6181f1e623b06a92443ca5 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | directory | a0ffb03d76496d2d3e6aab6fdb42dbe498ef55e516f9ed9693cd92c88781069c | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | draft | d46be4f7927ac6699a8087aae9564e01e154216fec82a45759686de295addfb5 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | error | 46992ceb1f29753ab3fb0ae41efb426eb79a09257257374b692b7f86cabcffbc | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | error | 4a5ab90390997a7c16b434a2ae0a6dfb0782b44504767f5b7784fe19ba5693bb | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | error | 544cb545b314d5145ec502e1873831f5aa367528fe39c71b766e884ec208f804 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | error | b04c50ac9bedbc894c0a9205c02774f9c3ef66904f60e2dd7957f19d630773a4 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | error | d33ce5ab463b3b79aa6785d6547369efdf1cf0d1db47ac8d6ff119b4a04629d0 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | error | f0a8fef4d06734f60f2471b4d798bda18941c515a447c7f79ed94e01a83157ca | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | extra | 05e90781c9db0ee3e48b692329c02ae5ae5a2cc5d4e7e9244831281585495f66 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | extra | 2181f7dd63a13e48a5f6e722a6e1d8ca8e33aa46e3a26d7b8b7d43cbdc9ece9f | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | extra | 23b0ffdc29c4acd9cc6d88dd51ca160bc5261a8e8357ad22d2e5e430ce2d31c9 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | extra | 3ef235e96fa87b306f2827dd33927ed29060cc28e04b19b18f567adbc6c60177 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | extra | 8e2b2448bb334abff3ce34b2f880f8680502f593dfacf21fda5990265eadc11d | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | extra | 8f6e29cfb2f0df76f9f90f221edf3a7b4cfc6ba2e409bb0a78a2c031afd78580 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | extra | 94f9937fd10353a3a209b32498cf502f848800746aca65b13a695352397a46ee | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | extra | d121065792725a327f179ef5a0497b51ee8e86b09589645454c3d561eb9a93ef | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | extra | dd04afac1bebb050783a245ed0d88633759f352c85d4ab3bea3d416bf2019c75 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | extra | e196027fa6a9b5307fc2e394ea069c4b8cb06ac208b9ab8bbde0057c6bc43211 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | fact | 0c875e9878d8eca24958f08bb5c9a25613ecf7a5cbc37e3e1aee93033e84a599 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | fact | 155dd206a909679cb2d142d28426598d0806bd6c7ad7f0f19115665e53f6b91b | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | fact | 2ff226d287c19672a6f3cfaee91e93e4ea6d01159a4f1e0847321ee22ee423d3 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | fact | a498765f090d5d42c0abefea24b10db61a5e0d951c28c0c03f9f657f608b3d1c | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | fact | d33ce5ab463b3b79aa6785d6547369efdf1cf0d1db47ac8d6ff119b4a04629d0 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | fact | dffb68d345fa05cc28aa68e448ff3824398087310c7fc0d7db464d1021a600a2 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | fields | 98dd45c4535472659011d1096d126ccc2103a4d29b7a6b51f9357ccd89d3102e | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | left | 83920739d1823f6af12dca4b33ffb273906c33ea9b1b4b8a53c3d1b934d1264f | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | left | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | left | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | left | e5dd6911470836de9f2cad863f1b900326dbc66b5c5fef476a55e78a974ac4d0 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | left | e996ee63bc2d00dfcba6388c8ddeee47d4fbce806e00f97d2e6f15e8e697e6cf | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | open | 7fd8a75515662fde1bfbeaa41233f1bc8668e397c4831c5ed683f8689cb3ba3c | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | open | b9ce06a01002b74d199af6ebe3f5fb94ceba07ec633822e44fec47b29b9edb7d | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | open | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | open | d4a057bb0019067f3ffab88f1b835c949df570e7f75e717c784bc3f1d4766895 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | owned | 0c875e9878d8eca24958f08bb5c9a25613ecf7a5cbc37e3e1aee93033e84a599 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | owned | 6950fe41ecab5895f28df8c9373b07cfc5b99b5e27cd06a0bbb10e683f4d7cde | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | plan | cfff96521ab88462b5f538664e501e814f4c3eb88c281aab57299344b985d541 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | problem | dfc3151aae4031b15cadcfe6338881e5aa7a2c22cdc11a4d8d19c2ab522c0d1a | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | recall | 00e2f4b3e3bade25ae3dfb5a954191104f05f52e5086d36af59195f20056bdaa | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | recall | 10a75b85859ad463948bdc3ef19cfc619d2ea476cd185e17feba103c16b02c56 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | recall | 18fb9fa0b971b807a1312d3702d18747a3b1b39a129df8c5d1a8f68d512bd1fd | protocol key or enumerated value
@@ -1370,30 +1256,10 @@ Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | recall | 2f94c
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | recall | 600cf537d5ece9a67febc1d13842676596a106535c943833984da3227b6fb10f | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | recall | 69bcad84fb9707fbb84e05820295dff88060802108c9b63e5620637a24db9c23 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | recall | 9708a37e01795dd8ed0c34a8cdb4b806bff8ac3c5c9d6507db5fec4dd37b90e1 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | recorded | 2dac7baec3e2e2cf198a09bf64736d6d6be543e15991517fb07dd4f33ffb454c | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | recorded | 94f9937fd10353a3a209b32498cf502f848800746aca65b13a695352397a46ee | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | refusal | 2610ff29871efe66ea503feedc8d001fc396a77531e280677fe49f148d9c74f0 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | refusal | 7299b59de0b5dad3b622afc3bdf57544e505249c77a6d4254bd14b1fc9a4ade8 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | refusal | cb06e2f3ac8cfa09e53dc24a3d1862d6249c9e989385572224baa5d1e604b116 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | refusal | e649b20ce5d23ab7a6bc208c9fa725b5ffc4a121df82bafe4e6dcc0dfba4bd6e | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | revised | 439893963fe1200f7e7254e090a1343a846c15a6a2b8b3ec11fb78ccbf5f3e6f | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | revised | bcef88df4ab5e84dc3c329eda1bcccb91a3e0f685013208649c4d3fdc9f97eef | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | revision | 13fb6a72b6122d542f1ed2bd4e48261ba06853f67d5e0959ef45237670da71fe | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | revision | ff278f96de1e0054fc6dda4d8dd7ceb593b081768618deac8e7725361786fa70 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | summary | 6201e275c993fded1b6a1b7b64f106686c702d9fdff8af32b560aad5d781015c | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | summary | 8dba83f152f365c08d57bbb7a33cc01c6db29aa7eed93e8e8b48d3136169d57d | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | summary | b9ce06a01002b74d199af6ebe3f5fb94ceba07ec633822e44fec47b29b9edb7d | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | summary | c9d4d16fc723ac8ee7c34209de0da4c85a5e023cd6bd081ed9303080c2e46e04 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | summary | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | summary | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | suspended | 32e56d5d1f4476229482cb9b2fab12a7b18ace8afc175eb947fe4c4f7443233d | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | suspended | d32d6d5eeb28879723113a09a04aac8ec79466cce4e534ee3cf9a29cbf43da24 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | suspended | e38694e87fe0f924ca5a1ae896f7531586b0ff9c9fc3abe3f371231026e27f97 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | suspended | f6b6f5a25d45c249e43c7ec55f5ba02d5435268ff2fc3136dfa3555208f5f685 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | used | 05e90781c9db0ee3e48b692329c02ae5ae5a2cc5d4e7e9244831281585495f66 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | used | 4f4430360d925661fe0eaf7aa189de3d8a444e903c891ac1455987368c382bdd | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | used | 8e2b2448bb334abff3ce34b2f880f8680502f593dfacf21fda5990265eadc11d | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | used | a2954257ce0e520539674ddfa24a2c64ebadcfacfdb4ffdabc81d8f5db51b280 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | answer | 00dd829bf65017ad330eae79ea25bdb6cbcbfc3cfc39a76532d33a800e17309e | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | answer | 1871b27b246aec96f6d7c861ede56772e9fbf2ae2498640e89a39eaf817c9556 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | answer | 27a572218b34ecffa4e3b4e0269fe9848af1a1be1fed5cbf6c2bef000dacd9c8 | catalogue key
@@ -1434,21 +1300,6 @@ Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | current | 84
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | current | 88942909bc9c181418f5ef0920cbff274ae997a2fdebec89289378d8517e61c8 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | current | 951bd7d2c37b95689ffb84490c5a3b362cde7d5e8975d17b89821fb930060dd4 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | current | a3577068d4351c5f6b5a5b6256a28db9226a57ce55a26febe90e74a306912110 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | data | 00e2f4b3e3bade25ae3dfb5a954191104f05f52e5086d36af59195f20056bdaa | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | data | 3206512a5bb84db343b06c47cd079fbabdacbc75106e637a0ea746e5d9fcd4ff | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | 0e60173bd5795a10bdff88358dbedd40021ac0fb57d7d3ef47eb7340aca487d6 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | 1c07ce69f8418f31fdf0400e8f3b6f3813b5c7660f08d1e69fdb5b5ba1ec6419 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | 2922fb11eed09cda5ebb6a7a8abf8c25a6ced5cf3a4132364649958ab0c108f9 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | 2fa5042134c491ef5d8ad312fcc59fc29f591469d8d0df4a75290e4b4ded1e73 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | 64baee9c99a55e3aa3311f15ec36df45ea6cd19a01686d0b66d2f6efd3326801 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | 690c0ab249f20a6d6820ac6cd8ce0030114927d685a95224950907766d3c6944 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | 6a709b95c669cad8f896a3e94ed0c7cf410c0ed012c32d1fe4562b5da7207390 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | 7338b66fbc42d00c65676af928e2de10f3b3282b16dbfda5f5c656440b77277d | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | 76e0d8499b4378e1d654d788d65f14ec6d9261ad34afb97b6bd7c797728a135e | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | 8a2e6e2c3c6486b205c5d225f15643583d36c74ba463ad7c0bd39b0bd96aaadf | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | a0e61d97601fe99fafb9cbfbe9cf8ec42c3c5e0313da4561eb64e4121e3faf64 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | adfa7e2b993aa25d024dc0126f7a130bcb6468d58cb35c790f19ebef282dbd60 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | error | d33ce5ab463b3b79aa6785d6547369efdf1cf0d1db47ac8d6ff119b4a04629d0 | value composition or separator
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | expected | 058dee3afde6513899332b3162ef782015f79865091842295960cded597a7b47 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | expected | 13da95810f18e7e12050d8020493e35b33c6f1238c9a3941bb48da21b5a1b8dc | value composition or separator
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | expected | 920d8cb3d103a9543c289d42baa2d6aa017e06d015628722bf56e22d6938a8a0 | catalogue key
@@ -1477,26 +1328,17 @@ Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | fields | dd0
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | fields | e7cb19a5f148e6ec1664df15935013f7ca50f7006f4c2cba9b6f9151bda2dc4a | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | fields | ec3ae3118d79789128a7acd8bd7154535a9617c56a254a5585edf25a79dad3a4 | protocol identifier or path component
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | found | c1980264fc223a890afae83c91bd2d438ef2ad0dae751fdea3660c3e556b1396 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 0111422588b7d4f655592a35864e387e6c43f2a50abbb60cdc61af1cb5327e41 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 0fb56e5e62d10ed3215d6768c2549ff78c7308344dc37f1bd29224118fb5203a | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 1d5be9d22e17d47a5c2d86ec5990833cdee29c8e5a226c917061ed652ee22688 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 266db94b789cce083dd33cceb73b4d799c53260f0ddfcb0035d78efcb69a98a1 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 36fd67bd51af5f31fa57ead68a44d3b6bc20e35d9ad9c7f0886e618b20616d3d | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 3b2b45dae381f509a4c85da79b198e180728bdd603f8cd047e50c9c23d96134e | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 4fd95404b9d9db78644ca05ef6ca63762f74bdf7d875c52645c91ba0c7f793ae | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 578ca8675982d517de1274f5741ea1cb0ab0427c280f588b6b0fb667f644c3de | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 584dc4cfb363deb980e3d56c81c461000b40bf0f92d3da2612dc763f5d794ff6 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 59036f2c16045bdf2017e2676c1ba923234d58c33f65458642b3e387e59ed702 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 7817936292c4531e36d75091e21bdb88b7a70586ac50878795490ef713cbca60 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | 90d584c81918e8fec8c842b2843db11e8cd49b9600ecf7dfda8089f656410bae | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | a071d6a716a24904e14195fd8c65e22dbd58284b5c3efc8843cef7b203c2720c | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | a1add20dc11922cfa8ddcdbe2be66d3ad2e2beaca2417731c6db9b035567d1a5 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | c585f6f529ece2c6d61c0097eb264cab57b0a96e5e9cbcbf6af5caa75142fdfa | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | c84b80a3e6fe2656c06e048e6563dffe13da41cc642e4065984ee72c6e25882d | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | d03b41365d61b55db5548461ee7099bda6705dc13d34ff9af3bbfa06c09475bf | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | d33ce5ab463b3b79aa6785d6547369efdf1cf0d1db47ac8d6ff119b4a04629d0 | value composition or separator
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | db449d84669d101a739cee2f373fd4fba28927a069c0cb25767bd51c07993903 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | f8d0cfdd5137a2276dacaa4b70c1212f115c2a2d14e812ca713afc07c921989e | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | id | fe1a3249709083037d537095281e0e14ed56e2ee4e164f6ec90edc0d322cafbb | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | index | 687f7a61a71628fc69c6631e6c05cc11a68194951c11185f2cf4b1ef9eb57231 | protocol identifier or path component
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | index | ef3594e08a5b3ebe684a1dace19e87832b74c070d7e400c8ef0606d574168c8d | protocol identifier or path component
@@ -1565,22 +1407,11 @@ Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | status | 632
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | status | beb75cc2fc6111ec5f40db965348f2a62ac443670099eda24b615fb3b384c35d | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | status | deb7007a2097e52b4ab0e65e25a8a8303c51190497a789c7fbef43294642f5ae | value composition or separator
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | status | e2f06def9322cae2e0c594c9b83bfde7dad4add7bef96c95b24210902c99d46a | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | summaries | 3a916d7d6db2fa52e7ace5a96cf122b89a3b8a296eba53019dd62017eb0daca4 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | summaries | 3d50e8dfbd6e9d98d503dbdd371f0896b67b6f98884de6b1bbc711bff2508994 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | summaries | 4c4f28a0fc9a4f2950029d5207744506cb1a6c2a836be46bdd126cf6ff507309 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | summaries | 5b80b580da888e63ae8e4f75327504e326cf12261eab2446a335d99c9e7b5b12 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | summaries | 6bdce43a57d630fae0151a310207898fae4a10ec5b62f7ab3e63ff9de6db9080 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | summaries | a3e0e4db6c16d795d0ba8f03d2087193e126b64cab79b96214a33f82ca670ebb | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | summaries | bc28c98840583bdb52e5bfb95141fc8ffe7b41e458d3c6856493e2a94049b17c | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | summaries | f2a645fcd5e1bd370f7df83cfc081cfad7ac5bdb8a81f10bf6f7c82e93b0e55e | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | taskFailure | 4d01709fcd599118652e3b27bd0ca97c802f832183d01f76a034755f2bc62fa3 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | taskFailure | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | taskFailure | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | text | a0b7821a11db531982044ca5ca2e788e2d749d6b696cd3aa4172342f584f2ee1 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | to | a0b7821a11db531982044ca5ca2e788e2d749d6b696cd3aa4172342f584f2ee1 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | unresolvedJSON | 5c92521b872208bbfee04e419a20347171b84e9d78f0023eff09cb5ae8507a8a | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | unresolvedJSON | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | unresolvedJSON | dd04afac1bebb050783a245ed0d88633759f352c85d4ab3bea3d416bf2019c75 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | verdict | 2181f7dd63a13e48a5f6e722a6e1d8ca8e33aa46e3a26d7b8b7d43cbdc9ece9f | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | verdict | 2e543a502d97d3080df6611378d8c52c36b93c71e7bf0d78b19a12451f142601 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | verdict | 33d04bd775e7b6c6436742508b41fa693a15bd2c902fcd994253392abd717740 | protocol key or enumerated value
@@ -1621,46 +1452,9 @@ Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | windows | 12
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | windows | a91ff3f18f1c06525c1681fc38381f6ebd92a5a9b256c478b35ff42fa21cced4 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | word | 441b3210eb94b592b25882285a4fc628e24c3177e35594a30c632f44cf349ae3 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | written | a0b7821a11db531982044ca5ca2e788e2d749d6b696cd3aa4172342f584f2ee1 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | arguments | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | arguments | 16e4c13d037a9985184da81ce22a31af59ea863e5c0c92197fa930035bb7521e | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | arguments | 46e6a5e9566785273230852937c5f2b5d19c583743b408bd96cf97a97efb77d8 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | arguments | 5c372052cc8c0dcf851cd9a226c0a71da65918b4275629bd0872c4b959c14c5c | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | arguments | 6201e275c993fded1b6a1b7b64f106686c702d9fdff8af32b560aad5d781015c | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | arguments | 7093fda846e50b267da144f7b3683ee1dd8838506939f6052b7370dd01fa2ad0 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | arguments | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | arguments | bea6e6df225b3c3edb767a70498f641b55093a99e4f35e35f198db29eafeb17b | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | arguments | d03ed6409d4fc73133c633c74c418f04ba90c59ad438a44c8a49084b0ca1ab82 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | arguments | e5403d474c2a98cc5ce06a6d2ce74bdfc68bbae4bc39a037d0f974d3a302c55b | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | call | 1b0ddf0435ac43322baaa9748aab7af3664f0523b56bd2dd3dce6418097594ca | local diagnostic, not delivered to the model
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | candidate | 2f70ad24d7c12936791838b547979767847af078089c9677968089b83febcc35 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | candidate | 6675e902793569249d4b21ac6e264687f006173f181e9c50bd0e1b5c9b21c13e | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | candidate | 9332eb98b58d2214dda3d2a8acf22957980fd9723563017b5b1d71ed067ee62f | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | candidate | d59baf90c3882fa87771b76e4b96bcc38752e6e05157495efdb4ffbf8871bb93 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | candidate | f6feeb73a5fb3f3e1426bcc0984ecf6ab1ec0e68a23b1c25730b4789f6e04098 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler.swift | closeChangedCopies | 15f5953107c2c2a855d3c83a26ddeb82f9de8d8380d3c1209770e27a4db1b74f | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler.swift | closeChangedCopies | 278f5eb2915f785d14ef5aebea0b9593a33c223ef21ed7242f69316a2e335e35 | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler.swift | closeChangedCopies | cb0c35d4fe5350a464414c043d330cb9a3f883d07d0fbd9ea681dd79283e4692 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | directory | 28b0eda9ec1d81e3a8e2fe442a4baa6071712c7a2c2ded4940cc0a3339d8026c | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | draft | 055431b46db7bb5b950fda38bccedf1b9677dcb50db12a60cf3a72ef0e896618 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | draft | 1cd0eedbb97f8e5f8dd7d71a0ae003e3184c459ddcdd4055acadc357b3eea1e6 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | draft | 4eafa05fe457485005571bba0d52b13a7fb0743bddb027235f847281931d706f | local diagnostic, not delivered to the model
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | draft | 71524368c20ef2b8a307c63c44efb26e0e6d2b313ee90f35d23b6192260bcd3c | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | draft | 84f7f477263dab4c0a43b9dda083662c529beff41cbee75c74f7cfb197c9d4d8 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | draft | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | draft | 935c6aedf35081b13f8c8fd440a9a3905a49eb8777fbccc5e039f0f674b20340 | archive or transcript diagnostic
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | draft | b9ce06a01002b74d199af6ebe3f5fb94ceba07ec633822e44fec47b29b9edb7d | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | draft | c087f28a146c1ce8f6b921c3c95067815f5b06811772e22fe714ad396dd97d9c | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | draft | db360057340027f31a444db1421493e062d1c066ee4dd319914521bc266a740d | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | error | 047888972441031f222d3b4eb8bd0b38bf157922c669d75db3b8e175d2a1761b | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | error | 344bc0853fb12acf76eebffdee0379fa839064a88f8369d662ebf460bdaf417e | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | error | a258fcdebe23d51bba43f315f9f000d81ae84a786642fbfd4c6430b042b696d4 | local diagnostic, not delivered to the model
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | error | ce8e5e643c626b7b4c260620da689f095621597a9eb8a21d319bfc51758a06fa | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | error | d33ce5ab463b3b79aa6785d6547369efdf1cf0d1db47ac8d6ff119b4a04629d0 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | error | d83414053f52b0192207e2b1f8b1ca981a9f010776b6bb7ef04eea7b003c1dc3 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | interpretNext | 2f70ad24d7c12936791838b547979767847af078089c9677968089b83febcc35 | value composition or separator
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | interpretNext | 3b55e3455a1bc05c8952ab88cb6ac7ca18368658bf3f48d04ef4b9fc48109bf3 | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | interpretNext | e153268cb5d0ea3f996c8aaff60b8ede9dbb6d5479aeafc39b6459859156eb6a | catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler.swift | interpretNext | fcf9463f0f362975157a9754f4579b1196b8e57eca5bee102b4602a468614f9a | catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler.swift | producer | 836fe27b0a26aac3f45b985400963ec4664170cc953e48a6db94c492edba307a | protocol identifier or path component
 Sources/Integration/AutomationMCP/ToolArguments.swift | callRequest | 1706c6e65ba467fae61caec26716cd1037e3ee730e6d5f77f7c971fc63c3a347 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolArguments.swift | callRequest | 1e5941238a72b1f89a5d4cfad9164d5d37f08fab209161841ebf39bf057083d4 | protocol key or enumerated value
@@ -1870,6 +1664,7 @@ Sources/Integration/AutomationMCP/ToolCatalogue.swift | section | d0070d5c40cd1a
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | section | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | session | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | 01d725a0a2bd6d4bd152a117c071d0d9432a88dff19964bc8a9abd529256e355 | catalogue key
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | 73d3014ffa34b51f254c4690aeb1d0baf61db3ae2f141dd4510962d00b7df6d8 | JSON Schema keyword for a nested batch row; row grammar is checked before recording.
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | 03bab0492ed1bfb893de36bb5b86f98fcbe6977eb45ddd0653d5043565b72572 | catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | 0588d77ebc288b6d6cc839ad8c69f6c8022758590d52c443506094b013e6111c | catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | protocol key or enumerated value
@@ -2172,7 +1967,6 @@ Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | chosen | 07bfaea574
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | claim | 4f958a5792479d694c0ade87e001ed3c76218cefb203a3708e9e7aa0692f3c08 | protocol key or enumerated value
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | escapes | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | failure | 52109349dabf69106e04ec2f493fb8b6ade94ea100227cccce6559ab8b96553f | value composition or separator
-Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | id | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | kind | 10bcc2b504ea94ad0e9e94064fce45dd7e0bff9f1f361af824526f1494b84cfd | protocol key or enumerated value
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | kind | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | kind | 1706c6e65ba467fae61caec26716cd1037e3ee730e6d5f77f7c971fc63c3a347 | protocol key or enumerated value
@@ -2181,8 +1975,6 @@ Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | kind | aff63117e418
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | kind | d4d5a1cb2fb9993d62f7c73871afa5ab17a1129f27f52aa48f5467d7f398b3ed | protocol key or enumerated value
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | kind | e341a98cb79f7beb72ba3605d28eeb414a29f52b238fe46384a70c393dca6aeb | protocol key or enumerated value
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | kind | e80fdef4566bcfb00d76db82e94e9561bffb9b548df84799625c84ea3f653f64 | protocol key or enumerated value
-Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | last | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
-Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | last | 444aa39f4d42628a6eb0b904c163cf936f1a4fe4d741f19598ec9c422c9ae294 | value composition or separator
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | left | 9c3fddbe18f52b05a332c3226c9f9b350b5f016c4c83ad0cb1273f3aa243f44c | local diagnostic, not delivered to the model
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | log | 3d6664c21bcda1a4a35b37cbca2e56c46c45808cd405d62173e3fc2c2b1873d3 | protocol key or enumerated value
 Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | log | e2dff51ede6e5a832d42ea90260f009ea0148a444b321a73b0bd5162f30a6156 | protocol key or enumerated value
@@ -2328,7 +2120,6 @@ Sources/SeatBroker/Seat/SeatErrorMapper.swift | stop | e649b20ce5d23ab7a6bc208c9
 Sources/SeatBroker/Seat/SeatErrorMapper.swift | windows | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/SeatBroker/Seat/SeatErrorMapper.swift | windows | f240463dada079fc3d64b63fd6c50a01e772da977083807d79b1027d1a31253e | value composition or separator
 Sources/Integration/AutomationMCP/ResultFormatter.swift | allowed | cf51937bad8b2f6948b8edf1bd3289f3bc332ec610f99df2f5aff0218b3a554b | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | allowed | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | allowed | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | definition | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | effect | 9a5e13f69efc348b5cb6292b127326a7726463d80b3e19e4395bfba72db2e4a1 | outcome protocol key or value composition
@@ -2347,8 +2138,6 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | ecd8238b2c4c
 Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | edecec53ab11f560816e75a17681eb83886beace01d7fb927d99707d3d031aac | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | f6a7353e2ee11da2421e532f9f8b1d35511d74467d88c7c3028808ea976d1b3c | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | outcomeText | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | outcomeText | 4003cb961291f10927e1ccb1d129186886281ed836135f19f4ec7665d77d3a9e | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | 00826c718b0c77a2a95f2b9635880e7095421a0e597f2373d27eb250daacb4d2 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | outcome protocol key or value composition
@@ -2361,7 +2150,6 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | fd3830a0864
 Sources/Integration/AutomationMCP/ResultFormatter.swift | scene | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | schema | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | status | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | minimized | 01fd914a955123ca6c1402729198ec4d0ad08d1b488db255350809932d5dc64b | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 1f045eb0c10376bc8c09d8890dc96aa5afda8a435c766e180847c76fdb61f03d | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 40db6b2f09e09cb7ace93c27775a8c1ec45baccaeaa601cf4fc08d2b95350e90 | outcome protocol key or value composition
@@ -2371,7 +2159,6 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 8cf14017030734a
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | d9fd9a3d81d750e6edc61aec66e7c4112f7af7c34ebe0a0d20189464ec9df135 | outcome protocol key or value composition
-Sources/Integration/AutomationMCP/ResultFormatter.swift | usesOutcomeV2 | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | outcome protocol key or value composition
 BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | request | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | protocol key, catalogue key or value composition
 Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 1306dd73de75ca00b5ffa99ca2f6ea514fa91102073c2596cfc39a6d857550f2 | closed remote refusal cause code
 Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 1c037e2c8eca44b7e068daaf4bbf0bb11c9f3d2f33901bf63287373486cc964b | closed remote refusal cause code
@@ -2402,8 +2189,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | bde3eef3b28
 Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | db4c8e0030dde562cb982c41d00d2972ba64e6c98417a866c57aca38d9dd1ed7 | composition precondition diagnostic or structural separator
 Sources/Integration/AutomationMCP/CallDispatcher.swift | elapsed | 9c5bbf275a09cfe8e9dbc7864e488cb30ba6d9bf0c88a56397daacd6ca9e0ee1 | protocol key, catalogue key or value composition
 Sources/Integration/AutomationMCP/CallDispatcher.swift | provider | bfe4d8faf4d6d0615162fd36f0ad2eb19d62d1973f6b9374fc15caa471db859c | composition precondition diagnostic or structural separator
-Sources/Integration/AutomationMCP/CallDispatcher.swift | refusal | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | protocol key, catalogue key or value composition
-Sources/Integration/AutomationMCP/CallDispatcher.swift | registered | 5b67dabed24ac753ef9a80852049355f8816550e64b7eb1610ce0cd7cca3a778 | composition precondition diagnostic or structural separator
 Sources/Integration/AutomationMCP/CallDispatcher.swift | value | 28ab210f7622dc6f37597c88e1ef478354e5d19ac04098c4557100d73c880df6 | protocol key, catalogue key or value composition
 Sources/Integration/AutomationMCP/CallDispatcher.swift | value | d711788ef934ceb391438f04eb8870b336d90bc60039edd73d3b5fdb40878638 | protocol key, catalogue key or value composition
 Sources/Integration/AutomationMCP/CallDispatcher.swift | value | d9fd9a3d81d750e6edc61aec66e7c4112f7af7c34ebe0a0d20189464ec9df135 | protocol key, catalogue key or value composition
@@ -2511,8 +2296,6 @@ Sources/Turn/TurnRunner.swift | session | b47118e88c3899d24c64ee520d259e80cabd0a
 Sources/Turn/TurnRunner.swift | temporary | e88bb9452a963ab3742612b1cd32ea64ceca091d93c26d1808a6d0817a2ad1ac | person-facing host error, local file identity or turn composition
 Sources/Turn/TurnRunner.swift | turn | cd22ec4662d06b6ec1935fd8b18a599a328e52554891ffd101a7b5279da2d62e | person-facing host error, local file identity or turn composition
 Sources/Turn/TurnRunner.swift | web | 38d3bb58f57bd9b4a0fc5607ad4e1a7150d082d2d31723587a82d2b4df69aa55 | person-facing host error, local file identity or turn composition
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | answer | 5c7d0644728067c2af734933f743b535d8d32a83143f7f8bb5f4e51739abc8e7 | process switch status protocol key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | answer | d9f439b074f954d1fc1c0633985aa258ab3b0e5fee6c4c3190e97206e31da407 | process switch status protocol key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | refusal | 03d169f34843574376faeea27e579c83993c3b41446eaa80f4e183289c31faba | typed outcome cause key in OutcomeText
 Sources/Integration/AutomationMCP/CallDispatcher.swift | refusal | aeea15a11cf49c7015aa35cab3225ed3cb5b1dc28d7740886522cd68921a4a8b | typed outcome cause key in OutcomeText
 Sources/Integration/AutomationMCP/CallDispatcher.swift | noSession | dfa5894ccebc5b629d7073885509184cf78ac0b0d1553da1590e36a7d20a2261 | typed outcome cause key in OutcomeText
@@ -2522,8 +2305,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | id | dfa5894ccebc5b629d
 Sources/Integration/AutomationMCP/CallDispatcher.swift | id | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
 Sources/Integration/AutomationMCP/CallDispatcher.swift | allowed | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
 Sources/Integration/AutomationMCP/CallDispatcher.swift | key | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | ecfb8ffe241b00c11ba8c75a4951f9eed3eda1509b79e3be6daa48a504b56bd5 | internal outcome cause protocol key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | b0bc9ae44af84d24eec7b177dcd0e7ac1f540f92304a5e2ea9399ab2adf7846b | typed outcome cause key in OutcomeText
 Sources/Integration/AutomationMCP/ResultFormatter.swift | cause | ecfb8ffe241b00c11ba8c75a4951f9eed3eda1509b79e3be6daa48a504b56bd5 | internal outcome cause protocol key
 Sources/Integration/AutomationMCP/ResultFormatter.swift | notSent | b0bc9ae44af84d24eec7b177dcd0e7ac1f540f92304a5e2ea9399ab2adf7846b | typed outcome cause key in OutcomeText
 Sources/Integration/AutomationMCP/ResultFormatter.swift | outcome | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
@@ -2557,14 +2338,9 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | stop | cfc31bcc34ed7f4
 Sources/Integration/AutomationMCP/ResultFormatter.swift | value | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ResultFormatter.swift | value | e1d434a217582753c3aac6ba6ced5c15a29d733984414885b27d62ce866662a8 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ResultFormatter.swift | value | ecfb8ffe241b00c11ba8c75a4951f9eed3eda1509b79e3be6daa48a504b56bd5 | tool surface protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolArguments.swift | fields | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | compact | 3c22349f8d0b6077e455e7638fb49a4eee40103dc09ce17ed889569f429c91cb | tool surface protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | currentSurface | c8f794e560fdd051dc0967cdf64e86f5099f315ed62633c2f16ee4910bf65efc | tool surface protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | description | 9299c98b86877dcfc55798b1376c964c1cc4b422042c65001f3ab2c290423907 | tool surface catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | description | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | tool surface protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | description | 62c4c04485b3675c8a8594d8418517ed0e7bd2bee6955b143bef6417296e3fe4 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | description | 828821818a7fa38b351e5b82364cc1221eaac0d5c2b9ac309603df51a562e2a0 | tool surface catalogue key
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | description | d5c35dc42880af8ea51f2aed62e8aa32127127a3354052e17726ff172b2e38a5 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | fields | 626992da9517ee49930ee1340383a0cc334563d9aa429619a17842d0eeecb524 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | fields | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | input | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | tool surface protocol key or enumerated value
@@ -2598,13 +2374,6 @@ Sources/Integration/AutomationMCP/ToolCatalogue.swift | variants | 411a5bcbae852
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | variants | 9739f0d9b9dbcf562be421a989e221999e56a05561bd9a8cddf25e316170bd51 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | variants | 9b2a344820da3e82bfe8dba723e10565e30024d9cd391b853fbadc55f585c909 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | variants | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | tool surface protocol key or enumerated value
-Sources/Turn/TurnRunner.swift | arm | a39fcc36c306647d9aa950dfccffac9fad68ca0253f58bd2224a729a439e59b1 | process switch name
-Sources/Turn/TurnRunner.swift | surface | c8f794e560fdd051dc0967cdf64e86f5099f315ed62633c2f16ee4910bf65efc | process switch name
-Sources/Integration/AutomationMCP/CallDispatcher.swift | definitions | 257286b768ee01518960b3c485f54d2c2a0256fb0f15e7ccd4c58cf61a2ff6cb | MCP tool definition protocol key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | definitions | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | MCP tool definition protocol key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | definitions | 4b1545477be6dc17f3a70e659635a34650696be11c051c0c247ea3a09b73d279 | MCP tool definition protocol key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | definitions | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | MCP tool definition protocol key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | definitions | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | MCP tool definition protocol key
 Sources/Integration/AutomationMCP/ResultFormatter.swift | escaped | 145985f4550bbf6734fb212ca93e30a3178f7777278b5f58ad4d876da5acc36a | ModelText catalogue identifier or identifier component, never emitted directly
 Sources/Integration/AutomationMCP/ResultFormatter.swift | escaped | 14bb87a43c4ce5534abf92b2a4a14a635d2dbf23e17a7ab88f4e110f7eda48c3 | ModelText catalogue identifier or identifier component, never emitted directly
 Sources/Integration/AutomationMCP/ResultFormatter.swift | escaped | 4f535c592a3b2eff486bf28442fb048916f29b9206713294c4043f0ce17f5d53 | ModelText catalogue identifier or identifier component, never emitted directly
@@ -2626,9 +2395,6 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | recovery | 2304c586ffb
 Sources/Integration/AutomationMCP/ResultFormatter.swift | detail | cefedeb83250665b0a0093127c311930ad9d94ab857ed08b4ad143a2ff5eb249 | ModelText catalogue identifier or identifier component, never emitted directly
 Sources/Integration/AutomationMCP/ResultFormatter.swift | message | cefedeb83250665b0a0093127c311930ad9d94ab857ed08b4ad143a2ff5eb249 | ModelText catalogue identifier or identifier component, never emitted directly
 Sources/Integration/AutomationMCP/ResultFormatter.swift | message | dfbc8a463235701cb3bba7c9f6164b97e6e11d91bff73dc84c42725a8c8090ab | ModelText catalogue identifier or identifier component, never emitted directly
-Sources/Turn/TurnRunner.swift | board | d5c35dc42880af8ea51f2aed62e8aa32127127a3354052e17726ff172b2e38a5 | Literal "prompt" selects a SwitchBoard arm; board is the scanner enclosing symbol, not an exempt identifier
-Sources/Turn/TurnRunner.swift | board | c8f794e560fdd051dc0967cdf64e86f5099f315ed62633c2f16ee4910bf65efc | Literal "tool_surface" selects a SwitchBoard arm; board is the scanner enclosing symbol, not an exempt identifier
-Sources/Turn/TurnRunner.swift | board | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | Literal "outcome" selects a SwitchBoard arm; board is the scanner enclosing symbol, not an exempt identifier
 Sources/Integration/AutomationMCP/AutomationTools.swift | instructions | 4c04dd6996d6bdd2f146ac145ea968e462753f1d13db9e81d9640de5acc14dc0 | catalogue key
 Sources/Integration/AutomationMCP/AutomationTools.swift | instructions | 69e591228d2c5fab58a92592b84c7bc4d30fc1ad22b161224d0db73b5b1c4fbe | catalogue key
 Sources/Integration/AutomationMCP/AutomationTools.swift | instructions | 7dd79e7c8bd2754372efb5ed28add59c4771167e24671d10979d52300b1a296b | catalogue key
@@ -2637,10 +2403,7 @@ Sources/Integration/AutomationMCP/AutomationTools.swift | instructions | 81d0626
 Sources/Integration/AutomationMCP/AutomationTools.swift | instructions | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | structural separator
 Sources/Integration/AutomationMCP/AutomationTools.swift | instructions | f3452ab9c6761633700a45ac9162a1308b9fba2fed3fcca8465d8ba2cebcf71c | catalogue key
 Sources/Integration/AutomationMCP/AutomationTools.swift | instructions | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | structural separator
-Sources/SeatBroker/Runtime/BrokeredAutomationSession.swift | turnStatus | a39fcc36c306647d9aa950dfccffac9fad68ca0253f58bd2224a729a439e59b1 | switch key
 Sources/Turn/SeatLine.swift | dataTag | f83de5bc2f3671d4589792047f3226d13ac47369b39019c22ea8aef7af99f365 | JSON structure or data block delimiter
-Sources/Turn/SeatLine.swift | pieces | 98be486a01834c7bb83b3c7353edc3e046ca30fe710141f939aaec11f15c6407 | structural separator
-Sources/Turn/SeatLine.swift | instructions | 23815f1b3e23e16f63b40b893903425626154b353da83a013f8e6f82c793ec4d | catalogue key
 Sources/Turn/SeatLine.swift | instructions | 80d90a345b6e1680a20f1979a28e21f1f0cbe84ce4b98ece129ae1e1e2599fba | catalogue key
 Sources/Turn/SeatLine.swift | instructions | 98be486a01834c7bb83b3c7353edc3e046ca30fe710141f939aaec11f15c6407 | structural separator
 Sources/Turn/SeatLine.swift | seat | c5283f8e8d435f65f3d7ea9f36251c105c9797eeaeeafdc787e4418e6c52367c | catalogue key
@@ -2700,33 +2463,6 @@ Sources/Integration/AutomationMCP/Guides/AppGuides.swift | candidates | d7a5e915
 Sources/Integration/AutomationMCP/Guides/AppGuides.swift | language | 0933fb667296882d8c45abca58ac52e01c8db6f19e626b30de88f0f4ed143ec5 | guide format delimiter, metadata field, schema value or model-text key
 Sources/Integration/AutomationMCP/Guides/AppGuides.swift | locale | 080390646b2497878dd1321ed9780c229a3d08ac5b158117f943d92e225425f7 | guide format delimiter, metadata field, schema value or model-text key
 Sources/Integration/AutomationMCP/Guides/AppGuides.swift | locale | 0933fb667296882d8c45abca58ac52e01c8db6f19e626b30de88f0f4ed143ec5 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | section | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | selectedArm | 4cbc91a724544463b473cb01e853810100441b44b118909e0871970d4b767ef8 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | text | 98be486a01834c7bb83b3c7353edc3e046ca30fe710141f939aaec11f15c6407 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | app | 4e5ef144c51cd25230c144c3e1d8e842b9860b7a3cec2699d4e24e6517fc4b20 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | 210aff1c08c6e1ea48b7ea6260845823eb7c3322331971cd7d0aff4103bfcd77 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | 275c6f4020ade40dcee79a7d4a90deecc50cf10bc7d2293e85d95d3ba274aee9 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | 3c22349f8d0b6077e455e7638fb49a4eee40103dc09ce17ed889569f429c91cb | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | 3fe40faae15b6cd0836dce570fae3d61062b3d9cbd73c77fc105daaa68668548 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | 4914c9228bdda47354a14f8ad5a6b2923b8764bc9aba6825e0bc8fc39df4109d | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | 4e5ef144c51cd25230c144c3e1d8e842b9860b7a3cec2699d4e24e6517fc4b20 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | 626992da9517ee49930ee1340383a0cc334563d9aa429619a17842d0eeecb524 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | 73142de3cf606ec4113d09b611a1b464c5048579f6e58cec5e409d1d4d20d311 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | 891a905d478f539f5c2f9bfa3e0b2b06c96ed0c909652b81239a98bc8742b167 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | 9b2a344820da3e82bfe8dba723e10565e30024d9cd391b853fbadc55f585c909 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | a49ec5811060dc6909e5cb8910db21ae472eb68ddb1ad1195fb1a510c2a86f0b | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | ab90a03d6237c293754f2d04e65e668271594e0f4aa4ef45dc65f511bc880365 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | cf51937bad8b2f6948b8edf1bd3289f3bc332ec610f99df2f5aff0218b3a554b | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | e301726d0abdec5d740f9faf97f2ffdcf344566d81c072b809106c2dbc3c1554 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | contracts | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | family | 9d36560f33e6d4d599386473d708e57dcd6c09441e430f2a928b567b8ab85fb7 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | head | 35e8bd8d6d32b95f0ee1636ee7be86e57a6aabde024051a17248d623cf2414aa | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | head | 466025f35ee8be42162fd073e8613e605950082ea7bf1953d7387b264d9c8cbe | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | object | 4914c9228bdda47354a14f8ad5a6b2923b8764bc9aba6825e0bc8fc39df4109d | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | object | 4e5ef144c51cd25230c144c3e1d8e842b9860b7a3cec2699d4e24e6517fc4b20 | guide format delimiter, metadata field, schema value or model-text key
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | value | 4914c9228bdda47354a14f8ad5a6b2923b8764bc9aba6825e0bc8fc39df4109d | guide format delimiter, metadata field, schema value or model-text key
 Sources/Integration/AutomationMCP/Guides/GuideSearch.swift | digest | 194aa390a244ed61c8819d5246186385111ee621e801712f381936cc04e692c2 | guide format delimiter, metadata field, schema value or model-text key
 Sources/Integration/AutomationMCP/Guides/GuideSearch.swift | identity | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | guide format delimiter, metadata field, schema value or model-text key
 Sources/Integration/AutomationMCP/ResultFormatter.swift | content | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | guide formatting delimiter, escape sequence or model-text key
@@ -2788,13 +2524,8 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | eb8bf0d80db32
 Sources/Integration/AutomationMCP/CallDispatcher.swift | failure | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | fields | 0d9f50d8178cb7c5b044c4dce43f1a35c44697ac03e70407e2dda2324fa92f56 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/CallDispatcher.swift | fields | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
-Sources/Integration/AutomationMCP/CallDispatcher.swift | fields | 432ced8bd4f7363e6ad2e7646783c593eb2bbc2e80c828685c4a923a46112999 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/CallDispatcher.swift | fields | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | MCP tool definition protocol key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | fields | 841183f6ada355aa8d3805906b7863b21f10254c798453f09b13b3d053204df0 | row identity validation pattern
 Sources/Integration/AutomationMCP/CallDispatcher.swift | fields | 89897fb0a08d4eb1ac8d4a5a59a562b0cc7e42e83ea01e16cdea926df2eeffe7 | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | fields | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/CallDispatcher.swift | fields | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | fields | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/CallDispatcher.swift | gesture | 24105546e4824327e6c3769d53a0fae8af4113743646de5b07b86d7aef3af0e0 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/CallDispatcher.swift | gesture | 345a71448618954a967cf6a02d03f8fba9c101d54ffdecffb6c5f40b0386af6f | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | gesture | 561b496db43567cc0744ccbc24bc1aa7c6e26717caad9000a0d6f98cb3be4cf2 | task cycle protocol key, enumerated value or local identifier
@@ -2808,24 +2539,15 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | line | 32d78dbd6700ffcd
 Sources/Integration/AutomationMCP/CallDispatcher.swift | line | b09c7d54e7dd3d63683312b9913f78ac3779abcfd921d4a795469bd76017a4d5 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/CallDispatcher.swift | line | b458c4284039e75dc102fa6c0402b734e8fbee10e72ab7cfbcd0f8f39ae3cc23 | task cycle catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | line | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/CallDispatcher.swift | line | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | structural separator
 Sources/Integration/AutomationMCP/CallDispatcher.swift | line | e2a6e4afb7d248a4b480e4790e36f957d4cc21c2cf0e74740c2bdb711a524fe7 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/CallDispatcher.swift | line | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | catalogue key
-Sources/Integration/AutomationMCP/CallDispatcher.swift | name | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | MCP tool definition protocol key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | notice | 345a71448618954a967cf6a02d03f8fba9c101d54ffdecffb6c5f40b0386af6f | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | notice | eb8bf0d80db323992f6b634aab492b1e6d9e96a8e87a511c2a0db75ab929452c | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/CallDispatcher.swift | notice | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | properties | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | MCP tool definition protocol key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | properties | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | refusal | f64feb8881e70f368114c93c7cbd44a70792b5ca5cec6c301e0eb9283e494d28 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/CallDispatcher.swift | row | 4d01709fcd599118652e3b27bd0ca97c802f832183d01f76a034755f2bc62fa3 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | row | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | row | fd3830a0864dd9dfe2cf351f669ec8a152d4065b8b08d51c2ccf7d780e130543 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | rows | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | protocol key, catalogue key or value composition
 Sources/Integration/AutomationMCP/CallDispatcher.swift | rows | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | typed outcome cause key in OutcomeText
-Sources/Integration/AutomationMCP/CallDispatcher.swift | warning | 5c7d0644728067c2af734933f743b535d8d32a83143f7f8bb5f4e51739abc8e7 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/CallDispatcher.swift | warning | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | warning | d9f439b074f954d1fc1c0633985aa258ab3b0e5fee6c4c3190e97206e31da407 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/PlanRequest.swift | begin | 00e2f4b3e3bade25ae3dfb5a954191104f05f52e5086d36af59195f20056bdaa | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/PlanRequest.swift | begin | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/PlanRequest.swift | begin | 0e64ff23d1723e8e0b01b84abf751a768f21fdff3a782ed11509ab7726f73aff | temporary parser goal, never written or delivered
@@ -2913,50 +2635,14 @@ Sources/Integration/AutomationMCP/TaskCycleHandler+Plan.swift | retained | 08473
 Sources/Integration/AutomationMCP/TaskCycleHandler+Plan.swift | retained | 4413b52b17ba57913aa2a397167a02244886e438fa3020ad0c3d3f4725be33f1 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Plan.swift | revision | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Plan.swift | todo | b31740b519cf15c3f7ace647f5b5d4923f1aeb8d6c7ad2cbf27e68c80ba905d6 | task cycle catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | bundle | 32d78dbd6700ffcd6e9b0a3ee27eacb94a9d577f27cabb6e08b6447fab06785c | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | bundle | 6691ae277870be1ce8fba38b4aba38f3a526f1a8d7396171312e8d1963990c85 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | bundle | fb4d7605189e3102ddcb6e241ee13ef550179733aa00bf184f72c13e5e32c20e | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | part | 6f459e9b81a4033d1d53f1d6b182c17b368bc55ad7918327213c232ab7f4eaca | task cycle catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | part | ab9bb91e7e8655c7a046b0ae97e8a8977f1419bed02f61a2e48543b39183ef70 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | parts | 43ccc4d00da648961a13d8f529f828b1b97e9ce5508188741a25fbc40b461404 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | proposal | 3206512a5bb84db343b06c47cd079fbabdacbc75106e637a0ea746e5d9fcd4ff | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | proposalID | 705a654d181601b5a5069400774a16ef9c5b370347666be4bdeae44173217053 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | result | 2206783894445eaeca5f31f6f597ba8894da2992f40bd0c435de68a1701ba3b3 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | 073171f7f5e1438ae632cb252bda87d19e1bfab1a0ba309e91bdd645886f24ea | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | 2d53b3c21fa5cc786ac46d72b3adf70b60441627a14918f69f8ea164fec2e68b | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | 32d78dbd6700ffcd6e9b0a3ee27eacb94a9d577f27cabb6e08b6447fab06785c | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | 43ccc4d00da648961a13d8f529f828b1b97e9ce5508188741a25fbc40b461404 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | 46e6a5e9566785273230852937c5f2b5d19c583743b408bd96cf97a97efb77d8 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | 5b80b580da888e63ae8e4f75327504e326cf12261eab2446a335d99c9e7b5b12 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | 6691ae277870be1ce8fba38b4aba38f3a526f1a8d7396171312e8d1963990c85 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | 6a709b95c669cad8f896a3e94ed0c7cf410c0ed012c32d1fe4562b5da7207390 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | 8a52d2711efeb0ec16649ef71325c8d318f887d83b170a68254a587d89d11ca4 | task cycle catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | a5b7bf5479b9deadc22c17d106268f65a5010da7d852d45b75e0fd36d4c714cf | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | e5403d474c2a98cc5ce06a6d2ce74bdfc68bbae4bc39a037d0f974d3a302c55b | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | source | e6826c3aff14610ee1772cbd7b270ff25f0df765ef2cf045a20fb72f093e9b92 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | sources | df3022f208aa0c4a9e6a1409a7ae8b617fe94b01c4c3f9a62dd1d3823770a80c | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | answer | 0f27529487e95082cf0bd9f021be1ede2adc650b34db2ba96235d8805ad49bb3 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | answer | 53a18969b968cdeec492eb5cea8565f508b2692dd00bbf764e06e96af40b5351 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | answer | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | answer | b9ce06a01002b74d199af6ebe3f5fb94ceba07ec633822e44fec47b29b9edb7d | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | answer | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | arguments | 063bd51742f1ca8f53066539d5ff51551e71684917181d906c49789759c4bfff | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | arguments | 16e4c13d037a9985184da81ce22a31af59ea863e5c0c92197fa930035bb7521e | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | arguments | 46e6a5e9566785273230852937c5f2b5d19c583743b408bd96cf97a97efb77d8 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | arguments | 5c372052cc8c0dcf851cd9a226c0a71da65918b4275629bd0872c4b959c14c5c | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | arguments | 6201e275c993fded1b6a1b7b64f106686c702d9fdff8af32b560aad5d781015c | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | arguments | 7093fda846e50b267da144f7b3683ee1dd8838506939f6052b7370dd01fa2ad0 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | arguments | 92a3f522c89ee24b0e2812a44bc2279a525bbf70c6dd745cd014d74c97e840c2 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | arguments | bea6e6df225b3c3edb767a70498f641b55093a99e4f35e35f198db29eafeb17b | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | arguments | d03ed6409d4fc73133c633c74c418f04ba90c59ad438a44c8a49084b0ca1ab82 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | arguments | e5403d474c2a98cc5ce06a6d2ce74bdfc68bbae4bc39a037d0f974d3a302c55b | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | checked | 98dd45c4535472659011d1096d126ccc2103a4d29b7a6b51f9357ccd89d3102e | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | current | 5f6fe25da4511ba3d68b340c044b25489dacf27b05b6b780807f25b50509f7b4 | task cycle catalogue key
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | current | 9964c99046145653bf681e99220515847bfbf71d7fb8682147daa3e719f27fe8 | task cycle catalogue key
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | diagnostic | 495b5b8a6953b1db2659454ce3af93f2763c007212ef3f0d751ce4e4991652b7 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | diagnostic | e06e4815a2cfaac2c7a0fb56c99f282168cdb0b79dcbcf882f3d65b5b7f26fb3 | local diagnostic, not delivered to the model
-Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | diagnostic | e499cf3a39e9d63cb93cc95ab9df763c9383ac0308d145354cf28b01dd69e474 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | draft | 1cd0eedbb97f8e5f8dd7d71a0ae003e3184c459ddcdd4055acadc357b3eea1e6 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | draft | 4eafa05fe457485005571bba0d52b13a7fb0743bddb027235f847281931d706f | transcript event label
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | draft | 71fcdf2ac1b65cf9e02b59fbdd2921ff94a2a3d3b42a826669da4a5693987aaf | task cycle catalogue key
@@ -2994,8 +2680,6 @@ Sources/Integration/AutomationMCP/ToolCatalogue.swift | gestures | d33f6725c5db4
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | gestures | ded824aeecf5ce0b5f7c3529663a3538a7f03175078b32057d90a76864094773 | capability contract metadata or composition diagnostic, not model instructions
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | gestures | e37ddc25411cac1217d09d11e8f80d720d6f14d80b152eeaf4a00e78a2620c10 | capability contract metadata or composition diagnostic, not model instructions
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | gestures | e6f9696c8a766ee8c3cd0016078905cddaeb24d54be50406b2faa7a5d211b74a | capability contract metadata or composition diagnostic, not model instructions
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | 561b496db43567cc0744ccbc24bc1aa7c6e26717caad9000a0d6f98cb3be4cf2 | task cycle protocol key, enumerated value or local identifier
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | interruptionPolicy | dbf9868785714c2519824d5a01bea297a3ef16fa141bec86a4caff8320cdbc4c | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | legacy | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | legacy | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 24105546e4824327e6c3769d53a0fae8af4113743646de5b07b86d7aef3af0e0 | task cycle protocol key, enumerated value or local identifier
@@ -3037,7 +2721,6 @@ Sources/Integration/AutomationMCP/ToolCatalogue.swift | rows | e301726d0abdec5d7
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | rows | e49fb5f753e8aa4d47de1997cf344e108a4ccc685d45f43a37b7f49085f585e2 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | rows | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | rows | eeb9e246ce9a602d9da84524c58d77fb90e3e518b91f0bdd517a79ced1be1291 | task cycle catalogue key
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | 0d9f50d8178cb7c5b044c4dce43f1a35c44697ac03e70407e2dda2324fa92f56 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | taskInstructions | 48f48b134e89ca298b28b951bc53aadf801673024b711bc478063b1b6717fd2c | task cycle catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | text | 0ea805d6dd142928d738cd128d7bd049cdd4b4ee709427699af343ddbce98522 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | text | 0fff5f85e4fa1de522cb860c8f414693642420ddf27f55e3f9975a17728b7469 | task cycle protocol key, enumerated value or local identifier
@@ -3047,7 +2730,6 @@ Sources/Integration/AutomationMCP/ToolCatalogue.swift | text | 1f2e398e6e2431ed8
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | text | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | text | 28b8c501c87f18578903305c7401cd4442a59d22af37a90fc558e694189456fc | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | text | 3c22349f8d0b6077e455e7638fb49a4eee40103dc09ce17ed889569f429c91cb | tool surface protocol key or enumerated value
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | text | 48f48b134e89ca298b28b951bc53aadf801673024b711bc478063b1b6717fd2c | task cycle catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | text | 561b496db43567cc0744ccbc24bc1aa7c6e26717caad9000a0d6f98cb3be4cf2 | task cycle protocol key, enumerated value or local identifier
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | text | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | tool surface protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | text | 6d6ca52ed3519c9caf99237c1b77d7a63cca5a5ef32b7131d6fe85a86f91a979 | task cycle protocol key, enumerated value or local identifier
@@ -3073,8 +2755,6 @@ Sources/Integration/AutomationMCP/SceneText/SceneAnswer.swift | values | e1d434a
 Sources/Integration/AutomationMCP/SceneText/SceneAnswer.swift | values | e8f625c40b0e710f847d6eb25a05c7e10e6291793baf29fdd0adfba55e1e2579 | Tool observation envelope key
 Sources/Integration/AutomationMCP/SceneTextPolicy.swift | chosenBase | 1d30f7278206614ff8f80cb200768e5177e676225b6d690b70c71db66e02325c | Scene revision protocol syntax or its catalogue/switch key
 Sources/Integration/AutomationMCP/SceneTextPolicy.swift | chosenBase | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Scene revision protocol syntax or its catalogue/switch key
-Sources/Integration/AutomationMCP/SceneTextPolicy.swift | rule | 2c912e1e7d73403b000e0b58f5ab5e767beeeba1a5e55ce2a0d6fe13e85f04c2 | Scene revision protocol syntax or its catalogue/switch key
-Sources/Integration/AutomationMCP/SceneTextPolicy.swift | version | eb2db84cb79934ae3247c35dc1dde616d3022c20b1311d0f345b5b25d94803d4 | Scene revision protocol syntax or its catalogue/switch key
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | compactSectionLine | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | Typed scene row grammar, annotation or section identity, preserved by scene byte tests
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | compactSectionLine | edc70aac6426511413b0637bbc7ed425d6671c549bd94df742a8073391d9e73e | Typed scene row grammar, annotation or section identity, preserved by scene byte tests
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | fields | 24505c68ba38391d31554e72027906eef160acc38716f4526176af76832f56fe | Typed scene row grammar, annotation or section identity, preserved by scene byte tests
@@ -3129,9 +2809,6 @@ Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | was | d61f8c80ec9
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | was | e6dae5e7f59d4d1a6e36c93f9d75f6edb3ee692f1abdc2f649144eea9bc38776 | Typed scene row grammar, annotation or section identity, preserved by scene byte tests
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | was | ef42a6c4cf2ab4334d199c2b6531ebed56d3f1d5cf7ee2130e727ecef97566c4 | Typed scene row grammar, annotation or section identity, preserved by scene byte tests
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | was | f240463dada079fc3d64b63fd6c50a01e772da977083807d79b1027d1a31253e | Typed scene row grammar, annotation or section identity, preserved by scene byte tests
-Sources/Integration/AutomationMCP/SceneTextPolicy.swift | changesHeader | c62b9f256fe91214b85f01409bfb22d8a7488e1b020e091fd8c8687d2f272fec | Scene revision protocol syntax or its catalogue/switch key
-Sources/Integration/AutomationMCP/SceneTextPolicy.swift | unchangedHeader | 8d4ec5a6d32ce732be10e1f18856bcefda34f65659d66a26714c9d6be39599a5 | Scene revision protocol syntax or its catalogue/switch key
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | deliverMemory | 0d7ed8b7c84b085faf5cb3d82a769271a13a88a13b5657c375c870a560649a50 | catalogue key
 Sources/Integration/AutomationMCP/PlanMemory.swift | recallLog | e499cf3a39e9d63cb93cc95ab9df763c9383ac0308d145354cf28b01dd69e474 | local logger configuration
 Sources/Integration/AutomationMCP/PlanMemory.swift | recallLog | c04fd51714b1af62e4d0671ee014e922148c5f2f9bc3cad980dccbc04d89f889 | local logger configuration
 Sources/Integration/AutomationMCP/PlanMemory.swift | key | 3262b7a621893b2fba1d80f03550e371492fdc4cbfd6a5e54a93e2bd5f9c2d4d | protocol key or enumerated value
@@ -3147,10 +2824,8 @@ Sources/Integration/AutomationMCP/PlanMemory.swift | partID | abd20eae6fd938f4ac
 Sources/Integration/AutomationMCP/PlanMemory.swift | found | b29765963457f02ae56a74824cc0b8ad34a379e288dbcde3610a2b66d68e2761 | catalogue key
 Sources/Integration/AutomationMCP/PlanMemory.swift | deliveryKey | e38694e87fe0f924ca5a1ae896f7531586b0ff9c9fc3abe3f371231026e27f97 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/PlanMemory.swift | deliveryKey | 2181f7dd63a13e48a5f6e722a6e1d8ca8e33aa46e3a26d7b8b7d43cbdc9ece9f | protocol key or enumerated value
-Sources/Integration/AutomationMCP/TaskCycleHandler+PlanMemory.swift | deliverMemory | 2181f7dd63a13e48a5f6e722a6e1d8ca8e33aa46e3a26d7b8b7d43cbdc9ece9f | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | runCall | d994f883ae1c68f4b89aed84ed97cd5c1590829c2653cd34b0fc896e646a2323 | Capability identifiers used for dispatch admission.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | runCall | 3fbe8ae37de255630548b9d994d85052f2fcd10992224eb3f75f1ed28b1231f4 | Capability identifiers used for dispatch admission.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | runCall | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Capability identifiers used for dispatch admission.
 Sources/Integration/AutomationMCP/CatalogueEmbedding.swift | log | 5300ff0f9c580e08bf8161cb70267d6c69101d65a0f65cb08310996b2c6c8ec2 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CatalogueEmbedding.swift | log | e499cf3a39e9d63cb93cc95ab9df763c9383ac0308d145354cf28b01dd69e474 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/AutomationTools.swift | search | 3065c8a15d7ca94969603b3e53ffd7ded5b04b3204e5067d242779ea17f22b75 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
@@ -3180,7 +2855,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | key | 2324b578f59163cbb
 Sources/Integration/AutomationMCP/CallDispatcher.swift | notice | 490d426248946871eaa2e46d4ec13e9eb5b4d5a0e7ecf866e1d4a1ea769da179 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | notice | e1e3439abca599e07242eca59fd6daeb8dae47727c0fc2c49de081953b71bdb9 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | problem | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | provider | 0509e8475405820bb6e1e723ae33cdd2f4220b694435ad0d13534f95b26da795 | Internal composition diagnostic, never delivered as model prose.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | query | 2d056c0111ed28e7dbee2e3a669613720fb9b89b1ecb2471ec297c616d0b6545 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | query | 4c4f28a0fc9a4f2950029d5207744506cb1a6c2a836be46bdd126cf6ff507309 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | resolvedCall | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
@@ -3240,10 +2914,6 @@ Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | tripleClickDefinit
 Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | tripleClickDefinition | aa962f43aa13b734bd1704f05204720de1c69a6c1a3969fd131c78c6240e7f57 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | tripleClickDefinition | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | tripleClickDefinition | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | 015be95fa11e8eb348c296805077f84add4e7e6fd816de022d6a173e5e5440de | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | 8a2b49b006c72755f21f9d8e8b2bcf4fa20678a466bf4781b7117b230f60afff | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | e49fb5f753e8aa4d47de1997cf344e108a4ccc685d45f43a37b7f49085f585e2 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | agentTool | 015be95fa11e8eb348c296805077f84add4e7e6fd816de022d6a173e5e5440de | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | agentTool | 2fdfd80b7ab2cd1f0e01ad2cdf1aaa69eee4609f73931facfb67d6a6b6de247d | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | agentTool | 345a71448618954a967cf6a02d03f8fba9c101d54ffdecffb6c5f40b0386af6f | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
@@ -3282,37 +2952,11 @@ Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | key | 213a7445aa12
 Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | key | 3f73c32e1b6c6b43f966b6827e6eb205246e73dceed23523fc086e67608c9f1a | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | key | 4ad4dfd9a61a1766be4eae6b141ff1c3b74971cb4112219bb706f475ca67d85d | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | contracts | 50734383bf9131c6243c6e34dff61348c857c2e52a40f20a412a2f35dd12cf79 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | guideProvider | dda6450fcafd1b31eed717b1e5601f31775a04cfe912f59830443d272a786000 | Transcript direction marker and resolved capability identifier.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | result | 98a49d55d35f4bd51587bf8c6fce46e0801292de46b779ae88deb43aee86d8f8 | Transcript direction marker and resolved capability identifier.
 Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | tripleClickDefinition | 73d3014ffa34b51f254c4690aeb1d0baf61db3ae2f141dd4510962d00b7df6d8 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 210aff1c08c6e1ea48b7ea6260845823eb7c3322331971cd7d0aff4103bfcd77 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | e4edd2f0a1a9e209e0eb59eeb4da0dd6e05820ad1b1ac12eb8af4e32cd4bec1d | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | arguments | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | arguments | 7c3d4616fc1b7e87268aca67f57e9648fbe20a95c322ee9d4abc307dab668f21 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | arguments | 8a2b49b006c72755f21f9d8e8b2bcf4fa20678a466bf4781b7117b230f60afff | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | arguments | d33f6725c5db4ca902fb358d22cb82499df619feeea073f8b9d0d2dea5e84775 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | provider | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | provider | 257286b768ee01518960b3c485f54d2c2a0256fb0f15e7ccd4c58cf61a2ff6cb | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | provider | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | provider | 4b1545477be6dc17f3a70e659635a34650696be11c051c0c247ea3a09b73d279 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | provider | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | provider | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | text | 24105546e4824327e6c3769d53a0fae8af4113743646de5b07b86d7aef3af0e0 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | text | bd1518fee1b9f61cf83d11f04f5f22ebc638e6ac915e1175997134aa8afa8d6b | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | text | d17fe6f84e395dcb606c4845719406782f5ab2259a316df6165f79f27f333bfb | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | text | dbf9868785714c2519824d5a01bea297a3ef16fa141bec86a4caff8320cdbc4c | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | a49ec5811060dc6909e5cb8910db21ae472eb68ddb1ad1195fb1a510c2a86f0b | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | definition | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | d33f6725c5db4ca902fb358d22cb82499df619feeea073f8b9d0d2dea5e84775 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | 0d9f50d8178cb7c5b044c4dce43f1a35c44697ac03e70407e2dda2324fa92f56 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | 345a71448618954a967cf6a02d03f8fba9c101d54ffdecffb6c5f40b0386af6f | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | 432ced8bd4f7363e6ad2e7646783c593eb2bbc2e80c828685c4a923a46112999 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | 841183f6ada355aa8d3805906b7863b21f10254c798453f09b13b3d053204df0 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | verb | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | gestures | 807c1ce09850d9ff5c4dc59b66d34d89dfbf1486e0909d1be3f5d13ba8f6b3c4 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Turn/TurnRunner.swift | names | 3fbe8ae37de255630548b9d994d85052f2fcd10992224eb3f75f1ed28b1231f4 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Turn/TurnRunner.swift | names | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
@@ -3330,19 +2974,7 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | consumesRoutingStep | 8
 Sources/Integration/AutomationMCP/CallDispatcher.swift | consumesRoutingStep | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | consumesRoutingStep | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | consumesRoutingStep | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | Capability identifier, schema field, catalogue key or internal contract metadata; prose uses ModelText.
-Sources/Integration/AutomationMCP/AutomationTools.swift | call | 247291b7c32a646a7e9715ee1cc129cf4d2f8ce0b9ccf255139d63728f2aaf06 | session profile protocol key, catalogue reference or formatting separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | taskID | 1c9dd5c971223ab0ace02e0501e2cd7294db1eab55bd0dc8b8abd275f57688ee | session profile protocol key, catalogue reference or formatting separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | taskID | b8d95a535b1da8da697ede8a11dc29e0dd701cdc70679079e75ac780b24b695c | session profile protocol key, catalogue reference or formatting separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checks | 1c9dd5c971223ab0ace02e0501e2cd7294db1eab55bd0dc8b8abd275f57688ee | session profile protocol key, catalogue reference or formatting separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | checks | b8d95a535b1da8da697ede8a11dc29e0dd701cdc70679079e75ac780b24b695c | session profile protocol key, catalogue reference or formatting separator
 Sources/Integration/AutomationMCP/TaskCycleHandler+Answer.swift | recall | 2021b7c372990f797e86cb0f85931f66372edc040135039b0a741c1827b3475c | session profile protocol key, catalogue reference or formatting separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | search | 6ad21f9d2ea182f9fe66f7791944c3bfa4eb4281c1609ca95e82a89c65e6a413 | session profile protocol key, catalogue reference or formatting separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | search | 86a431bb16ad4fc733f6a10364bdc60497b32ce829109d65a18aed9cc8cf1b54 | session profile protocol key, catalogue reference or formatting separator
-Sources/Integration/AutomationMCP/TaskCycleHandler+Evidence.swift | search | ab4347040a6e566862661cb286a68bac5e39f6c41cdadef06e00aed44f05a630 | session profile protocol key, catalogue reference or formatting separator
-Sources/Integration/AutomationMCP/CallDispatcher.swift | call | 1706c6e65ba467fae61caec26716cd1037e3ee730e6d5f77f7c971fc63c3a347 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | call | 8dac625925dff4ce3ce795479774c56113af2e44edb49e4dd648038826bc45e2 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | call | d33f6725c5db4ca902fb358d22cb82499df619feeea073f8b9d0d2dea5e84775 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | directDefinitions | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | kept | 5e998cf435d905a38b394733b9694dfa4fac394c04aba58d2d8b50c7b28139bc | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | kept | c631746fec5b080a88fd9cdac629e048aaee8d7ed55ad656c842b6f7add61b22 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | result | 1e1d0f251d3a76fa2b1bfc81164078572623403887db02988b504b0492e9f076 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
@@ -3353,24 +2985,89 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | suspension | 52109349da
 Sources/Integration/AutomationMCP/CallDispatcher.swift | value | 2ed8fd3716dcb1f8835877a91a18261c893999163782b2d10a75a59046c1e4d5 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | value | 623909d8e483b66dda1b3ddff82677c0cda5fb26f685746d6e24142bb7b6b423 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | value | bf04cca1fd3e92917d3bb3f26d761820f39df1b1f7a67778adcabe1ce428b37c | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | blocks | cc3ec73cd71163b2b0ee5faeb2a908226ac15c35c7207d9a626e63ccc47f0ffa | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | blocks | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | blocks | de45762911881d37d8c8049e17627ed8a88043f65d9d5fe5988f1da9364e93c6 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | blocks | e8f979085c88bb881343c5b26af16c3e3d7dc094213a945b4490c8d4852c6fb1 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/Guides/AppGuides.swift | candidate | 0933fb667296882d8c45abca58ac52e01c8db6f19e626b30de88f0f4ed143ec5 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | guide | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | guide | 25c8b73258f79524b60a0b7470f8e7d3a81b8fd02cd99c170a7365c68aabc367 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | guide | bdad1215aa7ba69f0ab0cd356bf68e60613e7ed85af7796c5c02a8589d7f5273 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/AppGuides.swift | guide | f240463dada079fc3d64b63fd6c50a01e772da977083807d79b1027d1a31253e | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | call | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | call | 861d85886c64609bc46e4fb76d1130163408f967b5c330b86554530e7f1fb1fb | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | head | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
-Sources/Integration/AutomationMCP/Guides/GuideCapability.swift | requested | a49ec5811060dc6909e5cb8910db21ae472eb68ddb1ad1195fb1a510c2a86f0b | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | notice | afd8b1c70d92929a96570e0a887d02978535f1aee2c63b4b15b28d02620c2350 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | notice | c631746fec5b080a88fd9cdac629e048aaee8d7ed55ad656c842b6f7add61b22 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | presentation | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/ToolArguments.swift | invalidExpectation | 307072eb16f012e29a2410ca53c983235c1b84920fa09e294e2fff161c977eec | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
 Sources/Integration/AutomationMCP/ToolArguments.swift | invalidExpectation | ffdf6c5d7c9b2419a752cb86c7aec306150c5a4ddd0824a8a698c414f8138814 | Protocol field, ModelText reference, typed slot or formatting separator; prose is in the catalogue.
+Sources/Integration/AutomationMCP/AutomationTools.swift | key | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | Tool identifier or catalogue lookup field; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | key | 62c4c04485b3675c8a8594d8418517ed0e7bd2bee6955b143bef6417296e3fe4 | Tool identifier or catalogue lookup field; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | key | be38c033c029f7de67a8542616166077ed1674d725600fe06fb62c18a4bec41c | Fixed sanitized bucket for refused unlisted tool attempts; no arbitrary input or prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | 304aeb6aeb9281204cf0b2723b2d0d855d70719de14de5aa270752aa275e307b | Runtime evidence protocol field or fixed contract identifier; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | 80063b203c12be1397c34739863cc8d04107b32a34960a719a3da0682a7db7ef | Runtime evidence protocol field or fixed contract identifier; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | d19048bc03682d2d7cfd0ba2a1527ca1942160f7e94d927a075d1fa1b34446c5 | Runtime evidence protocol field or fixed contract identifier; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | acd0d65f92dea48443f61a051443e19897d9977b07a76603925991eded51b419 | Runtime evidence protocol field or fixed contract identifier; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | bf4460577808bc416e29db3f9f2072a023a199d120783c3e7687066f91a4a9f6 | Runtime evidence protocol field or fixed contract identifier; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | f73c044f8fec143853ab1a302958227abcabb46e4cc1b5544098bc2aac462e31 | Runtime evidence protocol field or fixed contract identifier; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 1a325aef4a73cb6563978de06165291c68918ed63365c0c80345fea904f7ce18 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | fdb4f08f51be9af57176586baa44aa40a6265beaf261dc9c9f21007509d91829 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 4021265680bc5667cb7ba8c2dba5621a33a72895d65f8d6f84b889f5b5c239b7 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 840b6a8e3f84f5f83274e835e1a614bfb9f082d460b80d3e8d2dbf14162edceb | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | ea464195deee551d34931883f65bbc7ed8d396af44aa315bf19e299a7626c4ad | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 2b5118780a8105e129263d1d2907696e6de5967faef5c12f133b81201f6be88c | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 6b16282e9f8017f73754fe5fffe6ffee826d9969780ad5602f9b2075438d745b | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | c55bec3523cc257ee10d6879283b83f42d56e9d13d69cd2703ec6729f1b67546 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 2e8e688afc26ad7caf909fa9fab64cb66a0cd2cd27ac857352b0887dc9dba71d | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 2a27705ca40792a8340a24b66615ba9d677d501c9763250816ab32a71656ff51 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 5beedfb011545ed5bd05a970948c02e8648ea47b7ae64258bc3744f81e1766d3 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 50fb3c86290e9b84db1e54cdf2932b1ad7545b72372ce0c1024c40599623ecf9 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 0e4f1758e0949067e145edf045510a9754152ba41032f2ae21a3abd0182493e6 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 324312ee1fe24cbb5ffee84aed8966b55c2e7b515f43429fb4179f6d4501d0f7 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 51a99e021d65168d6accf5c1bb6857153c6d0e8aae2c07c8aff9c6d0421d2ba3 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | runtimeFeatures | 4657b5e47f507100a8b54c53689af5c4e06351bad9155379c73e3448b71fe6f5 | Fixed wired-capability identifier in runtime evidence; no model-facing prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | directory | 2d52cd9073053426a522ce4fb85745902ca2f9482e61774b7c1fa6c44a68931d | Runtime evidence protocol field or fixed contract identifier; no model-facing prose.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | done | 345a71448618954a967cf6a02d03f8fba9c101d54ffdecffb6c5f40b0386af6f | Tool identifier or catalogue lookup field; no model-facing prose.
+Sources/AgentLoop/ModelToolLoop.swift | text | d37360509919173d6a94cbfdad0872a9eb5cc5225e56ff68d00a87b8f4376e65 | Runtime/authority protocol key, producer metadata, tool identifier or ModelText reference; no prose.
+Sources/AgentLoop/ModelToolLoop.swift | text | 2ec190080bb9c1d57dd9a45778ce2d1312ab09cd1b7bc8ed89fbba6cf48d91a1 | Runtime/authority protocol key, producer metadata, tool identifier or ModelText reference; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | callRecorded | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | Runtime/authority protocol key, producer metadata, tool identifier or ModelText reference; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | callRecorded | 247291b7c32a646a7e9715ee1cc129cf4d2f8ce0b9ccf255139d63728f2aaf06 | Runtime/authority protocol key, producer metadata, tool identifier or ModelText reference; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | metadata | d37360509919173d6a94cbfdad0872a9eb5cc5225e56ff68d00a87b8f4376e65 | Runtime/authority protocol key, producer metadata, tool identifier or ModelText reference; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | metadata | 2ec190080bb9c1d57dd9a45778ce2d1312ab09cd1b7bc8ed89fbba6cf48d91a1 | Runtime/authority protocol key, producer metadata, tool identifier or ModelText reference; no prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | directory | 2021b7c372990f797e86cb0f85931f66372edc040135039b0a741c1827b3475c | Runtime/authority protocol key, producer metadata, tool identifier or ModelText reference; no prose.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | row | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | Outcome row composition from typed fields and a catalogued message; punctuation only.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | row | 9a5e13f69efc348b5cb6292b127326a7726463d80b3e19e4395bfba72db2e4a1 | Outcome row composition from typed fields and a catalogued message; punctuation only.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | row | f6a7353e2ee11da2421e532f9f8b1d35511d74467d88c7c3028808ea976d1b3c | Outcome row composition from typed fields and a catalogued message; punctuation only.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | row | 40acee234a1f450e1a1438355c713afbfb88be90a8bef8bcf88175685395f831 | Outcome row composition from typed fields and a catalogued message; punctuation only.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | row | 2628022c228237e2c43b748de5bb11b3d3e17fee25eab314994faa8251a23ab2 | Outcome row composition from typed fields and a catalogued message; punctuation only.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | row | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | Outcome row composition from typed fields and a catalogued message; punctuation only.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | row | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | Outcome row composition from typed fields and a catalogued message; punctuation only.
+Sources/Integration/AutomationMCP/ResultFormatter.swift | minimization | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | Runtime/authority protocol key, producer metadata, tool identifier or ModelText reference; no prose.
+Sources/AgentLoop/ModelToolLoop.swift | text | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Typed result field or canonical text-block separator; not prose or a product switch.
+Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | Typed result field or canonical text-block separator; not prose or a product switch.
+Sources/Integration/AutomationMCP/ResultFormatter.swift | steps | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | Typed result field or canonical text-block separator; not prose or a product switch.
+Sources/Integration/AutomationMCP/AutomationTools.swift | bytes | 5fb182dc58c0a60c0c3bed11c8973739815bd2d65eddd2f46a2e5de0c24c2454 | Fixed hexadecimal byte formatting mask for SHA-256; not model text.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | efb4c4f2ff9fae41a4edcef43ab32a6d1bc0aba720e6786d750eed240fb0038a | Runtime evidence field naming the SHA-256 of the actual served tool schema; not prose.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | Capability JSON schema field or empty lookup sentinel; contract prose is supplied by its provider.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 257286b768ee01518960b3c485f54d2c2a0256fb0f15e7ccd4c58cf61a2ff6cb | Capability JSON schema field or empty lookup sentinel; contract prose is supplied by its provider.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | Capability JSON schema field or empty lookup sentinel; contract prose is supplied by its provider.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 4b1545477be6dc17f3a70e659635a34650696be11c051c0c247ea3a09b73d279 | Capability JSON schema field or empty lookup sentinel; contract prose is supplied by its provider.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | Capability JSON schema field or empty lookup sentinel; contract prose is supplied by its provider.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | Capability JSON schema field or empty lookup sentinel; contract prose is supplied by its provider.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | 24105546e4824327e6c3769d53a0fae8af4113743646de5b07b86d7aef3af0e0 | Tool identifier, ModelText catalogue reference or typed refusal cause; not inline prose.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | bd1518fee1b9f61cf83d11f04f5f22ebc638e6ac915e1175997134aa8afa8d6b | Tool identifier, ModelText catalogue reference or typed refusal cause; not inline prose.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | d17fe6f84e395dcb606c4845719406782f5ab2259a316df6165f79f27f333bfb | Tool identifier, ModelText catalogue reference or typed refusal cause; not inline prose.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | dbf9868785714c2519824d5a01bea297a3ef16fa141bec86a4caff8320cdbc4c | Tool identifier, ModelText catalogue reference or typed refusal cause; not inline prose.
+Sources/Integration/AutomationMCP/TaskCycleHandler.swift | diagnostic | 495b5b8a6953b1db2659454ce3af93f2763c007212ef3f0d751ce4e4991652b7 | OSLog subsystem or category identifier; not model text.
+Sources/Integration/AutomationMCP/TaskCycleHandler.swift | diagnostic | e06e4815a2cfaac2c7a0fb56c99f282168cdb0b79dcbcf882f3d65b5b7f26fb3 | Private OSLog diagnostic with private interpolated text, not delivered to the model.
+Sources/Integration/AutomationMCP/TaskCycleHandler.swift | diagnostic | e499cf3a39e9d63cb93cc95ab9df763c9383ac0308d145354cf28b01dd69e474 | OSLog subsystem or category identifier; not model text.
+Sources/Integration/AutomationMCP/ToolArguments.swift | rejectGestureExpectation | 035fc98bd805985d113c8aa49b03a70942a1b3d0be33e178c4fd87fcf3aaee54 | Input property name refused on individual gestures; not an implementation selector.
+Sources/Integration/AutomationRuntime/MenuBarCommand.swift | error | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | Empty AXTitle sentinel for a window with no title; not model instructions.
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | changesHeader | d45bf1ad4a25dedf908936f8e6101c07a22901961f1f0458b7a8b6bed6922377 | ModelText catalogue reference or typed revision slot name for compact scene headers; no inline prose.
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | changesHeader | d4a057bb0019067f3ffab88f1b835c949df570e7f75e717c784bc3f1d4766895 | ModelText catalogue reference or typed revision slot name for compact scene headers; no inline prose.
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | changesHeader | e2a6012b46386bb2c708b506b6ef241944a79f98c1f1e549d0e0424fd4a9c863 | ModelText catalogue reference or typed revision slot name for compact scene headers; no inline prose.
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | unchangedHeader | 1c8d6da8890da7afcf4207c17774879cf6a7cfee5c9ec7a8dbe7a457f88ac28a | ModelText catalogue reference or typed revision slot name for compact scene headers; no inline prose.
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | unchangedHeader | d45bf1ad4a25dedf908936f8e6101c07a22901961f1f0458b7a8b6bed6922377 | ModelText catalogue reference or typed revision slot name for compact scene headers; no inline prose.
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | unchangedHeader | d4a057bb0019067f3ffab88f1b835c949df570e7f75e717c784bc3f1d4766895 | ModelText catalogue reference or typed revision slot name for compact scene headers; no inline prose.
+Sources/Integration/AutomationMCP/AutomationTools.swift | configurationEvidence | f72a23350a101ab81916c923b5b85171c379d79c01dc1bffa6fa5707916ceb09 | Fixed runtime evidence format value for the sole canonical tool catalogue; not a selector or model-facing prose.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | 0d9f50d8178cb7c5b044c4dce43f1a35c44697ac03e70407e2dda2324fa92f56 | Existing capability schema field, tool identifier or row-reference pattern after removal of the obsolete act-verb filtering scope; no prose.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | 345a71448618954a967cf6a02d03f8fba9c101d54ffdecffb6c5f40b0386af6f | Existing capability schema field, tool identifier or row-reference pattern after removal of the obsolete act-verb filtering scope; no prose.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | 432ced8bd4f7363e6ad2e7646783c593eb2bbc2e80c828685c4a923a46112999 | Existing capability schema field, tool identifier or row-reference pattern after removal of the obsolete act-verb filtering scope; no prose.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | 841183f6ada355aa8d3805906b7863b21f10254c798453f09b13b3d053204df0 | Existing capability schema field, tool identifier or row-reference pattern after removal of the obsolete act-verb filtering scope; no prose.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Existing capability schema field, tool identifier or row-reference pattern after removal of the obsolete act-verb filtering scope; no prose.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | Existing capability schema field, tool identifier or row-reference pattern after removal of the obsolete act-verb filtering scope; no prose.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | Existing capability schema field, tool identifier or row-reference pattern after removal of the obsolete act-verb filtering scope; no prose.
+Sources/Integration/AutomationMCP/CapabilityCatalogue.swift | fields | fe26e158c248c22eb7bff607d20e38cdb50b859ca4a0001789c41cfa6772bade | Existing capability schema field, tool identifier or row-reference pattern after removal of the obsolete act-verb filtering scope; no prose.
 """
 
 

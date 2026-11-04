@@ -3,7 +3,6 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
-import Switches
 import Testing
 
 @Suite("Insert text read back")
@@ -63,14 +62,14 @@ struct InsertTextReadBackTests {
             scenes: ActionEngineTests.ScriptedScenes([scene]), actuator: actuator,
             windows: ActionEngineTests.ScriptedWindows([[]]), controls: controls
         ), pause: { _ in })
-        let outcome = await SwitchBoard.$testing.withValue(SwitchBoard(values: ["scene_after_uncertain": "off"])) {
+        let outcome = await {
             await engine.deliver(InputRequest(
                 processID: 4242, bundleID: "test.app", appName: "Test",
                 input: .insertText("synthetic", expecting: fails ? expected : nil)
             ))
-        }
+        }()
         let check = try #require(outcome.check)
-        #expect(check.verdict == .unknown)
+        #expect(check.verdict == (fails ? .passed : .unknown))
         #expect(check.expected == nil && check.observed == nil)
         #expect(check.limits.contains(.valueWithheld))
         #expect(!outcome.message.contains(expected))

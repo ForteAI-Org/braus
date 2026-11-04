@@ -21,6 +21,7 @@ import WebSession
 @MainActor
 final class DesktopProbe: AutomationSessionOperating {
     var calls: [String] = []
+    var memoryDirectory: URL?
     private(set) var id: UUID?
 
     func open(application: String, window: String?) async throws -> SceneSnapshot {
@@ -34,7 +35,10 @@ final class DesktopProbe: AutomationSessionOperating {
         calls.append("act \(target)"); throw AutomationFailure("probe")
     }
     func select(control: String, item: String) async throws -> ActOutcome { throw AutomationFailure("probe") }
-    func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome { throw AutomationFailure("probe") }
+    func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome {
+        calls.append("type_text")
+        throw AutomationFailure("probe")
+    }
     func close() async { calls.append("close"); id = nil }
     func resolvedBundleID(of application: String) async -> String? {
         calls.append("resolve \(application)"); return "com.example.App"

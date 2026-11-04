@@ -29,7 +29,7 @@ import Testing
 ///   a plateau.
 /// - `final`: the frozen calibration (`Fixtures/recall-calibration-v1.json`) must name this corpus's digest; every
 ///   configuration is measured on the final split with its frozen thresholds, through the service and through
-///   `memory_task begin`, whose deliveries must agree with the service's selections.
+///   typed service recording, whose deliveries must agree with preparation; this does not test the model plan response.
 @MainActor
 @Suite("Recall comparison on the quality corpus", .serialized, .automaticSelection)
 struct RecallEvaluationTests {
@@ -206,7 +206,7 @@ struct RecallEvaluationTests {
     /// is kept, every search is timed.
     static func prepare(_ queries: [JSONValue], service: RecallService, repetitions: Int = 3) async throws -> [PreparedQuery] {
         _ = try await service.prepare(try RecallRequest(taskID: "warm", attemptID: "warm", revision: 1, reason: .initial,
-                                                        remainingWork: "Warm the model before the measures"))
+                                                        remainingWork: "Warm the model before the measures"), availableChannels: HistoricalRecallFixture.nativeChannels)
         var prepared: [PreparedQuery] = []
         for query in queries {
             let request = try RecallCorpus.request(query)
@@ -214,7 +214,7 @@ struct RecallEvaluationTests {
             var searches: [Duration] = []
             for _ in 0..<repetitions {
                 let started = ContinuousClock.now
-                let answer = try await service.prepare(request)
+                let answer = try await service.prepare(request, availableChannels: HistoricalRecallFixture.nativeChannels)
                 searches.append(started.duration(to: .now))
                 if first == nil { first = answer }
             }
@@ -664,11 +664,11 @@ struct RecallEvaluationTests {
             item.searchP95MS = Self.percentile(searches, 0.95)
             item.details = Self.details(prepared, thresholds: thresholds, service: service, learned: archive.learned)
 
-            // The same queries through the product's entry: the delivery must agree with the service's selection.
+            // The same explicit typed queries recorded through the service: persistence must agree with preparation, independently of the current model plan response.
             var agreeing = 0
             for query in prepared {
                 let tools = ProcedureLearningTests.tools(LearningSession(directory: archive.directory), stream: "final-\(query.query["id"].string ?? "")")
-                let answer = try await tools.call("memory_task", RecallCorpus.begin(query.query)).payload["recall"]
+                let answer = try await HistoricalRecallFixture.beginQuery(tools, String(decoding: JSONEncoder().encode(RecallCorpus.begin(query.query)), as: UTF8.self))["recall"]
                 let outcomes = service.outcomes(query.prepared)
                 let same = answer["coverage"].string == NeedOutcome.overall(outcomes).rawValue
                     && (answer["needs"].array ?? []).count == outcomes.count

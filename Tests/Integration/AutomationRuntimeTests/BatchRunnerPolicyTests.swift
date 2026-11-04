@@ -4,7 +4,6 @@ import EngineCore
 import Foundation
 import LocalMCP
 import PerceptionCore
-import Switches
 import Testing
 
 extension BatchRunnerTests {
@@ -15,12 +14,10 @@ extension BatchRunnerTests {
     }
 
     private func policyAnswer(_ session: BatchTestSession, _ rows: [JSONValue]) async throws -> String {
-        try await SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "task_cycle": "v2"])) {
-            let result = try await AutomationTools(session: session).call("batch", .object([
-                "session": .string(try #require(session.id).uuidString), "steps": .array(rows)
-            ]))
-            return String(decoding: try JSONValue.canonicalEncoder().encode(result), as: UTF8.self)
-        }
+        let result = try await AutomationTools(session: session).call("batch", .object([
+            "steps": .array(rows)
+        ]))
+        return String(decoding: try JSONValue.canonicalEncoder().encode(result), as: UTF8.self)
     }
 
     @Test(arguments: [false, true])
@@ -28,9 +25,9 @@ extension BatchRunnerTests {
         let session = BatchTestSession()
         session.entry.elements.append(BatchPolicyTests.element("send", label: "Send"))
         let check: OperationCheck? = absent
-            ? OperationCheck(condition: .structuralEffect, method: .sceneText, verdict: .failed, performed: .requested) : nil
+            ? OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: .failed, performed: .requested) : nil
         session.results = [ActOutcome(.foundActed, "first", scene: session.entry),
-                           ActOutcome(.actedUnverified, "second", scene: session.entry, check: check)]
+                           ActOutcome(.actedUnverified, "second", scene: session.entry, check: check, noop: absent ? .statePresent : nil)]
         let answer = try await policyAnswer(session, [policyAct("Next"),
             policyAct("Next", expect: .object(["element": .string("Next")])),
             policyAct("Send", expect: .object(["window": .string("Done")]))])
@@ -86,28 +83,33 @@ extension BatchRunnerTests {
         #expect(missing.targets == ["Next"])
     }
 
-    @Test func menuAndInlineGesturesUsePolicyRunner() async throws {
+    @Test func menuUsesTheSamePolicyRunner() async throws {
         let menu = BatchTestSession()
         _ = try await policyAnswer(menu, [.object(["operation": .string("menu"), "path": .string("File > New")]), policyAct("Next")])
         #expect(menu.targets == ["File > New", "Next"])
-        let inline = BatchTestSession()
-        let result = try await SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "task_cycle": "v2", "batch_form": "in_gestures"])) {
-            try await AutomationTools(session: inline).call("act", .object([
-                "session": .string(try #require(inline.id).uuidString), "target": .string("Next"),
-                "then": .array([policyAct("Next")])
+    }
+
+    @Test func inlineContinuationIsRejectedBeforeAnyGesture() async throws {
+        let session = BatchTestSession()
+        var rejected = false
+        do {
+            let result = try await AutomationTools(session: session).call("act", .object([
+                "target": .string("Next"), "then": .array([policyAct("Next")])
             ]))
-        }
-        #expect(inline.targets == ["Next", "Next"])
-        #expect(String(decoding: try JSONValue.canonicalEncoder().encode(result), as: UTF8.self).contains("2. "))
+            rejected = result["isError"].bool == true
+        } catch { rejected = true }
+        #expect(rejected)
+        #expect(session.targets.isEmpty)
     }
 
     @Test(arguments: [true, false])
-    func absentRequiresExpectationAlreadyTrue(wasTrue: Bool) async throws {
+    func onlyTheOracleAlreadySatisfiedFactAllowsTheNextStep(wasTrue: Bool) async throws {
         let session = BatchTestSession()
-        let check = OperationCheck(condition: .structuralEffect, method: .sceneText, verdict: .failed, performed: .requested)
-        session.results = [ActOutcome(.actedUnverified, "absent", scene: session.entry, check: check)]
+        let check = OperationCheck(condition: .structuralEffect, method: .sceneDifference, verdict: .failed, performed: .requested)
+        session.results = [ActOutcome(.actedUnverified, "absent", scene: session.entry, check: check,
+            noop: wasTrue ? .statePresent : nil)]
         let answer = try await policyAnswer(session, [
-            policyAct("Next", expect: .object(["element": .string(wasTrue ? "Next" : "Missing")])), policyAct("Next")
+            policyAct("Next", expect: .object(["element": .string("Next")])), policyAct("Next")
         ])
         #expect(session.targets.count == (wasTrue ? 2 : 1))
         if !wasTrue { #expect(answer.contains("expected_absent")) }
@@ -115,49 +117,22 @@ extension BatchRunnerTests {
 }
 
 extension BatchRunnerTests {
-    @Test func policySchemaKeepsStepArgumentsOnBothSurfaces() throws {
-        for surface in ["v1", "v2"] {
-            try SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "expect": "off", "tool_surface": surface])) {
-                let definitions = AutomationTools.definitions
-                let batch = try #require(definitions.first { $0["name"].string == "batch" })
-                let fields = batch["inputSchema"]["properties"]["steps"]["items"]["properties"]
-                #expect(fields["expect"] != .null)
-                #expect(fields["target"] != .null)
-                #expect(fields["operation"]["enum"].array?.contains(.string("menu")) == true)
-                for tool in definitions where tool["name"].string == "batch" {
-                    let encoded = try JSONValue.canonicalEncoder().encode(tool["inputSchema"])
-                    #expect((tool["description"].string ?? "").count + String(decoding: encoded, as: UTF8.self).count <= 4096)
-                }
-            }
-            try SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "task_cycle": "v2", "batch_form": "in_gestures", "tool_surface": surface])) {
-                for tool in AutomationTools.definitions where tool["inputSchema"]["properties"]["then"] != .null {
-                    let encoded = try JSONValue.canonicalEncoder().encode(tool["inputSchema"])
-                    #expect((tool["description"].string ?? "").count + String(decoding: encoded, as: UTF8.self).count <= 4096)
-                }
-            }
+    @Test func policySchemaKeepsItsOwnExpectationsWithGestureExpectDisabled() throws {
+        do {
+            let definitions = AutomationTools.definitions
+            let batch = try #require(definitions.first { $0["name"].string == "batch" })
+            let fields = batch["inputSchema"]["properties"]["steps"]["items"]["properties"]
+            #expect(fields["expect"] != .null)
+            #expect(fields["target"] != .null)
+            #expect(fields["operation"]["enum"].array?.contains(.string("menu")) == true)
+            #expect(definitions.allSatisfy { $0["inputSchema"]["properties"]["then"] == .null })
+            let encoded = try JSONValue.canonicalEncoder().encode(batch["inputSchema"])
+            #expect((batch["description"].string ?? "").count + String(decoding: encoded, as: UTF8.self).count <= 4096)
         }
     }
 }
 
-
 extension BatchRunnerTests {
-    @Test func externalClientRejectsIncompatibleBatchBeforeReading() async throws {
-        let session = BatchTestSession()
-        try await SwitchBoard.$testing.withValue(.init(values: ["batch": "v2", "task_cycle": "v1"])) {
-            let tools = AutomationTools(session: session)
-            await #expect(throws: BatchConfigurationError.taskCycleV2Required) {
-                _ = try await tools.call("batch", .object([
-                    "session": .string(try #require(session.id).uuidString),
-                    "steps": .array([.object(["operation": .string("act"), "target": .string("Next")])])
-                ]))
-            }
-            #expect(session.reads == 0)
-            #expect(session.targets.isEmpty)
-            let refused = MCPRouter.failureResult(BatchConfigurationError.taskCycleV2Required)
-            #expect(!String(describing: refused).contains("batch=v2 requires task_cycle=v2"))
-        }
-    }
-
     @Test func entryErrorWithheldFromAnswerAndModelText() async throws {
         let session = BatchTestSession()
         let secret = "sk-test-FAKE-123456789012345678901234567890"

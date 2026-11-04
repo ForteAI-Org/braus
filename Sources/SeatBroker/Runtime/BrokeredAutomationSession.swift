@@ -22,7 +22,6 @@ import SeatSession
 import SeatInput
 import AccessibilityFacts
 import VisionText
-import Switches
 
 /// BrokeredAutomationSession is one worker's application session over the seat SeatBroker's queue
 /// grants, so a worker's tools reach the desktop only through the broker (§22.3).
@@ -389,35 +388,23 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         return lease.session.windowFrame
     }
 
-    /// The seat as a worker's turn begins, with Braus's own facts and the original text for legacy turns.
+    /// The seat as a worker's turn begins, with Braus's structured facts.
     ///
     /// Read inside `turn`, so no idle release is pending and a close already under way reads as no
     /// session. Nothing waits in the queue then: an `open` waits only inside a turn's tool call.
     public var turnStatus: SeatFacts {
-        turnStatus(seatLine: SwitchBoard.current.arm("seat_line", default: SeatLineArm.v1)) {
+        turnStatus {
             broker.desktopGrants().filter { !$0.isGranted }.map(\.name)
         }
     }
 
-    /// Probes desktop permissions only for the structured seat line.
-    func turnStatus(seatLine arm: SeatLineArm, permissionProbe: () -> [String]) -> SeatFacts {
+    /// Probes desktop permissions for the structured seat facts.
+    func turnStatus(permissionProbe: () -> [String]) -> SeatFacts {
         SeatFacts(
             session: id != nil,
             application: lastOpened.map { .init(name: $0.name, bundleID: $0.bundleID) },
-            missingPermissions: arm == .v2 ? permissionProbe() : [],
-            legacyText: legacyTurnStatus
+            missingPermissions: permissionProbe()
         )
-    }
-
-    private var legacyTurnStatus: String {
-        let last = lastOpened.map { app in
-            "\(app.name) (\(app.bundleID))" + (app.window.isEmpty ? "" : ", window \"\(app.window)\"")
-        }
-        guard let id else {
-            return "Braus seat: no session is open." + (last.map { " The last one was on \($0)." } ?? "")
-        }
-        return "Braus seat: session \(id.uuidString) is open" + (last.map { " on \($0)" } ?? "")
-            + ". Observe it with this session ID before acting."
     }
 
     /// "Waiting for the computer", with how many entries are ahead when exactly one waiting entry

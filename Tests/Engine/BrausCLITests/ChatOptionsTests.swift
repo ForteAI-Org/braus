@@ -7,6 +7,11 @@ import ModelTransports
 
 @Suite("Chat command parsing")
 struct ChatOptionsTests {
+    @Test func helpDescribesTheCurrentPreflightContract() {
+        #expect(ChatOptions.usage.contains("compare the runtime identity"))
+        #expect(!ChatOptions.usage.contains("memory_task"))
+    }
+
     @Test
     func promptAndResumeAreKeptLiteral() throws {
         let options = try ChatOptions(arguments: [

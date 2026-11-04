@@ -4,15 +4,9 @@ import Foundation
 import LocalMCP
 import Memory
 import PerceptionCore
-import Switches
 #if BRAUS_PHASES
 import PhaseSignposts
 #endif
-
-nonisolated enum SceneTextVersion: String, Sendable {
-    case v1, v2
-    var cuts: SceneTextCuts { self == .v2 ? .safe : [] }
-}
 
 /// SceneTextPolicy owns model scene text and its window bases on the main actor.
 /// Rendering stays concurrent; an epoch check makes a reading retry if a hold or another reading interleaves.
@@ -78,9 +72,7 @@ final class SceneTextPolicy {
         let rendering = PhaseInterval.begin("render.scene")
         defer { rendering.end() }
         #endif
-        let version = SwitchBoard.current.arm("scene_text", default: SceneTextVersion.v1)
-        let rule = SwitchBoard.current.arm("scene_text_policy", default: SceneDifferenceRule.chained)
-        let (scene, lines) = await Self.rendered(scene, minimizing: shown, cuts: version.cuts)
+        let (scene, lines) = await Self.rendered(scene, minimizing: shown, cuts: .safe)
         while true {
             let capturedEpoch = epoch
             let key = SceneWindowKey(session: session.id, windowNumber: session.observedWindowNumber,
@@ -94,8 +86,7 @@ final class SceneTextPolicy {
             let resetReason = baseline == nil
                 && (reason != .personHadApp || !answeredSinceReset.contains(resetWindow)) ? reason : nil
             let (answer, base) = await Self.prepared(scene, lines: lines, baseline: baseline,
-                key: key, revision: revision + 1, changesOnly: changesOnly, reason: resetReason,
-                rule: rule, version: version)
+                key: key, revision: revision + 1, changesOnly: changesOnly, reason: resetReason)
             guard capturedEpoch == epoch else { continue }
             if reason == .personHadApp { answeredSinceReset.insert(resetWindow) }
             revision = answer.revision
@@ -172,23 +163,22 @@ final class SceneTextPolicy {
         key: SceneWindowKey,
         revision: Int,
         changesOnly: Bool,
-        reason: SceneContextReset?,
-        rule: SceneDifferenceRule,
-        version: SceneTextVersion
+        reason: SceneContextReset?
     ) async -> (SceneAnswer, SceneAnswer.Base?) {
         var form = SceneAnswer.Form.whole(because: reason)
         var lines = whole
         var base: SceneAnswer.Base?
         if changesOnly, let baseline {
-            let requestedBase: SceneAnswer.Base = rule == .hybrid75 && baseline.lastBase != .anchor ? .anchor : .last
+            let requestedBase: SceneAnswer.Base = baseline.lastBase != .anchor ? .anchor : .last
             let reading = requestedBase == .anchor ? baseline.anchor : baseline.last
-            let changes = SceneChanges.changes(from: reading.scene, to: scene, cuts: version.cuts)
+            let changes = SceneChanges.changes(from: reading.scene, to: scene, cuts: .safe)
             let text = changes.text(since: reading.revision)
-            let changesHeader = "r\(revision) since r\(reading.revision) (\(requestedBase.rawValue))\n"
-            let unchangedHeader = "r\(revision) unchanged since r\(reading.revision)"
-            let measured = rule == .hybrid75 && version == .v2
-                ? (changes.isEmpty ? unchangedHeader : changesHeader + text) : text
-            let choice = rule.choose(baselines: baseline, wholeCharacters: whole.reduce(0) { $0 + $1.text.count },
+            let changesHeader = ModelText.render(.init(rawValue: "scene.changesHeader"),
+                ["revision": .revision(revision), "since": .revision(reading.revision)])
+            let unchangedHeader = ModelText.render(.init(rawValue: "scene.unchangedHeader"),
+                ["revision": .revision(revision), "since": .revision(reading.revision)])
+            let measured = changes.isEmpty ? unchangedHeader : changesHeader + text
+            let choice = SceneDifferenceRule.choose(baselines: baseline, wholeCharacters: whole.reduce(0) { $0 + $1.text.count },
                                      changes: { _ in measured.count })
             if case .changes(let since, let chosenBase) = choice {
                 base = chosenBase
@@ -199,12 +189,10 @@ final class SceneTextPolicy {
                 if !changes.isEmpty {
                     lines = trimmed(lines)
                 }
-                if rule == .hybrid75, version == .v2 {
-                    if changes.isEmpty {
-                        lines = [.init(unchangedHeader, source: .braus, job: .header)]
-                    } else {
-                        lines.insert(.init(changesHeader, source: .braus, job: .header), at: 0)
-                    }
+                if changes.isEmpty {
+                    lines = [.init(unchangedHeader, source: .braus, job: .header)]
+                } else {
+                    lines.insert(.init(changesHeader, source: .braus, job: .header), at: 0)
                 }
             }
         }

@@ -7,9 +7,8 @@ import Foundation
 import LocalMCP
 import PerceptionCore
 import TaskRouting
-import Switches
 
-nonisolated enum ToolSurface: String, Sendable { case v1, v2 }
+nonisolated enum ToolSurface: Sendable { case tagged }
 
 /// ToolCatalogue defines the tools, instructions and interruption policy for each channel set.
 enum ToolCatalogue {
@@ -18,7 +17,7 @@ enum ToolCatalogue {
     }
 
     static var taskInstructions: String {
-        TaskCycleArm.current == .v2 ? ModelText.text(.init(rawValue: "task_cycle.instructions.v2")) : MemoryTaskTool.instructions
+        ModelText.text(.init(rawValue: "task_cycle.instructions.v2"))
     }
 
     static func routes(for channels: AutomationChannels) -> String {
@@ -83,14 +82,8 @@ enum ToolCatalogue {
 
     /// MCPInstructionsForm selects the complete client guidance or its standalone opening line.
     static func mcpInstructions(_ form: AutomationTools.MCPInstructionsForm) -> String {
-        if TaskCycleArm.current == .v2 {
-            let text = ModelText.text(.init(rawValue: "task_cycle.instructions.v2"))
-            return form == .firstLine ? String(text.prefix { $0 != "\n" }) : text
-        }
-        return switch form {
-        case .firstLine: String(mcpClientInstructions.prefix { $0 != "\n" })
-        case .full: mcpClientInstructions
-        }
+        let text = mcpClientInstructions
+        return form == .firstLine ? String(text.prefix { $0 != "\n" }) : text
     }
 
     static let mcpClientInstructions = ModelText.text(.init(rawValue: "tool_catalogue.mcpClientInstructions.v1"))
@@ -132,7 +125,7 @@ enum ToolCatalogue {
         let session = ["session": text]
         let action: [String: JSONValue] = [
             "target": text, "verb": .object(["type": .string("string"),
-                "enum": .array(ActionVerb.allCases.map { .string($0.rawValue) })]),
+                "enum": .array(ActionVerb.allCases.filter { $0 != .tripleClick }.map { .string($0.rawValue) })]),
             "value": .object(["type": .string("string"), "enum": .array([.string("on"), .string("off")])]),
             "section": section
         ]
@@ -294,16 +287,11 @@ enum ToolCatalogue {
                                   "seconds": whole(PostCollectionRequest.wholeSeconds)],
                                  uniquingKeysWith: { $1 }),
                  ["session", "target"]),
-            MemoryTaskTool.definition
         ].filter { channels.contains(.adapters) || !Self.adapterTools.contains($0["name"].string ?? "") }
             .filter { channels.contains(.web) || $0["name"].string != "collect_posts" }
     }
 
-    static var currentSurface: ToolSurface {
-        SwitchBoard.current.arm("tool_surface", default: ToolSurface.v1)
-    }
-
-    private enum PromptArm: String, Sendable { case v1, v2 }
+    static let currentSurface = ToolSurface.tagged
 
     static let fixedPartCeiling = 15_360
     static let descriptionCeiling = 4_096
@@ -324,7 +312,6 @@ enum ToolCatalogue {
 
     /// Adds policy arguments only in the policy arm; the default definitions stay byte identical.
     private static func batchDefinitions(_ definitions: [JSONValue]) -> [JSONValue] {
-        guard BatchMode.isEnabled else { return definitions }
         guard let batch = definitions.first(where: { $0["name"].string == "batch" }) else { return definitions }
         let variants = batch["inputSchema"]["properties"]["steps"]["items"]["oneOf"].array ?? []
         var fields: [String: JSONValue] = [:]
@@ -343,18 +330,8 @@ enum ToolCatalogue {
             guard var tool = definition.object, let name = tool["name"]?.string,
                   var input = tool["inputSchema"]?.object, var properties = input["properties"]?.object else { return definition }
             if name == "batch" {
-                if BatchMode.usesGestures { return nil }
                 properties["steps"] = steps
                 tool["description"] = .string(ModelText.text(.init(rawValue: "batch.description.v2")))
-            } else if BatchMode.usesGestures, (["act", "select", "menu"] + ToolArguments.inputTools).contains(name) {
-                let continuation: [String: JSONValue] = ["type": .string("array"), "minItems": .number(0),
-                    "maxItems": .number(Double(BatchPolicy.maximumSteps - 1)),
-                    "items": .object(["type": .string("object"),
-                        "description": .string(ModelText.text(.init(rawValue: "batch.then.v2"))),
-                        "properties": .object(["operation": fields["operation"] ?? .object([:])]),
-                        "required": .array([.string("operation")]), "additionalProperties": .bool(true)])]
-                properties["then"] = .object(continuation)
-                properties["expect"] = fields["expect"]
             }
             input["properties"] = .object(properties)
             tool["inputSchema"] = .object(input)
@@ -362,32 +339,12 @@ enum ToolCatalogue {
         }
     }
 
-    /// Serves the legacy values unchanged by default; v2 uses the current session implicitly.
+    /// Serves the canonical compact tools with the current session implicit.
     static func availableDefinitions(
         for channels: AutomationChannels,
         surface: ToolSurface = currentSurface
     ) -> [JSONValue] {
-        let definitions = batchDefinitions(legacyDefinitions(for: channels)).map { definition -> JSONValue in
-            guard SwitchBoard.current.arm("expect", default: ToolArguments.ExpectArm.off) == .on,
-                  var tool = definition.object, let name = tool["name"]?.string,
-                  (["act", "select"] + ToolArguments.inputTools).contains(name),
-                  var input = tool["inputSchema"]?.object, var properties = input["properties"]?.object else {
-                return definition
-            }
-            properties["expect"] = .object(["type": .string("object"), "oneOf": .array([
-                schema(["window": .object(["type": .string("string"), "minLength": .number(1)]),
-                        "open": .object(["type": .string("boolean")])], ["window"]),
-                schema(["element": .object(["type": .string("string"), "minLength": .number(1)]),
-                        "value": .object(["type": .string("string")]),
-                        "state": .object(["type": .string("string"),
-                            "enum": .array([.string("on"), .string("off"), .string("mixed")])]),
-                        "present": .object(["type": .string("boolean")])], ["element"])
-            ])])
-            input["properties"] = .object(properties)
-            tool["inputSchema"] = .object(input)
-            return .object(tool)
-        }
-        guard surface == .v2 else { return cycleDefinitions(definitions, surface: surface) }
+        let definitions = batchDefinitions(legacyDefinitions(for: channels))
         return cycleDefinitions(definitions.map { definition in
             guard var tool = definition.object, let name = tool["name"]?.string,
                   var input = tool["inputSchema"]?.object else { return definition }
@@ -418,19 +375,15 @@ enum ToolCatalogue {
             }
             input["properties"] = .object(properties)
             tool["inputSchema"] = .object(input)
-            var description = name == "batch" && BatchMode.isEnabled
+            let description = name == "batch"
                 ? ModelText.text(.init(rawValue: "batch.description.v2"))
                 : ModelText.text(.init(rawValue: "tool.\(name).v2.description"))
-            if name == "memory_task", SwitchBoard.current.arm("prompt", default: PromptArm.v1) == .v1 {
-                description += ModelText.text(.init(rawValue: "tool.memory_task.begin_end"))
-            }
             tool["description"] = .string(description)
             return .object(tool)
         }, surface: surface)
     }
 
     private static func cycleDefinitions(_ definitions: [JSONValue], surface: ToolSurface) -> [JSONValue] {
-        guard TaskCycleArm.current == .v2 else { return definitions }
         let gestures: Set<String> = ["act", "select", "type_text", "insert_text", "press_key", "scroll", "drag",
                                      "context_menu", "batch", "menu", "press", "app_call", "collect_posts"]
         var result = definitions.filter { $0["name"].string != MemoryTaskTool.name }.map { definition in
@@ -439,7 +392,9 @@ enum ToolCatalogue {
                   var properties = input["properties"]?.object else { return definition }
             properties["step"] = .object(["type": .string("string"), "pattern": .string("^r[1-9][0-9]*$")])
             if name == "batch", var steps = properties["steps"]?.object, var items = steps["items"]?.object {
-                let step = properties["step"]
+                // Each row is parsed by ToolArguments.step before recording or gestures.
+                // Keep its schema within the shared validator's supported vocabulary.
+                let step: JSONValue = .object(["type": .string("string"), "minLength": .number(1)])
                 func marked(_ value: JSONValue) -> JSONValue {
                     guard var schema = value.object, var fields = schema["properties"]?.object else { return value }
                     fields["step"] = step
@@ -461,13 +416,13 @@ enum ToolCatalogue {
         let rows: JSONValue = .object(["type": .string("array"), "items": row, "minItems": .number(1), "maxItems": .number(Double(Todo.rowLimit))])
         result.append(.object(["name": .string("plan"),
             "description": .string(ModelText.text(.init(rawValue: "task_cycle.plan.v2"))),
-            "inputSchema": schema(["request": text, "inputs": surface == .v2 ? compactTaskParameter(legacy["inputs"]) : legacy["inputs"], "rows": rows, "reason": text], ["rows"]),
+            "inputSchema": schema(["request": text, "inputs": compactTaskParameter(legacy["inputs"]), "rows": rows, "reason": text], ["rows"]),
             "annotations": .object(["readOnlyHint": .bool(false)])]))
         result.append(.object(["name": .string("end"),
             "description": .string(ModelText.text(.init(rawValue: "task_cycle.end.v2"))),
             "inputSchema": schema(["outcome": .object(["type": .string("string"),
                 "enum": .array(["completed", "failed", "abandoned"].map(JSONValue.string))]),
-                "note": text, "result_check": surface == .v2 ? compactTaskParameter(legacy["result_check"]) : legacy["result_check"]], ["outcome"]),
+                "note": text, "result_check": compactTaskParameter(legacy["result_check"])], ["outcome"]),
             "annotations": .object(["readOnlyHint": .bool(false)])]))
         return result
     }
@@ -507,7 +462,7 @@ enum ToolCatalogue {
     nonisolated static let policyRegistry: CapabilityRegistry = {
         let names = ["status", "windows", "apps", "open_session", "observe", "act", "select", "type_text",
                      "insert_text", "press_key", "scroll", "drag", "context_menu", "batch", "menu", "press",
-                     "app_capabilities", "app_call", "close_session", "collect_posts", "memory_task", "plan", "end", "ask_person", "find", "call", "triple_click"]
+                     "app_capabilities", "app_call", "close_session", "collect_posts", "memory_task", "plan", "end", "ask_person", "find", "call", "triple_click", "reconcile_call"]
         do {
             return try CapabilityRegistry(core: names.compactMap {
                 coreContract(name: $0, description: "", inputSchema: .null)
@@ -518,7 +473,6 @@ enum ToolCatalogue {
     }()
 
     nonisolated static func interruptionPolicy(for name: String) -> InterruptionClass {
-        if TaskCycleArm.current == .v1, ["plan", "ask_person"].contains(name) { return .mutating }
         return policyRegistry.interruptionClass(of: name, arguments: .null)
     }
 
@@ -558,7 +512,7 @@ enum ToolCatalogue {
                 }
             }
         }
-        for definition in [findDefinition, callDefinition, tripleClickDefinition] {
+        for definition in [findDefinition, callDefinition, tripleClickDefinition, reconcileCallDefinition] {
             if let contract = coreContract(name: definition["name"].string ?? "",
                 description: definition["description"].string ?? "", inputSchema: definition["inputSchema"]) {
                 contracts.append(contract)
@@ -568,8 +522,6 @@ enum ToolCatalogue {
     }
 
     static func definitions(for channels: AutomationChannels, surface: ToolSurface = currentSurface) -> [JSONValue] {
-        let available = availableDefinitions(for: channels, surface: surface)
-        guard surface == .v2, TaskCycleArm.current == .v2 else { return available }
         return definitions(for: .init(attendance: .none, level: .actConnectors), channels: channels)
     }
 
@@ -603,14 +555,17 @@ enum ToolCatalogue {
         case "collect_posts":
             (effect, interruption, channel) = (.write, .mutating, .web)
             verification = .none(reason: "scrolling collection")
-        case "plan", "ask_person":
+        case "ask_person":
             (effect, interruption, channel) = (.read, .readOnly, .braus)
             verification = .resultCheck
-        case "end":
+        case "plan", "end":
             (effect, interruption, channel) = (.read, .mutating, .braus)
             verification = .resultCheck
         case "memory_task":
             (effect, interruption, channel) = (.read, .mutating, .braus)
+            verification = .resultCheck
+        case "reconcile_call":
+            (effect, interruption, channel) = (.write, .mutating, .braus)
             verification = .resultCheck
         case "open_session":
             (effect, interruption, channel) = (.write, .openingScene, .seat)
@@ -640,7 +595,7 @@ enum ToolCatalogue {
             verification: verification,
             channel: channel,
             origin: .core,
-            memory: ["find", "call"].contains(name) ? .notRecorded(reason: "discovery or dispatch")
+            memory: ["find", "call", "reconcile_call"].contains(name) ? .notRecorded(reason: "discovery or dispatch")
                 : name == "triple_click" ? .capabilityStep : agentTool.map { .agentCall(tool: $0.rawValue) }
                 ?? .notRecorded(reason: "Recorded by its own interaction cycle"),
             takesSession: name == "triple_click" || (agentTool?.takesSession ?? (inputSchema["required"].array?.contains(.string("session")) == true)),

@@ -22,7 +22,7 @@ with socket.create_connection(('127.0.0.1', endpoint['port']), timeout=5) as cha
     for number, method, params in [
         (1, 'initialize', {'protocolVersion': '2024-11-05', 'capabilities': {},
                            'clientInfo': {'name': 'turn-test', 'version': '1'}}),
-        (2, 'tools/call', {'name': 'status', 'arguments': {}}),
+        (2, 'tools/call', {'name': 'call', 'arguments': {'name': 'status', 'arguments': {}}}),
     ]:
         frame = {'token': endpoint['token'], 'message': {'jsonrpc': '2.0', 'id': number,
                                                         'method': method, 'params': params}}
@@ -37,4 +37,6 @@ with socket.create_connection(('127.0.0.1', endpoint['port']), timeout=5) as cha
             if answer.get('id') == number:
                 if 'error' in answer:
                     raise RuntimeError(answer['error'])
+                if answer.get('result', {}).get('isError'):
+                    raise RuntimeError('The synthetic delegated status call was refused')
                 break

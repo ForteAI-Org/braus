@@ -1,3 +1,4 @@
+import LocalMCP
 import EngineCore
 import AutomationRuntime
 import Memory

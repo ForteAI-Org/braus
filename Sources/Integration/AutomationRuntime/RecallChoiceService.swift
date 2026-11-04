@@ -31,7 +31,7 @@ extension RecallService {
 
     /// Searches for the request's needs as a query does, shortlists the versions per need, records the proposal and answers
     /// its text. Nothing is selected for the agent and nothing is delivered as a plan.
-    public func propose(_ request: RecallRequest, producer: TaskProducer, access: MemoryAccess = .readLearn) async throws -> ProposalAnswer {
+    public func propose(_ request: RecallRequest, producer: TaskProducer, access: MemoryAccess = .readLearn, availableChannels: Set<String>) async throws -> ProposalAnswer {
         let started = ContinuousClock.now
         let proposalID = UUID().uuidString
         var observed: ObservedState?
@@ -40,7 +40,7 @@ extension RecallService {
             let since = memory.clock.calendarMS() - Self.observationFreshnessMS
             observed = try await memory.perform { try await $0.recall.observedState(of: producer.source, stream: producer.streamID, since: since) }
         }
-        var prepared = try await prepare(request, observed: observed.map { [$0] } ?? [], access: access)
+        var prepared = try await prepare(request, observed: observed.map { [$0] } ?? [], access: access, availableChannels: availableChannels)
         let clock = ContinuousClock.now
         let suggestions = outcomes(prepared)
         let shortlisted = RecallChoice.shortlist(scored(prepared) ?? [], suggestions: suggestions)
@@ -211,7 +211,7 @@ extension RecallService {
         let prepared = try await prepare(request, access: access, availableChannels: availableChannels, doNotUse: doNotUse)
         let scored = scored(prepared) ?? []
         let trust = prepared.admissibility.compactMapValues(\.trust)
-        let shortlist = RecallChoice.shortlist(scored, suggestions: [], v2: true, trust: trust)
+        let shortlist = RecallChoice.shortlist(scored, suggestions: [], trust: trust)
         var result: [PlanProposal] = []
         for (position, need) in prepared.needs.enumerated() {
             let mine = shortlist.filter { $0.needPosition == position }

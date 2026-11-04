@@ -10,7 +10,6 @@ import Foundation
 import Memory
 import PerceptionCore
 import SQLiteMemory
-import Switches
 
 /// CallRecorder writes what one call did, saw and taught into the living memory, under the call's
 /// context and, when the agent declared one, its task attempt.
@@ -656,10 +655,9 @@ public actor CallRecorder: ActionObserving {
         return await shown(scene)
     }
 
-    /// The scene the caller shows, enriched only when both the profile and scene switch allow it.
+    /// The scene the caller shows, enriched only when its memory access allows it.
     private func shown(_ scene: SceneSnapshot, window: PerceivedWindow? = nil) async -> SceneSnapshot {
-        guard access.enrichesScenes,
-              SwitchBoard.current.arm("brain_enrichment", default: BrainEnrichmentArm.on) == .on else { return scene }
+        guard access.enrichesScenes else { return scene }
         let wait = BatchStepBoundary.sceneReadWait
         let control = BrainReadControl(shouldStop: { wait?.stopRequested == true })
         return await BrainReadControl.$current.withValue(control) {

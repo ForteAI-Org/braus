@@ -28,7 +28,7 @@ struct NoResetAtTurnStartTests {
                     environment: [:], allowsWebSearch: false), sessionID: "synthetic")) { _ in }
             }
             session.scene.elements[0].value = String(index)
-            let answer = try await tools.call("observe", .object(["session": .string(session.id!.uuidString)]))
+            let answer = try await tools.call("observe", .object([:]))
             let payload = try scenePayload(answer)
             if index == 0 { #expect(payload["scene"].string != nil) }
             else { #expect(payload["changes"].string != nil) }
@@ -53,7 +53,7 @@ struct LoopRouteHoldsNoSceneTests {
             let transport = TurnTestTransport([[.completed(.init(inputTokens: 1, outputTokens: 1, duration: .zero))]])
             _ = try await runner.run(.init(prompt: "Read", route: .modelLoop(transport: transport,
                 contextWindow: nil))) { _ in }
-            let answer = try await tools.call("observe", .object(["session": .string(session.id!.uuidString)]))
+            let answer = try await tools.call("observe", .object([:]))
             #expect(try scenePayload(answer)["scene"].string != nil)
             #expect(runner.contextState.lastReset == .compaction)
         }
@@ -73,7 +73,7 @@ struct PersonHadAppTests {
         let runner = TurnRunner(tools: tools, configuration: .init(workingDirectory: root,
             bridgeExecutable: URL(filePath: "/bin/cat"), allowsSuspension: true,
             closesSessionOnEnd: false), host: host)
-        let args = JSONValue.object(["session": .string(session.id!.uuidString)])
+        let args = JSONValue.object([:])
         _ = try await tools.call("observe", args)
         let token = try runner.suspend()
         try runner.end(token)

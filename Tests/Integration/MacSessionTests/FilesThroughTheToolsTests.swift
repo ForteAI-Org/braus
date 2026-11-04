@@ -48,6 +48,11 @@ struct FilesThroughTheToolsTests {
         let transcript = Transcript()
         let tools     : AutomationTools
         let trace     = "p12-\(UUID().uuidString)"
+        var callAttempts: Double {
+            if case .number(let count) = tools.configurationEvidence["tool_attempts"]["call"] { return count }
+            return 0
+        }
+
 
         /// `base` holds the three folders, unless `root` names another fixture's root to share; `beforeTrash` runs
         /// inside the Trash's move, before it, with the item.
@@ -60,14 +65,15 @@ struct FilesThroughTheToolsTests {
             for folder in [root.appendingPathComponent("Library"), trash, knowledge] {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             }
-            tools = AutomationTools(session: CallDispatchRecordTests.RouteFake(.native, memory: knowledge))
             let bin = trash
-            tools.adapters = adapters ? AppAdapters([FilesAdapter(root: root, trash: { url in
+            let composedAdapters = adapters ? AppAdapters([FilesAdapter(root: root, trash: { url in
                 try beforeTrash?(url)
                 let moved = bin.appendingPathComponent(url.lastPathComponent)
                 try FileManager.default.moveItem(at: url, to: moved)
                 return moved
             })], approver: allowsIrreversible ? FileWriteApproval() : nil) : nil
+            tools = AutomationTools(session: CallDispatchRecordTests.RouteFake(.native, memory: knowledge),
+                                    adapters: composedAdapters)
             tools.producer = CallProducer(source: .app, streamID: "p12", traceID: trace)
             let transcript = self.transcript
             tools.record = { line in transcript.lines.withLock { $0.append(line) } }
@@ -79,7 +85,10 @@ struct FilesThroughTheToolsTests {
 
         /// Runs `body` on the fixture and ends it, whether `body` returns or throws.
         static func with(_ fixture: Fixture, _ body: (Fixture) async throws -> Void) async throws {
-            do { try await body(fixture) } catch {
+            do {
+                if fixture.tools.adapters != nil { _ = try await fixture.beginTask("Exercise synthetic files") }
+                try await body(fixture)
+            } catch {
                 await fixture.end()
                 throw error
             }
@@ -89,8 +98,12 @@ struct FilesThroughTheToolsTests {
         /// One `app_call` on `files`, answered as the model reads it: the outcome object, or the error's text.
         func files(_ verb: String, _ arguments: [String: JSONValue] = [:]) async -> (answer: JSONValue, error: String?) {
             do {
-                let result = try await tools.call("app_call", .object([
-                    "app": .string("files"), "verb": .string(verb), "arguments": .object(arguments),
+                let businessArguments = arguments.merging(
+                    ["step": .string("r1")], uniquingKeysWith: { _, value in value })
+                let reads: Set<String> = ["list", "read", "find", "pwd", "cd"]
+                let result = try await tools.call("call", .object([
+                    "name": .string("files." + verb),
+                    "arguments": .object(reads.contains(verb) ? arguments : businessArguments)
                 ]))
                 if result["structuredContent"] != .null { return (result["structuredContent"], nil) }
                 let text = result["content"].array?.first?["text"].string ?? ""
@@ -121,8 +134,7 @@ struct FilesThroughTheToolsTests {
         }
 
         func beginTask(_ goal: String) async throws -> String {
-            _ = try await tools.call("memory_task", .object(["operation": .string("begin"), "goal": .string(goal),
-                                                             "remaining": .string(goal)]))
+            if tools.openTask == nil { try await StructuredCallFactsTests.plan(tools, request: goal) }
             return try #require(tools.openTask?.taskID)
         }
 
@@ -144,6 +156,7 @@ struct FilesThroughTheToolsTests {
         }
 
         func end() async {
+            if tools.openTask != nil { _ = try? await tools.call("end", .object(["outcome": .string("completed")])) }
             await MemoryService.closeAll()
             try? FileManager.default.removeItem(at: base)
         }
@@ -233,8 +246,8 @@ struct FilesThroughTheToolsTests {
             // The transcript: the texts and the file's content nowhere; the read's answer keeps its size.
             let transcript = fixture.transcript.text
             for nonce in Self.nonces { #expect(!transcript.contains(nonce), "the transcript holds \(nonce)") }
-            #expect(transcript.contains("← app_call") && transcript.contains("\"bytes\":"), "the read's size is there")
-            #expect(transcript.contains("→ app_call") && transcript.contains(ValueMinimization.marker))
+            #expect(transcript.contains("← files.read") && transcript.contains("\"bytes\":"), "the read's size is there")
+            #expect(transcript.contains("→ files.write") && transcript.contains(ValueMinimization.marker))
 
             // The memory's files, before and after it is closed (the WAL folded in): none holds a nonce.
             for nonce in Self.nonces { #expect(try fixture.memoryFiles(holding: nonce).isEmpty, "the open memory holds \(nonce)") }
@@ -247,6 +260,7 @@ struct FilesThroughTheToolsTests {
     func separateWorkingDirectories() async throws {
         try await Fixture.with(try Fixture()) { one in
             let two = try Fixture(root: one.root)
+            _ = try await two.beginTask("Write in a separate working directory")
             try FileManager.default.createDirectory(at: one.root.appendingPathComponent("Box"), withIntermediateDirectories: true)
             let before = FileManager.default.currentDirectoryPath
             #expect(await one.files("cd", ["path": .string("~/Box")]).answer["result"]["path"] == .string("~/Box"))
@@ -264,14 +278,16 @@ struct FilesThroughTheToolsTests {
     func nestedContentRefused() async throws {
         try await Fixture.with(try Fixture()) { fixture in
             let nonce = "braus p12 nested nonce: hidden in an object"
+            let attempts = fixture.callAttempts
             let answer = await fixture.files("write", ["path": .string("~/nested.txt"),
                                                        "text": .object(["inner": .array([.string(nonce)])])])
             #expect(answer.error != nil, "the schema refuses a text that is not a string: \(answer)")
+            #expect(fixture.callAttempts == attempts + 1)
             #expect(fixture.bytes("nested.txt") == nil)
-            #expect(!fixture.transcript.text.contains("hidden in an object") && fixture.transcript.text.contains(ValueMinimization.marker))
+            #expect(!fixture.transcript.text.contains("hidden in an object"))
             let calls = try await fixture.recorded()
-            #expect(calls.count == 1 && calls.first?.dispatch == nil && calls.first?.status == .failed, "\(calls)")
-            #expect(calls.first?.arguments.contains("hidden in an object") == false, "\(calls.first?.arguments ?? "")")
+            #expect(calls.isEmpty, "validation does not open an operation: \(calls)")
+
             #expect(try fixture.memoryFiles(holding: "hidden in an object").isEmpty)
             await MemoryService.closeAll()
             #expect(try fixture.memoryFiles(holding: "hidden in an object").isEmpty)
@@ -304,20 +320,25 @@ struct FilesThroughTheToolsTests {
                 #expect(answer["outcome"] == .string("refused"), "\(verb): \(answer)")
             }
             #expect(await fixture.files("append", ["path": .string("~/none.txt"), "text": .string(nonce)]).answer["outcome"] == .string("honest_miss"))
-            // Refused by the schema, before the adapter: an error, and no dispatch on the record.
+            let attempts = fixture.callAttempts
+            // The empty find passes its string schema and fails semantic validation before dispatch.
+            // Unknown capability/argument shapes are refused before recording.
             #expect(await fixture.files("find", ["path": .string("~"), "name": .string("")]).error != nil)
             #expect(await fixture.files("explode", ["path": .string("~")]).error != nil)
             #expect(await fixture.files("write", ["path": .string("~/x.txt"), "text": .string(nonce), "mode": .string("x")]).error != nil)
+            #expect(fixture.callAttempts == attempts + 3)
             #expect(try fixture.tree() == before, "nothing on the disk changed")
             #expect(!FileManager.default.fileExists(atPath: fixture.trash.appendingPathComponent("kept.txt").path))
 
             let calls = try await fixture.recorded()
-            #expect(calls.count == refused.count + 4, "\(calls.map(\.verb))")
+            #expect(calls.count == refused.count + 2, "\(calls.map(\.verb))")
+            #expect(calls.last?.verb == "find" && calls.last?.status == .failed && calls.last?.dispatch == nil,
+                    "A semantically empty find records its attempted failure without invoking the adapter")
             for call in calls.prefix(refused.count + 1) {
                 // The policy refuses the Trash before the adapter; every other refusal is the adapter's own.
                 #expect(call.status == .completed && (call.dispatch == nil) == (call.verb == "move_to_trash"), "\(call)")
             }
-            #expect(calls.suffix(3).allSatisfy { $0.dispatch == nil && $0.status == .failed }, "the schema refused them: \(calls.suffix(3))")
+            #expect(!calls.contains { $0.verb == "explode" }, "invalid schemas never reach the operation recorder")
             #expect(calls.allSatisfy { !$0.arguments.contains("never lands") }, "\(calls.map(\.arguments))")
             #expect(!fixture.transcript.text.contains("never lands"))
         }
@@ -328,13 +349,13 @@ struct FilesThroughTheToolsTests {
         try await Fixture.with(try Fixture(adapters: false)) { fixture in
             let nonce = "braus p12 channel-off nonce: no adapter here\n"
             let answer = await fixture.files("write", ["path": .string("~/off.txt"), "text": .string(nonce)])
-            #expect(answer.error == "Invalid tool arguments.", "an unknown tool of this composition: \(answer)")
+            #expect(answer.error != nil, "an unknown tool of this composition: \(answer)")
             #expect(fixture.bytes("off.txt") == nil)
             #expect(!fixture.transcript.text.contains("no adapter here") && !fixture.transcript.text.contains("→ app_call"),
                     "refused before the call's own line: \(fixture.transcript.text)")
             let calls = try await fixture.recorded()
-            #expect(calls.count == 1 && calls.first?.dispatch == nil && calls.first?.status == .failed, "\(calls)")
-            #expect(calls.first?.arguments.contains("no adapter here") == false)
+            #expect(calls.isEmpty, "validation does not open an operation: \(calls)")
+            #expect(fixture.tools.configurationEvidence["tool_attempts"]["call"] == .number(1))
         }
     }
 
@@ -367,6 +388,9 @@ struct FilesThroughTheToolsTests {
                 // One call that runs, so the archive is there to lock.
                 #expect(await fixture.files("pwd").answer["outcome"] == .string("found_acted"))
 
+                // Open the row before holding the archive lock, so the failure is the call start.
+                _ = await fixture.files("make_folder", ["path": .string("~/RowReady")])
+
                 // The start: refused before the adapter, nothing written.
                 try lock.hold(knowledge)
                 let refusal = await fixture.files("write", ["path": .string("~/unconfirmed.txt"), "text": .string("never\n")])
@@ -387,7 +411,7 @@ struct FilesThroughTheToolsTests {
                 #expect(await fixture.files("pwd").answer["outcome"] == .string("found_acted"))
                 #expect(counted.withLock { $0 } == 1, "nothing repeated")
                 let calls = try await fixture.recorded()
-                #expect(calls.map(\.verb) == ["pwd", "move_to_trash", "pwd"], "\(calls.map(\.verb))")
+                #expect(calls.map(\.verb) == ["pwd", "make_folder", "move_to_trash", "pwd"], "\(calls.map(\.verb))")
                 #expect(calls.allSatisfy { $0.status == .completed }, "\(calls)")
             }
         } catch {

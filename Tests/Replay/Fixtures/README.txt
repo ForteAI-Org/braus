@@ -19,3 +19,14 @@ hashes with the base revision under history/<increment>/ before replacing
 only the prescribed active delta. Do not rewrite answer, savedText or historical
 totals to accommodate a correction. Active loaders read cases/ and golden/
 only; history is never an active reference. Remove resolved exceptions.
+
+Current model delivery is regenerated through ResultFormatter.finish and pinned in
+`golden/current-delivery/`. The original `golden/*.txt`, recorded answers and scene
+totals above remain historical evidence. Set BRAUS_RECORD_REPLAY_GOLDENS=1 only
+when intentionally recording and reviewing a changed current contract; rerun
+without it to verify. Current tagged outcomes retain synchronized structured
+content; producer diagnostic prose stays out of the model-facing message.
+The bounded scene policy removes the regenerated sequence-4 depth exception;
+the historical depth exception remains. The original scene-size threshold is
+unchanged. Header text omits anchor/last labels while keeping revision/since;
+the base and dependencies remain typed policy facts.

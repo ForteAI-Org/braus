@@ -8,7 +8,7 @@ import Memory
 import Testing
 @testable import braus
 
-/// D4a (M07 on the command line): once `memory_task` declares a secret, the chat never shows or saves it in a
+/// D4a (M07 on the command line): once `plan` declares a secret, the chat never shows or saves it in a
 /// provider's reply, its failure or a turn's error. The real `ChatSession`, on temporary folders and never started (no
 /// provider, CLI, account or Seat), adopts the real `ChatTranscript`, which is where it gives the transcript its tools'
 /// withholding; the test then passes the transcript the events `ChatSession.turn` passes, appends the error
@@ -64,12 +64,12 @@ struct ChatTranscriptSecretTests {
         session.adopt(transcript)
 
         let begin: JSONValue = .object([
-            "operation": .string("begin"), "goal": .string("Sign in to the fixture"),
-            "remaining": .string("Sign in to the fixture"),
+            "request": .string("Sign in to the fixture"),
+            "rows": .array([.object(["title": .string("Sign in to the fixture")])]),
             "inputs": .array([.object(["name": .string("password"), "value": .string(Self.secret),
                                        "secret": .bool(true)])]),
         ])
-        _ = try await session.tools.call("memory_task", begin)
+        _ = try await session.tools.call("plan", begin)
 
         // What `ChatSession.turn` passes the transcript, then what `ChatCommand` appends when the turn throws.
         try transcript.event(.assistant("Signed in with \(Self.secret)."))

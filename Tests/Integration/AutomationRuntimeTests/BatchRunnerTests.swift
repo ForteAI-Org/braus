@@ -5,7 +5,6 @@ import Foundation
 import LocalMCP
 import Memory
 import PerceptionCore
-import Switches
 import Testing
 
 @MainActor
@@ -14,12 +13,10 @@ struct BatchRunnerTests {
         .object(["operation": .string("act"), "target": .string(target)])
     }
 
-    private func run(_ session: BatchTestSession, rows: [JSONValue], arm: String = "v2") async throws -> JSONValue {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["batch": arm, "task_cycle": arm == "v2" ? "v2" : "v1"])) {
-            try await AutomationTools(session: session).call("batch", .object([
-                "session": .string(session.id!.uuidString), "steps": .array(rows)
-            ]))
-        }
+    private func run(_ session: BatchTestSession, rows: [JSONValue]) async throws -> JSONValue {
+        try await AutomationTools(session: session).call("batch", .object([
+            "steps": .array(rows)
+        ]))
     }
 
     @Test func translatesLaterIDAndReturnsOnlyFinalScene() async throws {
@@ -37,38 +34,33 @@ struct BatchRunnerTests {
 
     @Test func policyStepsReachTaskStateBeforeReturning() async throws {
         let session = BatchTestSession()
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["batch": "v2", "task_cycle": "v2"])) {
-            let tools = AutomationTools(session: session)
-            var inputs: [TaskStateInput] = []
-            tools.observeTaskState { inputs.append($0) }
-            _ = try await tools.call("batch", .object([
-                "session": .string(session.id!.uuidString),
-                "steps": .array([row("Next"), row("Next")])
-            ]))
-            #expect(inputs.count == 2)
-            for input in inputs {
-                guard case .callFinished(let tool, _, let outcome) = input.fact else {
-                    Issue.record("Expected a completed step fact")
-                    continue
-                }
-                #expect(tool == "act")
-                #expect(outcome?.effect == .confirmed)
+        let tools = AutomationTools(session: session)
+        var inputs: [TaskStateInput] = []
+        tools.observeTaskState { inputs.append($0) }
+        _ = try await tools.call("batch", .object([
+            "steps": .array([row("Next"), row("Next")])
+        ]))
+        #expect(inputs.count == 2)
+        for input in inputs {
+            guard case .callFinished(let tool, _, let outcome) = input.fact else {
+                Issue.record("Expected a completed step fact")
+                continue
             }
-            #expect(tools.latestScene != nil)
+            #expect(tool == "act")
+            #expect(outcome?.effect == .confirmed)
         }
+        #expect(tools.latestScene != nil)
     }
 
     @Test func policyAdmissionReportsTypedFailure() async throws {
         let session = BatchTestSession()
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["batch": "v2", "task_cycle": "v2"])) {
-            let tools = AutomationTools(session: session)
-            var inputs: [TaskStateInput] = []
-            tools.observeTaskState { inputs.append($0) }
-            _ = try await tools.call("batch", .object([
-                "session": .string(session.id!.uuidString), "steps": .array([row("Missing")])
-            ]))
-            #expect(inputs.map(\.fact) == [.callFailed(tool: "batch", reason: "target_missing")])
-        }
+        let tools = AutomationTools(session: session)
+        var inputs: [TaskStateInput] = []
+        tools.observeTaskState { inputs.append($0) }
+        _ = try await tools.call("batch", .object([
+            "steps": .array([row("Missing")])
+        ]))
+        #expect(inputs.map(\.fact) == [.callFailed(tool: "batch", reason: "target_missing")])
     }
 
     @Test func policyTakeoverReportsOutcomeWithoutFailure() async throws {
@@ -76,19 +68,17 @@ struct BatchRunnerTests {
         let interruption = AutomationCallInterruption()
         session.results = [ActOutcome(.refused, "person_in_control", notSent: .humanIntervention)]
         session.afterStep = { interruption.interruptForHumanControl() }
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["batch": "v2", "task_cycle": "v2"])) {
-            let tools = AutomationTools(session: session)
-            var inputs: [TaskStateInput] = []
-            tools.observeTaskState { inputs.append($0) }
-            _ = try await AutomationCallInterruption.$current.withValue(interruption) {
-                try await tools.call("batch", .object([
-                    "session": .string(session.id!.uuidString), "steps": .array([row("Next"), row("Next")])
-                ]))
-            }
-            #expect(session.targets.count == 1)
-            #expect(inputs.map(\.fact) == [.callFinished(tool: "act", subject: nil,
-                outcome: Outcome(gesture: .notSent, effect: .notApplicable, recovery: .doNotRepeat))])
+        let tools = AutomationTools(session: session)
+        var inputs: [TaskStateInput] = []
+        tools.observeTaskState { inputs.append($0) }
+        _ = try await AutomationCallInterruption.$current.withValue(interruption) {
+            try await tools.call("batch", .object([
+                "steps": .array([row("Next"), row("Next")])
+            ]))
         }
+        #expect(session.targets.count == 1)
+        #expect(inputs.map(\.fact) == [.callFinished(tool: "act", subject: nil,
+            outcome: Outcome(gesture: .notSent, effect: .notApplicable, recovery: .doNotRepeat))])
     }
 
     @Test func missingTargetDoesNotAct() async throws {
@@ -118,37 +108,13 @@ struct BatchRunnerTests {
         #expect(session.targets.isEmpty)
     }
 
-    @Test func defaultAndV1AreIdentical() async throws {
-        let session = BatchTestSession()
-        let tools = AutomationTools(session: session)
-        let args = JSONValue.object(["session": .string(session.id!.uuidString), "steps": .array([row("Next")])])
-        let implicit = try await SwitchBoard.$testing.withValue(SwitchBoard()) { try await tools.call("batch", args) }
-        let explicit = try await run(BatchTestSession(id: session.id!), rows: [row("Next")], arm: "v1")
-        #expect(implicit == explicit)
+    @Test func batchIsPresentWithoutInlineContinuation() {
+        let definitions = AutomationTools.definitions
+        #expect(definitions.contains { $0["name"].string == "batch" })
+        #expect(definitions.contains { $0["name"].string == "act" })
+        #expect(definitions.allSatisfy { $0["inputSchema"]["properties"]["then"] == .null })
     }
 
-    @Test func gestureFormReplacesBatchOnlyInV2() {
-        for arm in ["v1", "v2"] {
-            SwitchBoard.$testing.withValue(SwitchBoard(values: ["batch": arm, "batch_form": "in_gestures"])) {
-                let definitions = AutomationTools.definitions
-                var hasBatch = false
-                var hasAct = false
-                var hasContinuation = false
-                for definition in definitions {
-                    switch definition["name"].string {
-                    case "batch": hasBatch = true
-                    case "act":
-                        hasAct = true
-                        hasContinuation = definition["inputSchema"]["properties"]["then"] != .null
-                    default: break
-                    }
-                }
-                #expect(hasBatch == (arm == "v1"))
-                #expect(hasAct)
-                #expect(hasContinuation == (arm == "v2"))
-            }
-        }
-    }
 }
 
 @MainActor

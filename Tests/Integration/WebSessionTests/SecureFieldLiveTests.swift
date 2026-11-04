@@ -179,15 +179,19 @@ struct SecureFieldLiveTests {
             let transcript = Transcript()
             tools.record = { transcript.lines.append($0) }
             _ = try await tools.call("open_session", .object(["app": .string(try Self.fixture().absoluteString)]))
-            let id = try #require(web.id?.uuidString)
+            _ = try #require(web.id)
+            let planned = try await tools.call("plan", .object(["request": .string("Fill the synthetic form"),
+                "rows": .array([.object(["title": .string("Enter the field values")])])]))
+            #expect(planned["isError"].bool != true)
             func call(_ name: String, _ arguments: [String: LocalMCP.JSONValue]) async throws -> LocalMCP.JSONValue {
                 var arguments = arguments
-                arguments["session"] = .string(id)
+                if name != "observe" { arguments["step"] = .string("r1") }
                 return try await tools.call(name, .object(arguments))
             }
             let ordinary = try await call("type_text", ["target": .string("Nome"), "text": .string("Grace"),
                                                         "replace": .bool(true)])
-            #expect(TypedSecretTests.status(of: ordinary) == "found_acted", "\(ordinary)")
+            #expect(ordinary["structuredContent"]["gesture"].string == "sent", "\(ordinary)")
+            #expect(ordinary["structuredContent"]["effect"].string == "confirmed")
             var answers: [LocalMCP.JSONValue] = []
             for text in Self.typedSecrets {
                 answers.append(try await call("type_text", ["target": .string("Accesso"), "text": .string(text),

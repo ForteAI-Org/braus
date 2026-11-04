@@ -3,7 +3,6 @@ import AutomationRuntime
 import Foundation
 import LocalMCP
 import Memory
-import Switches
 import Testing
 @testable import SQLiteMemory
 
@@ -17,7 +16,7 @@ struct PlanCycleArchiveTests {
     }
 
     @Test func planRevisionStepAttributionAndEndShareOneTask() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2", "tool_surface": "v2"])) {
+        do {
             let directory = URL.temporaryDirectory.appending(path: "tu6-cycle-\(UUID().uuidString)")
             let session = ToolResultSession()
             session.memoryDirectory = directory
@@ -58,7 +57,7 @@ struct PlanCycleArchiveTests {
         }
     }
     @Test func replacingAWithheldLiteralReopensTheRowAndClearsItsStopReference() async throws {
-        try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_cycle": "v2", "tool_surface": "v2"])) {
+        do {
             let directory = URL.temporaryDirectory.appending(path: "tu6-proof-\(UUID().uuidString)")
             let session = ToolResultSession()
             session.memoryDirectory = directory

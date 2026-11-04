@@ -1,6 +1,5 @@
 import EngineCore
 import Foundation
-import Switches
 
 extension ModelText {
     nonisolated static let outcomeTexts: [Entry] = [
@@ -77,9 +76,8 @@ extension ModelText {
               budgetCharacters: text.count, text: text, legacy: false)
     }
 
-    /// Selects outcome wording at the existing delivery point; the default arm preserves its bytes.
+    /// Renders outcome wording at the existing delivery point.
     nonisolated static func outcomeText(_ key: Key, fallback: String) -> String {
-        guard SwitchBoard.current.arm("outcome", default: ResultFormatter.OutcomeArm.v1) == .v2 else { return fallback }
         let replacement: String? = switch key.rawValue {
         case "tool_catalogue.step.v1.23": "outcome.act.v2"
         case "tool_catalogue.step.v1.28": "outcome.insert.v2"

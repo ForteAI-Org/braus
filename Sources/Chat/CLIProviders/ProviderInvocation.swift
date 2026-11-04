@@ -16,11 +16,9 @@ public struct ProviderInvocation: Sendable {
         var arguments: [String]
         switch turn.provider {
         case .claude:
-            var server: [String: Any] = ["command": turn.bridgeExecutable, "args": bridgeArguments]
-            let searchesTools = turn.toolLoading == .harnessSearch && !turn.isCompaction
-            if searchesTools { server["alwaysLoad"] = false }
+            let server: [String: Any] = ["command": turn.bridgeExecutable, "args": bridgeArguments]
             let config: [String: Any] = ["mcpServers": ["braus": server]]
-            let tools = (searchesTools ? ["ToolSearch"] : []) + (searchesWeb ? ["WebSearch", "WebFetch"] : [])
+            let tools = searchesWeb ? ["WebSearch", "WebFetch"] : []
             let encoded = try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
             arguments = ["-p", "--output-format", "stream-json", "--verbose",
                          "--strict-mcp-config", "--mcp-config", String(decoding: encoded, as: UTF8.self),

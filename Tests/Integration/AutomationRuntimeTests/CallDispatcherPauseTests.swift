@@ -23,7 +23,7 @@ struct CallDispatcherPauseTests {
                 inspected = true
             }
         }
-        _ = try await tools.call("observe", .object(["session": .string(try #require(session.id).uuidString)]))
+        _ = try await tools.call("observe", .object([:]))
         #expect(inspected)
         #expect(await service.flush(within: .seconds(5)))
         #expect(await service.status().written == 1)
@@ -43,19 +43,20 @@ struct CallDispatcherPauseTests {
         MemoryService.install(service)
         let session = PauseSession(memory: service, exit: .answer)
         let tools = AutomationTools(session: session)
-        let id = try #require(session.id).uuidString
+        let plan = try await tools.call("plan", .object(["request": .string("Choose the private value"),
+            "rows": .array([.object(["title": .string("Choose the private value")])])]))
+        #expect(plan["isError"] != .bool(true))
         if batch {
             _ = try await tools.call("batch", .object([
-                "session": .string(id),
                 "steps": .array(["731", "942"].map { value in
-                    .object(["operation": .string("select"), "control": .string("Password"), "item": .string(value)])
+                    .object(["operation": .string("select"), "control": .string("Password"), "item": .string(value), "step": .string("r1")])
                 })
             ]))
             #expect(session.snapshots == [["731"], ["942"]])
         } else {
-            _ = try await tools.call("select", .object([
-                "session": .string(id), "control": .string("Password"), "item": .string(secret)
-            ]))
+            _ = try await tools.call("call", .object(["name": .string("select"), "arguments": .object([
+                "control": .string("Password"), "item": .string(secret), "step": .string("r1")
+            ])]))
             #expect(session.snapshots == [[secret]])
         }
         try await PauseTestWait.untilWritten(service)
@@ -81,7 +82,7 @@ struct CallDispatcherPauseTests {
         }
         let task = Task { @MainActor in
             do {
-                _ = try await tools.call("observe", .object(["session": .string(try #require(session.id).uuidString)]))
+                _ = try await tools.call("observe", .object([:]))
                 #expect(exit == .answer)
             } catch {
                 #expect(exit != .answer)
@@ -121,7 +122,7 @@ private final class PauseSession: AutomationSessionOperating {
         if endsBeforeObservation {
             try await recorder?.end(.completed, result: nil, tool: .observe)
         }
-        let scene = await recorder?.observe(W.window([W.open])) ?? W.window([W.open]).scene
+        let scene = await recorder?.observe(Self.window) ?? Self.window.scene
         #expect(await memory.status().written == 0)
         if exit == .answerError { throw Failure() }
         if exit == .cancellation {
@@ -129,6 +130,11 @@ private final class PauseSession: AutomationSessionOperating {
             throw CancellationError()
         }
         return scene
+    }
+
+    static var window: PerceivedWindow {
+        W.window([W.open, SceneElement(id: "password", kind: .control, label: "Password",
+            bounds: .init(x: 0.3, y: 0.3, width: 0.2, height: 0.1), role: "AXPopUpButton")])
     }
 
     func open(application: String, window: String?) async throws -> SceneSnapshot { throw Failure() }
@@ -144,7 +150,7 @@ private final class PauseSession: AutomationSessionOperating {
         await Task.yield()
         #expect(CallMinimization.current?.secrets == snapshot.secrets)
         snapshots.append(snapshot.secrets)
-        return ActOutcome(.foundActed, "selected")
+        return ActOutcome(.foundActed, "selected", scene: Self.window.scene)
     }
     func deliver(_ input: InputRequest.Input, section: String?) async throws -> ActOutcome { throw Failure() }
     func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome {

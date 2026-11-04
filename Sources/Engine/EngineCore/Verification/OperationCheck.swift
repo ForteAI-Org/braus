@@ -6,7 +6,6 @@
 //
 
 import PerceptionCore
-import Switches
 
 /// OperationCheck is what one operation's oracle actually controlled, in the terms the oracle used:
 /// the condition it judged, the method and its version, the verdict, the expected and observed
@@ -225,13 +224,8 @@ public struct OperationCheck: Sendable, Equatable {
         self.target        = target
     }
 
-    private enum VerdictArm: String, Sendable { case off, on }
-
-    /// The version of the selected oracle rules, keeping historical checks distinct from the new arm.
-    public static var engineVersion: String {
-        SwitchBoard.current.arm("verdict_v2", default: VerdictArm.off) == .on
-            ? "engine-oracle-2" : "engine-oracle-1"
-    }
+    /// The rule identity retained with each check, independently of historical checks in the archive.
+    public static let engineVersion = "engine-oracle-2"
 
     /// The version of the adapters' oracle (`adapterEffect`, `adapterRead`): bump it when the rule changes.
     public static let adapterVersion = "adapter-oracle-1"

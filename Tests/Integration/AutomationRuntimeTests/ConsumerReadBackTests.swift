@@ -51,24 +51,31 @@ struct ConsumerReadBackTests {
         await originStore.close()
         MemoryService.unify(place.shared, with: KnowledgeLocation.legacyProfiles(under: place.support))
         let session = FactSession(directory: place.shared)
-        session.plans["Format"] = FactSession.Plan(outcome: ActOutcome(.honestMiss, "no Format"))
+        session.additionalObservedElements = [
+            SceneElement(id: "password", kind: .control, label: "Password",
+                bounds: .init(x: 0.3, y: 0.2, width: 0.2, height: 0.1), role: "AXSecureTextField"),
+            W.button("Style", x: 0.3)
+        ]
+        session.plans["Style"] = FactSession.Plan(outcome: ActOutcome(.honestMiss, "no Style"))
         let tools = tools(session, stream: "worker-1", source: .app, trace: "message-1")
-        let id = JSONValue.string(session.id!.uuidString)
-        let begun = try await tools.call("memory_task", .object([
-            "operation": .string("begin"), "goal": .string("Sign in and save"),
+                let begun = try await tools.call("plan", .object([
+            "request": .string("Sign in and save"),
+            "rows": .array([.object(["title": .string("Sign in and save")])]),
             "inputs": .array([.object(["name": .string("file"), "value": .string("report.pdf")])]),
         ])).payload
-        _ = try await tools.call("memory_task", .object([
-            "operation": .string("update"), "goal": .string("Sign in, save and close"),
+        _ = try await tools.call("plan", .object([
+            "request": .string("Sign in, save and close"), "reason": .string("Close the saved document too"),
+            "rows": .array([.object(["id": .string("r1"), "title": .string("Sign in, save and close")])]),
         ]))
-        _ = try await tools.call("observe", .object(["session": id]))
-        _ = try await tools.call("batch", .object(["session": id, "steps": .array([
+        _ = try await tools.call("observe", .object([:]))
+        _ = try await tools.call("batch", .object(["steps": .array([
             .object([
-                "operation": .string("type_text"), "target": .string("Password"),
+                "operation": .string("type_text"), "step": .string("r1"), "target": .string("Password"),
                 "text": .string("Canary-Pass-7419")
             ]),
-            .object(["operation": .string("act"), "target": .string("Format")]),
-            .object(["operation": .string("act"), "target": .string("Save")]),
+            .object(["operation": .string("act"), "step": .string("r1"), "target": .string("Style")]),
+            .object(["operation": .string("act"), "step": .string("r1"), "target": .string("Save"),
+                "expect": .object(["window": .string("Document")])]),
         ])]))
         let memory = MemoryService.shared(for: place.shared)
         await memory.unificationFinished()
@@ -140,9 +147,9 @@ struct ConsumerReadBackTests {
             effect: .menuOpened(labels: ["Bold", "Italic"])
         )
         let teacher = tools(taught, stream: "teacher", source: writer, trace: nil)
-        _ = try await teacher.call("act", .object([
-            "session": .string(taught.id!.uuidString), "target": .string("Open")
-        ]))
+        _ = try await teacher.call("plan", .object(["request": .string("Open the menu"),
+            "rows": .array([.object(["title": .string("Open the menu")])])]))
+        _ = try await teacher.call("act", .object(["target": .string("Open"), "step": .string("r1")]))
         let memory = MemoryService.shared(for: directory)
         #expect(await memory.flush(within: .seconds(10)))
         await memory.close()
@@ -151,7 +158,7 @@ struct ConsumerReadBackTests {
         let reading = FactSession(directory: directory)
         reading.plans = [:]
         let learner = tools(reading, stream: "learner", source: reader, trace: nil)
-        let answer = try await learner.call("observe", .object(["session": .string(reading.id!.uuidString)]))
+        let answer = try await learner.call("observe", .object([:]))
         let text = String(decoding: try JSONEncoder().encode(answer), as: UTF8.self)
         #expect(text.contains("click: menuOpened"),
                 "the reader's scene tells what Open does in this state, from the relation: \(text.prefix(400))")

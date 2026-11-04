@@ -5,7 +5,7 @@
 //  Created by Tommaso Mazzarini on 09/10/2026.
 //
 
-import AutomationMCP
+@testable import AutomationMCP
 import AutomationRuntime
 import CoreGraphics
 import EngineCore
@@ -35,6 +35,8 @@ final class FactSession: AutomationSessionOperating {
     private(set) var gestures: [String] = []
     var plans: [String: Plan] = [:]
     var typedLabel: String?
+    /// Concrete controls the policy runner must be able to resolve in this scenario.
+    var additionalObservedElements: [SceneElement] = []
 
     init(directory: URL) { self.directory = directory }
 
@@ -46,7 +48,7 @@ final class FactSession: AutomationSessionOperating {
     }
 
     func observe() async throws -> SceneSnapshot {
-        let window = W.window([W.open, W.save] + (typedLabel.map { [Self.field($0)] } ?? []))
+        let window = W.window([W.open, W.save] + additionalObservedElements + (typedLabel.map { [Self.field($0)] } ?? []))
         return await (CallRecorder.current?.observe(window) ?? window.scene)
     }
 
@@ -85,6 +87,7 @@ final class FactSession: AutomationSessionOperating {
         if plan.attempt == .delivered || plan.outcome.check?.performed == .substitute {
             gestures.append(plan.outcome.check?.substitute ?? target)
         }
+        let after = W.window([W.open, W.save, W.format] + additionalObservedElements)
         await CallRecorder.current?.record(ActionRecord(
             bundleID: W.bundle,
             element: W.button(target, x: 0.5),
@@ -92,10 +95,10 @@ final class FactSession: AutomationSessionOperating {
             effect: plan.effect,
             windowTitleAfter: "Document",
             before: W.window([W.open, W.save]),
-            after: W.window([W.open, W.save, W.format]),
+            after: after,
             attempt: plan.attempt
         ))
-        return plan.outcome
+        return plan.outcome.scene == nil ? plan.outcome.with(scene: after.scene) : plan.outcome
     }
 
     func select(control: String, item: String) async throws -> ActOutcome {
@@ -132,11 +135,13 @@ final class FactSession: AutomationSessionOperating {
         }
         gestures.append("type into \(field)")
         typedLabel = text
+        let after = W.window([W.open, W.save, Self.field(text)] + additionalObservedElements)
         await CallRecorder.current?.record(InputRecord(
-            bundleID: W.bundle, input: input, target: Self.field(""), before: W.window([W.open, Self.field("")]),
-            after: W.window([W.open, Self.field(text)]), attempt: .delivered
+            bundleID: W.bundle, input: input, target: Self.field(""),
+            before: W.window([W.open, W.save, Self.field("")] + additionalObservedElements),
+            after: after, attempt: .delivered
         ))
-        return ActOutcome(.foundActed, "typed into '\(field)': the field reads '\(text)'", check: OperationCheck(
+        return ActOutcome(.foundActed, "typed into '\(field)': the field reads '\(text)'", scene: after.scene, check: OperationCheck(
             condition: .valueReadBack, method: .controlValue, verdict: .passed, expected: text, observed: text,
             performed: .requested, target: OperationCheck.Target(Self.field(""))))
     }
@@ -248,14 +253,176 @@ struct FactWiringTests {
         return tools
     }
 
-    private func task(_ tools: AutomationTools, _ arguments: [String: JSONValue]) async throws -> JSONValue {
-        try await tools.call("memory_task", .object(arguments)).payload
+    /// Keeps typed producer fixtures separate from the current model's plan/end contract.
+    /// Weak ownership prevents an ObjectIdentifier reused by a later test from inheriting state.
+    @MainActor private final class TaskFixtureState {
+        weak var tools: AutomationTools?
+        var current: OpenTask?
+        var secrets: [String] = []
+        init(_ tools: AutomationTools) { self.tools = tools }
+        var minimization: ValueMinimization { ValueMinimization(secrets: secrets) }
+    }
+    private static var taskFixtures: [ObjectIdentifier: TaskFixtureState] = [:]
+
+    private func fixture(_ tools: AutomationTools) -> TaskFixtureState {
+        let key = ObjectIdentifier(tools)
+        if let state = Self.taskFixtures[key], state.tools === tools { return state }
+        let state = TaskFixtureState(tools)
+        Self.taskFixtures[key] = state
+        return state
+    }
+
+    private func fixtureMemory(_ tools: AutomationTools) throws -> MemoryService {
+        guard let directory = tools.session.memoryDirectory else { throw ProcedureLearningTests.FixtureFailure("Fixture needs an archive") }
+        return .shared(for: directory)
+    }
+
+    private func fixtureProducer(_ tools: AutomationTools) throws -> TaskProducer {
+        try TaskProducer(source: tools.producer.source, streamID: tools.producer.streamID)
+    }
+
+    private func fixtureAnswer(_ current: OpenTask, _ status: String, _ extra: [String: JSONValue] = [:]) -> JSONValue {
+        .object(["task": .string(current.taskID), "attempt": .string(current.attemptID),
+                 "revision": .number(Double(current.revision)), "status": .string(status)].merging(extra, uniquingKeysWith: { $1 }))
+    }
+
+    private func fixtureFailure(_ work: @MainActor () async throws -> JSONValue) async throws -> JSONValue {
+        do { return try await work() }
+        catch let failure as MemoryTaskTool.Failure { return TaskCycleHandler.taskFailure(failure) }
+        catch let error as TaskContextError { return TaskCycleHandler.taskFailure(TaskCycleHandler.failure(of: error)) }
+    }
+
+    /// Opens a real current plan. Historical result/constraint text is checked only at its typed decoder,
+    /// because those fields are no longer a model plan capability.
+    private func beginFixture(_ tools: AutomationTools, _ arguments: [String: JSONValue]) async throws -> JSONValue {
+        try await fixtureFailure {
+            let state = fixture(tools)
+            guard case .begin(let content, let declared, _) = try MemoryTaskTool.decode(.object(arguments),
+                minimization: state.minimization, messageRef: tools.producer.messageRef) else {
+                throw ProcedureLearningTests.FixtureFailure("Expected a typed begin fixture")
+            }
+            state.secrets += declared.filter { !state.secrets.contains($0) }
+            for secret in state.secrets {
+                #expect(!(content.requestedResult ?? "").contains(secret))
+                #expect(content.constraints.allSatisfy { !$0.contains(secret) })
+            }
+            var fields: [String: JSONValue] = ["request": arguments["goal"] ?? .string(content.goal),
+                "rows": .array([.object(["title": .string(content.goal)])])]
+            if let inputs = arguments["inputs"] { fields["inputs"] = inputs }
+            let answer = try await tools.call("plan", .object(fields)).payload
+            state.current = tools.openTask
+            return answer
+        }
+    }
+
+    /// Exercises TaskChannel revision admission independently of the model plan revision UI.
+    private func updateFixture(_ tools: AutomationTools, _ arguments: [String: JSONValue]) async throws -> JSONValue {
+        try await fixtureFailure {
+            let state = fixture(tools)
+            guard let current = state.current else { throw MemoryTaskTool.Failure(code: "no_open_task", message: "No typed task fixture is open") }
+            guard case .update(let update, let declared) = try MemoryTaskTool.decode(.object(arguments),
+                minimization: state.minimization, messageRef: tools.producer.messageRef) else {
+                throw ProcedureLearningTests.FixtureFailure("Expected a typed revision fixture")
+            }
+            state.secrets += declared.filter { !state.secrets.contains($0) }
+            let memory = try fixtureMemory(tools)
+            let producer = try fixtureProducer(tools)
+            let expecting = update.expecting ?? current.revision
+            let base = try await TaskChannel.revision(expecting, of: current.taskID, producer: producer, memory: memory)
+            let revised = try await TaskChannel.revise(current, expecting: expecting,
+                content: update.applied(to: base.content, messageRef: tools.producer.messageRef), reason: update.reason,
+                producer: producer, memory: memory)
+            state.current = revised
+            return fixtureAnswer(revised, "revised")
+        }
+    }
+
+    private func checkpointFixture(_ tools: AutomationTools, _ arguments: [String: JSONValue]) async throws -> JSONValue {
+        try await fixtureFailure {
+            guard case .checkpoint(let draft, _, _, _) = try MemoryTaskTool.decode(.object(arguments),
+                minimization: fixture(tools).minimization, messageRef: tools.producer.messageRef) else {
+                throw ProcedureLearningTests.FixtureFailure("Expected a typed checkpoint fixture")
+            }
+            return try await saveFixture(tools, draft)
+        }
+    }
+
+    private func endFixture(_ tools: AutomationTools, _ arguments: [String: JSONValue]) async throws -> JSONValue {
+        try await fixtureFailure {
+            guard case .end(let draft, _, _, _) = try MemoryTaskTool.decode(.object(arguments),
+                minimization: fixture(tools).minimization, messageRef: tools.producer.messageRef) else {
+                throw ProcedureLearningTests.FixtureFailure("Expected a typed end fixture")
+            }
+            return try await saveFixture(tools, draft)
+        }
+    }
+
+    private func saveFixture(_ tools: AutomationTools, _ draft: TaskCheckpointDraft) async throws -> JSONValue {
+        let state = fixture(tools)
+        guard let current = state.current else { throw MemoryTaskTool.Failure(code: "no_open_task", message: "No typed task fixture is open") }
+        let saved = try await TaskChannel.checkpoint(current, draft, producer: fixtureProducer(tools), memory: fixtureMemory(tools))
+        if draft.kind == .end { state.current = nil }
+        return fixtureAnswer(current, draft.kind == .end ? "ended" : "checkpointed", [
+            "sequence": .number(Double(saved.checkpoint.sequence)),
+            "recorded": .string(saved.receipt == .committed ? "recorded" : "already recorded"),
+            "outcome": saved.checkpoint.declared.map { .string($0.rawValue) } ?? .null])
+    }
+
+    private func resumeFixture(_ tools: AutomationTools, _ arguments: [String: JSONValue]) async throws -> JSONValue {
+        try await fixtureFailure {
+            guard case .resume(let taskID) = try MemoryTaskTool.decode(.object(arguments),
+                minimization: fixture(tools).minimization, messageRef: tools.producer.messageRef) else {
+                throw ProcedureLearningTests.FixtureFailure("Expected a typed resumption fixture")
+            }
+            let resumed = try await TaskChannel.resume(taskID, producer: fixtureProducer(tools), memory: fixtureMemory(tools))
+            fixture(tools).current = resumed.task
+            var extra: [String: JSONValue] = [:]
+            if !resumed.unfinished.isEmpty {
+                extra["unfinished_calls"] = .array(resumed.unfinished.map { .object([
+                    "event": .string($0.eventID), "tool": .string($0.tool)]) })
+                extra["guidance"] = .string("\(resumed.unfinished.count) call without an end: each may have run")
+            }
+            return fixtureAnswer(resumed.task, "resumed", extra)
+        }
+    }
+
+    /// Uses current catalogue admission; action fixtures explicitly belong to the fixture's plan row.
+    private func call(_ tools: AutomationTools, _ name: String, _ arguments: JSONValue) async throws -> JSONValue {
+        var fields = arguments.object ?? [:]
+        if tools.openTask != nil, !["plan", "end", "observe", "open_session", "close_session"].contains(name) {
+            if name == "batch", let steps = fields["steps"]?.array {
+                fields["steps"] = .array(steps.map { step in
+                    var item = step.object ?? [:]; item["step"] = .string("r1"); return .object(item)
+                })
+            } else { fields["step"] = .string("r1") }
+        }
+        if tools.toolDefinitions.contains(where: { $0["name"].string == name }) {
+            return try await tools.call(name, .object(fields))
+        }
+        return try await tools.call("call", .object(["name": .string(name), "arguments": .object(fields)]))
+    }
+
+    /// Records a native-double action at an explicit typed revision. This proves producer attribution,
+    /// not model UI revision handling, which the plan suites exercise separately.
+    private func actAtFixtureRevision(_ tools: AutomationTools, _ session: FactSession, _ target: String) async throws -> JSONValue {
+        let memory = service(session)
+        let producer = tools.producer
+        let recorder = CallRecorder(memory: memory, brain: W.brain(memory),
+            context: ActionContext(source: producer.source, streamID: producer.streamID,
+                traceID: producer.traceID, sessionID: session.id?.uuidString), minimization: fixture(tools).minimization)
+        try await recorder.begin(.act(target: target, verb: .click, value: nil, section: nil),
+            app: AppContextIdentity(bundleID: W.bundle), attribution: fixture(tools).current?.attribution)
+        let outcome = try await CallRecorder.$current.withValue(recorder) {
+            try await session.act(target: target, verb: .click, section: nil, desiredState: nil)
+        }
+        try await recorder.end(.completed, result: .outcome(outcome.kind, message: outcome.message), tool: .act, check: outcome.check)
+        return .object(["outcome": .string(outcome.kind.rawValue)])
     }
 
     private func act(_ tools: AutomationTools, _ session: FactSession, _ target: String) async throws -> JSONValue {
-        try await tools.call(
+        try await call(tools,
             "act",
-            .object(["session": .string(session.id!.uuidString), "target": .string(target)])
+            .object(["target": .string(target)])
         ).payload
     }
 
@@ -263,11 +430,11 @@ struct FactWiringTests {
 
     // MARK: The task
 
-    @Test("a task begun through memory_task attributes the calls of its attempt, revises against the revision read, checkpoints once, and ends")
+    @Test("a current plan and typed producer revision/checkpoint fixtures attribute the calls of its attempt, revises against the revision read, checkpoints once, and ends")
     func taskLifecycle() async throws {
         let session = FactSession(directory: try W.directory())
         let tools   = tools(session)
-        let begun = try await task(
+        let begun = try await beginFixture(
             tools,
             ["operation": .string("begin"), "goal": .string("Export foto_demo.png as JPEG"),
              "result": .string("foto_web.jpg"),
@@ -275,40 +442,36 @@ struct FactWiringTests {
                                         "kind": .string("file"), "source": .string("request")]),
                                .object(["name": .string("format")])])]
         )
-        #expect(begun["status"].string == "begun" && begun["revision"] == .number(1))
+        #expect(begun["status"].string == "planned" && begun["revision"] == .number(1))
         let taskID = try #require(begun["task"].string), attemptID = try #require(begun["attempt"].string)
-        _ = try await act(tools, session, "Save")
+        _ = try await actAtFixtureRevision(tools, session, "Save")
 
-        let stale = try await tools.call("memory_task", .object(["operation": .string("update"), "revision": .number(2),
-                                                                 "goal": .string("x")]))
-        #expect(stale["isError"] == .bool(true))
-        let revised = try await task(
+        let stale = try await updateFixture(tools, ["operation": .string("update"), "revision": .number(2), "goal": .string("x")])
+        #expect(stale["status"].string == "error")
+        let revised = try await updateFixture(
             tools,
             ["operation": .string("update"), "revision": .number(1),
              "inputs": .array([.object(["name": .string("format"), "value": .string("JPEG")])]),
              "reason": .string("the person chose JPEG")]
         )
         #expect(revised["revision"] == .number(2))
-        let concurrent = try await tools.call(
-            "memory_task",
-            .object(["operation": .string("update"), "revision": .number(1),
+        let concurrent = try await updateFixture(tools, ["operation": .string("update"), "revision": .number(1),
                      "goal": .string("Export as GIF")])
-        ).payload
         #expect(concurrent["error"].string == "stale_revision" && concurrent["current_revision"] == .number(2))
-        _ = try await act(tools, session, "Open")
+        _ = try await actAtFixtureRevision(tools, session, "Open")
 
-        let first  = try await task(tools, ["operation": .string("checkpoint"), "note": .string("exported")])
-        let second = try await task(tools, ["operation": .string("checkpoint"), "note": .string("exported")])
+        let first  = try await checkpointFixture(tools, ["operation": .string("checkpoint"), "note": .string("exported")])
+        let second = try await checkpointFixture(tools, ["operation": .string("checkpoint"), "note": .string("exported")])
         #expect(first["sequence"] == .number(1) && second["recorded"].string == "already recorded")
-        let ended = try await task(
+        let ended = try await endFixture(
             tools,
             ["operation": .string("end"), "outcome": .string("completed"),
              "outputs": .array([.object(["name": .string("output_file"), "value": .string("foto_web.jpg"),
                                          "kind": .string("file")])])]
         )
         #expect(ended["status"].string == "ended" && ended["outcome"].string == "completed")
-        _ = try await act(tools, session, "Save")
-        let noTask = try await tools.call("memory_task", .object(["operation": .string("checkpoint")])).payload
+        _ = try await actAtFixtureRevision(tools, session, "Save")
+        let noTask = try await checkpointFixture(tools, ["operation": .string("checkpoint")])
         #expect(noTask["error"].string == "no_open_task")
 
         let memory   = service(session)
@@ -326,7 +489,7 @@ struct FactWiringTests {
         #expect(record.status == .completed)
         let traced = try await memory.calls(inTrace: "message-1")
         #expect(traced.count == 3 && traced.allSatisfy { $0.request.tool == .act },
-                "memory_task is never recorded as a call")
+                "task declarations are never recorded as native calls")
         await memory.close()
     }
 
@@ -334,7 +497,7 @@ struct FactWiringTests {
     func stoppedTaskDoesNotAbsorbTheNextRequest() async throws {
         let session = FactSession(directory: try W.directory())
         let tools = tools(session)
-        let begun = try await task(tools, ["operation": .string("begin"), "goal": .string("Change the tempo"),
+        let begun = try await beginFixture(tools, ["operation": .string("begin"), "goal": .string("Change the tempo"),
                                           "recall": .bool(false)])
         let taskID = try #require(begun["task"].string)
         tools.markTaskInterrupted()
@@ -344,9 +507,9 @@ struct FactWiringTests {
         try await tools.finishInterruptedTask()
         #expect(tools.openTask == nil)
         #expect(tools.takeInterpretationReminder() == nil)
-        let next = try await task(tools, ["operation": .string("begin"), "goal": .string("Open the dialog"),
+        let next = try await beginFixture(tools, ["operation": .string("begin"), "goal": .string("Open the dialog"),
                                          "recall": .bool(false)])
-        #expect(next["status"].string == "begun")
+        #expect(next["status"].string == "planned")
         #expect(next["task"].string != taskID)
         let memory = service(session)
         let owner = try TaskProducer(source: .app, streamID: "worker-1")
@@ -356,24 +519,24 @@ struct FactWiringTests {
         await memory.close()
     }
 
-    @Test("a task cannot be begun twice, read or resumed by another producer; a resumption after a restart opens a linked attempt and replays nothing")
+    @Test("a second unmotivated plan is refused; typed ownership/resumption rejects another producer, links a new attempt and replays nothing")
     func ownershipAndResumption() async throws {
         let session = FactSession(directory: try W.directory())
         let tools   = tools(session)
-        let begun   = try await task(tools, ["operation": .string("begin"), "goal": .string("Fill the form")])
+        let begun   = try await beginFixture(tools, ["operation": .string("begin"), "goal": .string("Fill the form")])
         let taskID  = try #require(begun["task"].string)
-        let again   = try await task(tools, ["operation": .string("begin"), "goal": .string("Another")])
-        #expect(again["error"].string == "task_already_open")
+        let again   = try await beginFixture(tools, ["operation": .string("begin"), "goal": .string("Another")])
+        #expect(again["error"].string == "plan_reason_required")
         _ = try await act(tools, session, "Save")
         let gestures = session.gestures
 
         let other = self.tools(session, stream: "mcp-client", source: .mcp)
-        let foreign = try await task(other, ["operation": .string("resume"), "task": .string(taskID)])
+        let foreign = try await resumeFixture(other, ["operation": .string("resume"), "task": .string(taskID)])
         #expect(foreign["error"].string == "foreign_task")
 
         // The same producer after a restart: a new tools instance, nothing open, nothing replayed.
         let restarted = self.tools(session)
-        let resumed = try await task(restarted, ["operation": .string("resume"), "task": .string(taskID)])
+        let resumed = try await resumeFixture(restarted, ["operation": .string("resume"), "task": .string(taskID)])
         #expect(resumed["status"].string == "resumed" && resumed["attempt"].string != begun["attempt"].string)
         #expect(session.gestures == gestures, "no gesture of the earlier attempt went out again")
         let attempts = try await service(session).perform {
@@ -388,7 +551,7 @@ struct FactWiringTests {
     func unfinishedAtResumption() async throws {
         let session = FactSession(directory: try W.directory())
         let tools   = tools(session)
-        let begun   = try await task(tools, ["operation": .string("begin"), "goal": .string("Send the report")])
+        let begun   = try await beginFixture(tools, ["operation": .string("begin"), "goal": .string("Send the report")])
         let taskID  = try #require(begun["task"].string)
         let attempt = try #require(begun["attempt"].string)
         // The process dies between the call's confirmed start and its end: the start is in the archive, no end.
@@ -407,7 +570,7 @@ struct FactWiringTests {
         let gestures = session.gestures
 
         let restarted = self.tools(session)
-        let resumed = try await task(restarted, ["operation": .string("resume"), "task": .string(taskID)])
+        let resumed = try await resumeFixture(restarted, ["operation": .string("resume"), "task": .string(taskID)])
         #expect(resumed["status"].string == "resumed", "\(resumed)")
         let unfinished = resumed["unfinished_calls"].array ?? []
         #expect(unfinished.count == 1 && unfinished.first?["event"].string == "e-crashed"
@@ -418,7 +581,7 @@ struct FactWiringTests {
         #expect(stored?.progress.status == .started, "the resumption ends nothing: a late end stays accepted")
 
         // The second attempt is interrupted in turn without resolving it: the third still hears of it, once.
-        let again = try await task(self.tools(session), ["operation": .string("resume"), "task": .string(taskID)])
+        let again = try await resumeFixture(self.tools(session), ["operation": .string("resume"), "task": .string(taskID)])
         let named = (again["unfinished_calls"].array ?? []).compactMap { $0["event"].string }
         #expect(named == ["e-crashed"], "\(again)")
         #expect(again["attempt"].string != resumed["attempt"].string && session.gestures == gestures)
@@ -433,10 +596,10 @@ struct FactWiringTests {
     func noUnfinishedAtResumption() async throws {
         let session = FactSession(directory: try W.directory())
         let tools   = tools(session)
-        let begun   = try await task(tools, ["operation": .string("begin"), "goal": .string("Fill the form")])
+        let begun   = try await beginFixture(tools, ["operation": .string("begin"), "goal": .string("Fill the form")])
         let taskID  = try #require(begun["task"].string)
         _ = try await act(tools, session, "Save")
-        let resumed = try await task(self.tools(session), ["operation": .string("resume"), "task": .string(taskID)])
+        let resumed = try await resumeFixture(self.tools(session), ["operation": .string("resume"), "task": .string(taskID)])
         #expect(resumed["status"].string == "resumed" && resumed["unfinished_calls"] == .null, "\(resumed)")
         await service(session).close()
     }
@@ -476,7 +639,7 @@ struct FactWiringTests {
             )),
             attempt: .notAttempted(reason: "recovery_instead_of_request"))
         let tools = tools(session)
-        _ = try await tools.call("act", .object(["session": .string(session.id!.uuidString), "target": .string("Wi-Fi"),
+        _ = try await call(tools, "act", .object(["target": .string("Wi-Fi"),
                                                  "verb": .string("set_toggle"), "value": .string("on")]))
         _ = try await act(tools, session, "Export")
         #expect(session.gestures == ["escape"], "no click on Wi-Fi or Export went out; only the Escape did")
@@ -504,12 +667,13 @@ struct FactWiringTests {
     func partialBatch() async throws {
         let session = FactSession(directory: try W.directory())
         session.plans["B"] = FactSession.Plan(outcome: ActOutcome(.actedUnverified, "?"), fails: true)
+        session.additionalObservedElements = ["A", "B", "C"].map { W.button($0, x: 0.5) }
         let tools = tools(session)
-        let begun = try await task(tools, ["operation": .string("begin"), "goal": .string("Three clicks")])
+        let begun = try await beginFixture(tools, ["operation": .string("begin"), "goal": .string("Three clicks")])
         let steps: [JSONValue] = ["A", "B", "C"].map { .object(["operation": .string("act"), "target": .string($0)]) }
-        let answer = try await tools.call(
+        let answer = try await call(tools,
             "batch",
-            .object(["session": .string(session.id!.uuidString), "steps": .array(steps)])
+            .object(["steps": .array(steps)])
         ).payload
         #expect(answer["status"].string == "stopped" && answer["attemptedSteps"] == .number(2))
         #expect(session.gestures == ["A", "B"], "C never went out")
@@ -590,10 +754,10 @@ struct FactWiringTests {
         let directory = try W.directory()
         let worker = FactSession(directory: directory), client = FactSession(directory: directory)
         let app = tools(worker), mcp = tools(client, stream: "mcp-client", source: .mcp, trace: nil)
-        let appTask = try await task(app, ["operation": .string("begin"), "goal": .string("Open the document")])
+        let appTask = try await beginFixture(app, ["operation": .string("begin"), "goal": .string("Open the document")])
         _ = try await act(app, worker, "Open")
         _ = try await act(mcp, client, "Save")
-        let mcpTask = try await task(mcp, ["operation": .string("begin"), "goal": .string("Save the document")])
+        let mcpTask = try await beginFixture(mcp, ["operation": .string("begin"), "goal": .string("Save the document")])
         _ = try await act(mcp, client, "Save")
         _ = try await act(app, worker, "Open")
 
@@ -653,7 +817,7 @@ struct FactWiringTests {
         #expect(call.progress.status == .started, "started and never ended: incomplete, not completed")
         #expect(try await reopened.perform { try await $0.facts.effect(of: recorder.eventID) } == nil)
         let session = FactSession(directory: directory)
-        _ = try await AutomationTools(session: session).call("status", .object([:]))
+        _ = try await AutomationTools(session: session).call("call", .object(["name": .string("status"), "arguments": .object([:])]))
         #expect(session.gestures.isEmpty, "opening the memory again acts on nothing")
         await reopened.close()
     }
@@ -665,9 +829,10 @@ struct FactWiringTests {
         try raw.execute("CREATE TABLE somebody_elses (x INTEGER)")
         raw.close()
         let tools = tools(session)
-        await #expect(throws: AutomationFailure.self) { _ = try await act(tools, session, "Save") }
+        let refused = try await act(tools, session, "Save")
+        #expect(refused["isError"].bool == true && "\(refused)".contains("did not confirm"), "\(refused)")
         #expect(session.gestures.isEmpty, "the memory refused the start: nothing went out")
-        let status = try await tools.call("status", .object([:])).payload
+        let status = try await call(tools, "status", .object([:])).payload
         #expect(status["memory"].string?.contains("not recorded") == true,
                 "a read-only call still answers, saying it was not recorded")
         await service(session).close()
@@ -735,16 +900,16 @@ struct FactWiringTests {
         let id = JSONValue.string(session.id!.uuidString)
         // A secret the task declares, which the driver's words of the rung carry (M05): the least end withholds it too.
         let secret = "Sentinel-least-rung-3f8w"
-        _ = try await tools.call("memory_task", .object([
-            "operation": .string("begin"), "goal": .string("Save the file"), "remaining": .string("Save the file"),
+        _ = try await beginFixture(tools, [
+            "operation": .string("begin"), "goal": .string("Save the file"),
             "inputs": .array([.object(["name": .string("code"), "value": .string(secret), "secret": .bool(true)])]),
-        ]))
+        ])
         session.injectedRung = CallRung(rung: .accessibility, how: "pressed AXButton, uncertain: \(secret) did not answer",
                                         skipped: ["element has no \(secret)"])
         // The advice's route address and words carry the secret too (M05): the least end withholds both, keeps the decision.
         session.injectedAdvice = CallRouteAdvice(decision: .use, route: "web:\(secret).example.com/maps",
                                                  message: "Maps: use web:\(secret).example.com/maps instead of the app.")
-        let first = try await tools.call("act", .object(["session": id, "target": .string("Save")])).payload
+        let first = try await call(tools, "act", .object(["target": .string("Save")])).payload
         let notice = try #require(first["memory"].string, "the answer says what was not recorded")
         #expect(notice.contains("was not recorded") && notice.contains("incomplete evidence"), "\(notice)")
         // The next call's rung is the Seat's, as a desktop session hands it (M05): the receipt's poster, the counts.
@@ -752,7 +917,7 @@ struct FactWiringTests {
         session.injectedRung = seatRung
         let plainAdvice = CallRouteAdvice(decision: .ask, route: nil, message: "Mail: which account?")
         session.injectedAdvice = plainAdvice
-        _ = try await tools.call("act", .object(["session": id, "target": .string("Open")]))
+        _ = try await call(tools, "act", .object(["target": .string("Open")]))
         #expect(session.base.gestures == ["Save", "Open"], "nothing replayed, and a least is no suspension")
         let shared = MemoryService.shared(for: session.base.directory)
         #expect(await shared.status().suspended == nil)
@@ -911,18 +1076,18 @@ struct FactWiringTests {
         let tools   = tools(session)
         var transcript: [String] = []
         tools.record = { transcript.append($0) }
-        _ = try await task(
+        _ = try await beginFixture(
             tools,
             ["operation": .string("begin"), "goal": .string("Sign in and paste the key"),
              "inputs": .array([.object(["name": .string("password"), "value": .string(Self.canaryPassword),
                                         "secret": .bool(true), "role": .string("account password")])])]
         )
         let id = JSONValue.string(session.id!.uuidString)
-        _ = try await tools.call("type_text", .object(["session": id, "target": .string("Password"),
+        _ = try await call(tools, "type_text", .object(["target": .string("Password"),
                                                        "text": .string(Self.canaryPassword)]))
-        _ = try await tools.call("type_text", .object(["session": id, "target": .string("Notes"),
+        _ = try await call(tools, "type_text", .object(["target": .string("Notes"),
                                                        "text": .string("key \(Self.canaryToken)")]))
-        _ = try await tools.call("observe", .object(["session": id]))
+        _ = try await call(tools, "observe", .object([:]))
         let memory = service(session)
         #expect(await memory.flush(within: .seconds(10)))
         await memory.close()
@@ -963,14 +1128,14 @@ struct FactWiringTests {
         #expect(withheld == ["withheld:secret"])
     }
 
-    @Test("S19: a secret the task declares, long or short, is withheld from the task's goal, result, constraints, reason, notes and values, from later calls and from the transcript; ordinary values stay as given")
+    @Test("S19: declared secrets are withheld in current plans/calls and typed producer outputs; result/constraint minimization is checked at its decoder")
     func declaredSecretCopiesAreWithheld() async throws {
         let session = FactSession(directory: try W.directory())
         let tools   = tools(session)
         var transcript: [String] = []
         tools.record = { transcript.append($0) }
         let long = Self.canaryPassword, short = Self.canaryShort
-        let begun = try await task(tools, [
+        let begun = try await beginFixture(tools, [
             "operation"  : .string("begin"),
             "goal"       : .string("Sign in with \(long) and the PIN \(short)"),
             "result"     : .string("Signed in, PIN \(short) accepted"),
@@ -982,23 +1147,23 @@ struct FactWiringTests {
                 .object(["name": .string("hint"), "value": .string("the PIN is \(short)")]),
             ]),
         ])
-        #expect(begun["status"].string == "begun")
-        let revised = try await task(tools, [
+        #expect(begun["status"].string == "planned")
+        let revised = try await updateFixture(tools, [
             "operation": .string("update"),
             "goal"     : .string("Use \(long) again, PIN \(short)"),
             "reason"   : .string("the PIN \(short) was refused once"),
         ])
         #expect(revised["revision"] == .number(2))
         let id = JSONValue.string(session.id!.uuidString)
-        _ = try await tools.call("type_text", .object([
-            "session": id, "target": .string("Notes"), "text": .string("PIN \(short) for \(long)"),
+        _ = try await call(tools, "type_text", .object([
+            "target": .string("Notes"), "text": .string("PIN \(short) for \(long)"),
         ]))
-        _ = try await task(tools, [
+        _ = try await checkpointFixture(tools, [
             "operation": .string("checkpoint"),
             "note"     : .string("typed \(short)"),
             "outputs"  : .array([.object(["name": .string("receipt"), "value": .string("R-1 for \(short)")])]),
         ])
-        _ = try await task(tools, [
+        _ = try await endFixture(tools, [
             "operation": .string("end"),
             "outcome"  : .string("completed"),
             "note"     : .string("done with \(long)"),
@@ -1033,14 +1198,14 @@ struct FactWiringTests {
     private func secretTask(_ secret: String, stream: String) async throws -> (FactSession, AutomationTools) {
         let session = FactSession(directory: try W.directory())
         let tools   = tools(session, stream: stream, trace: stream)
-        let begun   = try await task(tools, [
+        let begun   = try await beginFixture(tools, [
             "operation": .string("begin"),
             "goal"     : .string("Change the saved credential settings"),
             "inputs"   : .array([
                 .object(["name": .string("credential"), "value": .string(secret), "secret": .bool(true)]),
             ]),
         ])
-        #expect(begun["status"].string == "begun")
+        #expect(begun["status"].string == "planned")
         return (session, tools)
     }
 
@@ -1055,8 +1220,7 @@ struct FactWiringTests {
                                           role: "AXButton \(secret)", label: "Save",
                                           section: "Credential settings for \(secret)")
         )))
-        _ = try await tools.call("act", .object(["session": .string(session.id!.uuidString),
-                                                 "target": .string("Save")]))
+        _ = try await call(tools, "act", .object(["target": .string("Save")]))
         let memory = service(session)
         #expect(await memory.flush(within: .seconds(10)))
         await memory.close()
@@ -1085,8 +1249,7 @@ struct FactWiringTests {
             )),
             effect: .menuOpened(labels: ["Saved credential \(secret)", "Cancel"])
         )
-        _ = try await tools.call("act", .object(["session": .string(session.id!.uuidString),
-                                                 "target": .string("Save")]))
+        _ = try await call(tools, "act", .object(["target": .string("Save")]))
         let memory = service(session)
         #expect(await memory.flush(within: .seconds(10)))
         let calls = try await memory.calls(inTrace: "effect-texts")
@@ -1153,8 +1316,6 @@ struct FactWiringTests {
                   read: ["target=Save", "verb=click"], condition: .structuralEffect),
         Operation(tool: "act", arguments: ["target": .string("Save"), "verb": .string("double_click")], recorded: .act,
                   read: ["target=Save", "verb=double_click"], condition: .structuralEffect),
-        Operation(tool: "act", arguments: ["target": .string("Save"), "verb": .string("triple_click")], recorded: .act,
-                  read: ["target=Save", "verb=triple_click"], condition: .structuralEffect),
         Operation(tool: "act", arguments: ["target": .string("Save"), "verb": .string("right_click")], recorded: .act,
                   read: ["target=Save", "verb=right_click"], condition: .structuralEffect),
         Operation(tool: "act",
@@ -1190,8 +1351,7 @@ struct FactWiringTests {
         let session = FactSession(directory: try W.directory())
         let tools   = tools(session, trace: "operation")
         var arguments = operation.arguments
-        arguments["session"] = .string(session.id!.uuidString)
-        _ = try await tools.call(operation.tool, .object(arguments))
+        _ = try await call(tools, operation.tool, .object(arguments))
         #expect(session.gestures.count == 1, "one gesture, recorded once")
         await service(session).close()
 
@@ -1217,14 +1377,38 @@ struct FactWiringTests {
         await reopened.close()
     }
 
+    @Test("triple_click is its own recorded capability; the retired act verb is refused before a gesture")
+    func tripleClickCapabilityKeepsItsOwnRecord() async throws {
+        let session = FactSession(directory: try W.directory())
+        let tools = tools(session, trace: "triple-operation")
+        _ = try await tools.call("plan", .object(["request": .string("Triple click Save"),
+            "rows": .array([.object(["title": .string("Triple click Save")])])]))
+        let invalid = try? await call(tools, "act", .object(["target": .string("Save"), "verb": .string("triple_click")]))
+        #expect(invalid == nil || invalid?["isError"].bool == true)
+        #expect(session.gestures.isEmpty)
+        _ = try await call(tools, "triple_click", .object(["target": .string("Save")]))
+        #expect(session.gestures == ["Save"])
+        let memory = service(session)
+        #expect(await memory.flush(within: .seconds(10)))
+        #expect(try rawRows("SELECT capability_id || ':' || channel || ':' || effect_class FROM memory_call_capabilities", at: memory.url)
+            == ["triple_click:seat:write"])
+        #expect(try rawRows("SELECT tool_kind || ':' || execution_status FROM memory_agent_actions", at: memory.url)
+            == ["triple_click:completed"])
+        #expect(try rawRows("SELECT method || ':' || verdict FROM memory_verifications WHERE scope='call'", at: memory.url)
+            == ["engineVerdict:passed"])
+        #expect(try rawRows("SELECT text_value FROM memory_call_argument_fields WHERE field_path='/target'", at: memory.url) == ["Save"])
+        await memory.close()
+    }
+
     @Test("an operation the call contract cannot represent (one with no session) is refused before any gesture, and nothing is recorded")
     func unrepresentableCallActsOnNothing() async throws {
         let session = FactSession(directory: try W.directory())
         session.id = nil
         let tools = tools(session, trace: "unrepresentable")
         do {
-            _ = try await tools.call("act", .object(["target": .string("Save")]))
-            Issue.record("the call ran")
+            let refused = try await call(tools, "act", .object(["target": .string("Save")]))
+            #expect(refused["isError"] == .bool(true), "the call must be refused: \(refused)")
+            #expect("\(refused)".contains("needs an open session") && !"\(refused.payload)".contains("memory"))
         } catch {
             // Said as the missing session it is, never as the memory's failure (live run R01, Workspace event 113).
             #expect("\(error)".contains("needs an open session") && !"\(error)".contains("memory"), "\(error)")
@@ -1239,20 +1423,20 @@ struct FactWiringTests {
     func outOfRangeRevisions() async throws {
         let session = FactSession(directory: try W.directory())
         let tools   = tools(session)
-        _ = try await task(tools, ["operation": .string("begin"), "goal": .string("Export the report")])
+        _ = try await beginFixture(tools, ["operation": .string("begin"), "goal": .string("Export the report")])
         for number in [1e30, Double.greatestFiniteMagnitude, 1.5, -3] {
-            let answer = try await tools.call("memory_task", .object([
+            let answer = try await updateFixture(tools, [
                 "operation": .string("update"), "revision": .number(number), "goal": .string("Export it again"),
-            ]))
-            #expect(answer["isError"] == .bool(true) && answer.payload["error"].string == "invalid_task", "\(number)")
+            ])
+            #expect(answer["status"].string == "error" && answer["error"].string == "invalid_task", "\(number)")
         }
-        let huge = try await task(tools, [
+        let huge = try await updateFixture(tools, [
             "operation": .string("update"), "revision": .number(9e18), "goal": .string("Export it again"),
         ])
         #expect(huge["error"].string == "stale_revision")
         let archive = session.directory.appendingPathComponent("memory.sqlite")
         #expect(try rawRows("SELECT count(*) FROM memory_task_revisions", at: archive) == ["1"])
-        let revised = try await task(tools, [
+        let revised = try await updateFixture(tools, [
             "operation": .string("update"), "revision": .number(1), "goal": .string("Export the report as PDF"),
         ])
         #expect(revised["status"].string == "revised" && revised["revision"] == .number(2))

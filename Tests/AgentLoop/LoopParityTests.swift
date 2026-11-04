@@ -124,6 +124,26 @@ import Testing
         #expect(result[0].text == "Result\n" + #"{"a":2,"z":1}"#)
     }
 
+    @Test func completeProducerTextIsNotDuplicatedWithItsHostStructure() async throws {
+        let loop = loop(call: { _, _ in
+            .object(["content": .array([.object(["text": .string("sent · confirmed · continue")])]),
+                "structuredContent": .object(["gesture": .string("sent")]),
+                "_meta": .object(["braus/content-complete": .bool(true)])])
+        })
+        let result = try await loop.results(of: calls(["read"]))
+        #expect(result[0].text == "sent · confirmed · continue")
+    }
+
+    @Test func completeTextIncludesEveryTextBlockAndTheHostNotice() async throws {
+        let loop = loop(call: { _, _ in
+            .object(["content": .array([.object(["text": .string("Outcome")]), .object(["text": .string("Row verification failed")])]),
+                "structuredContent": .object(["gesture": .string("sent")]),
+                "_meta": .object(["braus/content-complete": .bool(true)])])
+        })
+        let result = try await loop.results(of: calls(["read"]))
+        #expect(result[0].text == "Outcome\nRow verification failed")
+    }
+
     private func calls(_ names: [String]) -> [ToolCall] {
         names.map { ToolCall(id: $0, name: $0, arguments: Data("{}".utf8)) }
     }

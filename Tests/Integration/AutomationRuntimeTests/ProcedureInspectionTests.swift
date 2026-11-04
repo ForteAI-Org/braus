@@ -5,7 +5,7 @@
 //  Created by Tommaso Mazzarini on 11/10/2026.
 //
 
-import AutomationMCP
+@testable import AutomationMCP
 import AutomationRuntime
 import EngineCore
 import Foundation
@@ -68,15 +68,15 @@ struct ProcedureInspectionTests {
         )
         let tools = Learning.tools(session)
         let begun = try await Learning.task(tools, #"""
-            {"operation":"begin","goal":"Export the photo",
+            {"request":"Export the photo",
              "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
             """#)
         let taskID = try #require(begun["task"].string)
         try await Learning.runPhotoExport(tools, session)
-        let checkpoint = try await Learning.task(tools, #"{"operation":"checkpoint"}"#)
+        let checkpoint = try await Learning.checkpointFixture(tools, session, #"{"operation":"checkpoint"}"#)
         let candidateID = try #require(checkpoint["candidate"]["id"].string)
-        _ = try await Learning.task(tools, Learning.photoInterpretation(candidateID))
-        _ = try await Learning.task(tools, #"{"operation":"end","outcome":"completed"}"#)
+        _ = try await Learning.interpretFixture(tools, session, Learning.photoInterpretation(candidateID))
+        _ = try await Learning.task(tools, #"{"outcome":"completed"}"#)
         let memory = MemoryService.shared(for: session.directory)
         #expect(await memory.flush(within: .seconds(10)))
         await memory.close()
@@ -155,7 +155,7 @@ struct ProcedureInspectionTests {
                                          target: LearningSession.popup("Format", value: "PNG"))
         )
         let tools = Learning.tools(session)
-        let begun = try await Learning.task(tools, #"{"operation":"begin","goal":"Export as JPEG"}"#)
+        let begun = try await Learning.task(tools, #"{"request":"Export as JPEG"}"#)
         let taskID = try #require(begun["task"].string)
         let id = session.id!.uuidString
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
@@ -163,7 +163,10 @@ struct ProcedureInspectionTests {
             {"session":"\#(id)","steps":[{"operation":"type_text","target":"foto_demo.png","text":"foto_web.jpg"},
              {"operation":"select","control":"Format","item":"JPEG"},{"operation":"act","target":"Save"}]}
             """#)
-        _ = try await Learning.task(tools, #"{"operation":"end","outcome":"failed"}"#)
+        _ = try await Learning.task(tools, #"{"outcome":"failed"}"#)
+        // Failed tasks do not trigger automatic learning. Materialize this inspection fixture's
+        // step occurrences explicitly at the real candidate producer boundary, without interpreting it.
+        _ = try await Learning.candidateFixture(tools, session)
         let memory = MemoryService.shared(for: session.directory)
         #expect(await memory.flush(within: .seconds(10)))
         await memory.close()
@@ -190,17 +193,17 @@ struct ProcedureInspectionTests {
         // The listing: the path ends on the File menu, nothing is pressed, no gesture goes out, no check is made.
         session.script["menu|File"] = LearningSession.Outcome(kind: .actedNoop, gesture: false)
         let tools = Learning.tools(session)
-        let begun = try await Learning.task(tools, #"{"operation":"begin","goal":"Export the photo"}"#)
+        let begun = try await Learning.task(tools, #"{"request":"Export the photo"}"#)
         let taskID = try #require(begun["task"].string)
         let id = session.id!.uuidString
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
         let listed = try await Learning.call(tools, "menu", #"{"session":"\#(id)","path":"File"}"#)
-        #expect(listed["status"].string == "acted_noop", "\(listed)")
+        #expect(listed["gesture"].string == "not_sent", "\(listed)")
         _ = try await Learning.call(tools, "menu", #"{"session":"\#(id)","path":"File > Export…"}"#)
         _ = try await Learning.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
-        let checkpoint = try await Learning.task(tools, #"{"operation":"checkpoint","note":"exported"}"#)
+        let checkpoint = try await Learning.checkpointFixture(tools, session, #"{"operation":"checkpoint","note":"exported"}"#)
         #expect(checkpoint["candidate"]["steps"].array?.count == 2, "the listing is no step: \(checkpoint)")
-        _ = try await Learning.task(tools, #"{"operation":"end","outcome":"completed"}"#)
+        _ = try await Learning.task(tools, #"{"outcome":"completed"}"#)
         let memory = MemoryService.shared(for: session.directory)
         #expect(await memory.flush(within: .seconds(10)))
         await memory.close()
@@ -226,13 +229,29 @@ struct ProcedureInspectionTests {
         let learner = Learning.photoSession(directory)
         let (_, routeID) = try await L.learnPhoto(learner)
         let session = Learning.photoSession(directory)
-        let tools = Learning.tools(session, stream: "chooser")
-        let begun = try await Learning.task(tools, C.proposeRequest)
-        let taskID = try #require(begun["task"].string, "\(begun)")
-        let proposal = begun["recall_proposal"]
+        // The diagnosis combines real plan-attributed actions with an explicit typed service proposal.
+        // A learn-only plan does not perform another query or make this fixture claim model-choice coverage.
+        let tools = Learning.tools(session, stream: "chooser", profile: SessionProfile.app.replacing(memory: .learn))
+        let specification = Learning.json(C.proposeRequest)
+        _ = try await tools.call("plan", .object(["request": specification["goal"], "inputs": specification["inputs"],
+            "rows": .array([.object(["title": .string("Export the photo")])])]))
+        let task = try #require(tools.openTask)
+        let taskID = task.taskID
+        guard case .begin(let content, _, let requestedPlan) = try MemoryTaskTool.decode(specification,
+            minimization: ValueMinimization(), messageRef: nil), let requestedPlan else {
+            throw Learning.FixtureFailure("Expected the explicit proposal fixture's request")
+        }
+        let memory = MemoryService.shared(for: directory)
+        let service = RecallService.shared(for: memory)
+        let request = try RecallRequest(taskID: task.taskID, attemptID: task.attemptID, revision: task.revision,
+            reason: .initial, remainingWork: requestedPlan.remaining ?? content.goal, needs: requestedPlan.needs,
+            values: content.inputs, constraints: content.constraints)
+        let offered = try await service.propose(request, producer: Learning.fixtureProducer(tools),
+            access: .readLearn, availableChannels: HistoricalRecallFixture.nativeChannels)
+        let proposal = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(offered.delivery))
         let proposalID = try #require(proposal["proposal"].string, "\(proposal)")
         let key = try #require(RecallProductPathTests.source(proposal, routeID), "\(proposal)")
-        let chosen = try await Learning.task(tools, C.choose(proposalID, [(key, 4, 7)]))
+        let chosen = try await HistoricalRecallFixture.choose(tools, C.choose(proposalID, [(key, 4, 7)]))
         let queryID = try #require(chosen["recall"]["query"].string, "\(chosen)")
         let id = session.id!.uuidString
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.preview)"}"#)
@@ -240,10 +259,12 @@ struct ProcedureInspectionTests {
         _ = try await Learning.call(tools, "type_text", #"{"session":"\#(id)","target":"foto_demo.png","text":"foto_mail.png"}"#)
         _ = try await Learning.call(tools, "select", #"{"session":"\#(id)","control":"Format","item":"PNG"}"#)
         _ = try await Learning.call(tools, "press", #"{"session":"\#(id)","button":"Save"}"#)
-        let ended = try await Learning.task(tools, #"""
-            {"operation":"end","outcome":"completed","use":[{"query":"\#(queryID)","need":1,"outcome":"followed"}]}
-            """#)
+        try await service.report(queryID: queryID, attemptID: task.attemptID, needPosition: 0,
+            declared: "followed", cause: nil, note: nil)
+        let ended = try await Learning.task(tools, #"{"outcome":"completed"}"#)
         #expect(ended["status"].string == "ended", "\(ended)")
+        _ = await memory.flush(within: .seconds(10))
+        _ = try await service.link(attemptID: task.attemptID, taskID: task.taskID, producer: Learning.fixtureProducer(tools))
         await L.close(session)
 
         let inspection = try Self.inspection(taskID, session)
@@ -304,16 +325,16 @@ struct ProcedureInspectionTests {
         let tools = Learning.tools(session)
         let canary = "pin-9Z2-canary"
         let begun = try await Learning.task(tools, #"""
-            {"operation":"begin","goal":"Sign in","inputs":[{"name":"pin","value":"\#(canary)","secret":true}]}
+            {"request":"Sign in","inputs":[{"name":"pin","value":"\#(canary)","secret":true}]}
             """#)
         let taskID = try #require(begun["task"].string)
         let id = session.id!.uuidString
         _ = try await Learning.call(tools, "open_session", #"{"app":"\#(Learning.finder)"}"#)
         _ = try await Learning.call(tools, "type_text", #"{"session":"\#(id)","target":"Password","text":"\#(canary)"}"#)
         _ = try await Learning.call(tools, "act", #"{"session":"\#(id)","target":"Sign In"}"#)
-        let ended = try await Learning.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
-        _ = try await Learning.task(tools, #"""
+        let ended = try await Learning.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await ProcedureLearningTests.candidateIDFixture(tools, session)
+        _ = try await Learning.interpretFixture(tools, session, #"""
             {"operation":"interpret","candidate":"\#(candidate)","procedure":{"label":"Sign in with <pin>"},
              "parameters":[{"name":"pin","role":"the person's code","kind":"text","secret":true}],
              "uses":[{"step":1,"argument":"text","template":"{pin}"}]}

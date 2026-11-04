@@ -20,11 +20,12 @@ struct IndependentPlanAuditTests {
         _ = try await ReconciliationTests.complete(tools, "r-1")
         var problem: String?
         do {
-            _ = try await tools.call("app_call", .object([
-                "app": .string("Reminders"), "verb": .string("find_reminders"),
+            _ = try await tools.call("call", .object([
+                "name": .string("reminders.find_reminders"),
                 "arguments": .object(["query": .string("r-1")])]))
         } catch { problem = String(describing: error) }
         #expect(problem == nil, "a read-only operation must not be blocked: \(problem ?? "")")
+        _ = try await tools.call("end", .object(["outcome": .string("completed")]))
         await MemoryService.closeAll()
     }
 
@@ -32,15 +33,16 @@ struct IndependentPlanAuditTests {
     func firstConfidentialErrorMustBeWithheld() async throws {
         let folder = StructuredCallFactsTests.knowledge()
         defer { try? FileManager.default.removeItem(at: folder) }
-        let tools = AutomationTools(session: CallDispatchRecordTests.RouteFake(.desktop, memory: folder))
-        tools.adapters = AppAdapters([ConfidentialSurfaceTests.MailFake()])
+        let adapter = ConfidentialSurfaceTests.MailFake()
+        let tools = AutomationTools(session: CallDispatchRecordTests.RouteFake(.desktop, memory: folder), adapters: AppAdapters([adapter]))
         tools.producer = CallProducer(source: .app, streamID: "audit-error", traceID: "audit")
         final class Lines: @unchecked Sendable { var all: [String] = [] }
         let transcript = Lines()
         tools.record = { transcript.all.append($0) }
-        _ = try? await tools.call("app_call", .object([
-            "app": .string("Mail"), "verb": .string("boom"),
+        _ = try? await tools.call("call", .object([
+            "name": .string("mail.boom"),
             "arguments": .object(["id": .string("msg-1")])]))
+        #expect(adapter.failedReads == 1, "the first confidential error came from the provider")
         _ = await MemoryService.shared(for: folder).flush(within: .seconds(5))
         await MemoryService.closeAll()
         let bytes = try ConfidentialSurfaceTests.archiveBytes(folder)

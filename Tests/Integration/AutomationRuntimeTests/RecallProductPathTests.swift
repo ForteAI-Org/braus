@@ -12,17 +12,13 @@ import Foundation
 import LocalEmbedding
 import LocalMCP
 import Memory
+import PerceptionCore
 @testable import SQLiteMemory
 import Testing
-import Switches
 
-/// RecallProductPathTests prove, through `memory_task` and SQLite with no flag and no control, what the product's one path
-/// of the Recall (the agent's choice) answers in every state an agent meets: an archive with nothing learned, an index not
-/// built, unreadable, behind the catalogue or without its semantic model; a proposal never chosen, a plan refused, a
-/// proposal's id given as a query's; a task ended without its interpretation; knowledge learned by the app and reused by an
-/// MCP client and the other way round, each with its own task and values; an archive closed and opened again. In each the
-/// agent gets an answer it can act on, never a hidden selection and never an absence it cannot tell from a fault. The plans
-/// are written by the test: they prove the contract, not what an agent chooses. These are integration proofs, not a live run.
+/// RecallProductPathTests retain Recall service fault, persistence, privacy and attribution scenarios.
+/// Current plan/action/end entries are distinct from explicit typed proposal/choice/report fixtures.
+/// A historical service delivery is never claimed to be the current model's plan response.
 @MainActor
 @Suite("The Recall's one product path, the agent's choice, through the tool in every state", .serialized)
 struct RecallProductPathTests {
@@ -48,8 +44,8 @@ struct RecallProductPathTests {
         let memory = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
         let tools = P.tools(session)
-        let begun = try await P.task(tools, C.proposeRequest.replacingOccurrences(of: #""recall_mode":"propose","#, with: ""))
-        #expect(begun["status"].string == "begun" && begun["recall"] == .null, "\(begun)")
+        let begun = try await HistoricalRecallFixture.beginPlannedProposal(tools, C.proposeRequest.replacingOccurrences(of: #""recall_mode":"propose","#, with: ""))
+        #expect(begun["status"].string == "proposed" && begun["recall"] == .null, "\(begun)")
         let proposal = begun["recall_proposal"]
         #expect(proposal["sources"].array?.isEmpty == true, "\(proposal)")
         // Nothing was ever learned: the catalogue proves it whatever the index is doing, and the search is no failure.
@@ -62,9 +58,9 @@ struct RecallProductPathTests {
         let id = session.id!.uuidString
         _ = try await P.call(tools, "open_session", #"{"app":"\#(P.preview)"}"#)
         _ = try await P.call(tools, "act", #"{"session":"\#(id)","target":"Rotate Right"}"#)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        #expect(ended["status"].string == "ended" && ended["candidate"]["id"].string != nil, "\(ended)")
-        #expect(try Self.count("memory_recall_proposals", session) == 1 && Self.count("memory_recall_queries", session) == 0)
+        let ended = try await P.task(tools, #"{"outcome":"completed"}"#)
+        #expect(ended["status"].string == "ended" && ended["candidate"] == .null, "\(ended)")
+        #expect(try Self.count("memory_recall_proposals", session) == 2 && Self.count("memory_recall_queries", session) == 0)
         await L.close(session)
     }
 
@@ -72,7 +68,7 @@ struct RecallProductPathTests {
     func nothingFits() async throws {
         let session = P.photoSession(try W.directory())
         _ = try await L.learnPhoto(session)
-        let begun = try await P.task(P.tools(session, stream: "unrelated"),
+        let begun = try await HistoricalRecallFixture.beginProposal(P.tools(session, stream: "unrelated"),
                                      #"{"operation":"begin","goal":"Ascolta il podcast zzqxv sul giradischi"}"#)
         let proposal = begun["recall_proposal"]
         #expect(proposal["search"]["status"].string == "completed" && proposal["index"]["status"].string == "ready", "\(proposal)")
@@ -88,15 +84,15 @@ struct RecallProductPathTests {
         let memory = MemoryService.shared(for: session.directory)
         await RecallService.shared(for: memory).setIndexFault(RecallCorpus.Failure("disk I/O error"))
         let tools = P.tools(session, stream: "worker-2")
-        let begun = try await P.task(tools, C.proposeRequest)
+        let begun = try await HistoricalRecallFixture.beginProposal(tools, C.proposeRequest)
         let proposal = begun["recall_proposal"]
         #expect(begun["status"].string == "begun", "the task is begun all the same")
         #expect(proposal["search"]["status"].string == "failed" && proposal["index"]["status"].string == "failed", "\(proposal)")
         #expect(proposal["search"]["note"].string?.contains("disk I/O error") == true)
         #expect(proposal["guidance"].string == RecallProposalDelivery.unsearchedGuidance)
         let id = try #require(proposal["proposal"].string)
-        let refused = try await tools.call("memory_task", P.json(C.choose(id, [("s1", 1, 1)])))
-        #expect(refused["isError"] == .bool(true) && "\(refused.payload)".contains("search could not answer"), "\(refused.payload)")
+        let refused = try await HistoricalRecallFixture.choose(tools, C.choose(id, [("s1", 1, 1)]))
+        #expect(refused["status"].string == "error" && "\(refused)".contains("search could not answer"), "\(refused)")
         #expect(try Self.count("memory_recall_queries", session) == 0)
         await L.close(session)
     }
@@ -111,15 +107,15 @@ struct RecallProductPathTests {
         // A second photo export learned while the worker is held: its index work stays pending.
         let tools = P.tools(session, stream: "learner-2")
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG","recall":false,
+            {"request":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
              "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
             """#)
         try await P.runPhotoExport(tools, session)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
-        _ = try await P.task(tools, P.photoInterpretation(candidate))
+        let ended = try await P.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await P.candidateIDFixture(tools, session)
+        _ = try await P.interpretFixture(tools, session, P.photoInterpretation(candidate))
         let second = ProcedureAssembly.routeID(candidateID: candidate, revision: 1)
-        let behind = try await P.task(P.tools(session, stream: "asker-1"), C.proposeRequest)["recall_proposal"]
+        let behind = try await HistoricalRecallFixture.beginProposal(P.tools(session, stream: "asker-1"), C.proposeRequest)["recall_proposal"]
         #expect(behind["search"]["status"].string == "limited" && (RecallCycleTests.int(behind["index"]["pendingWork"]) ?? 0) > 0, "\(behind)")
         #expect(behind["search"]["note"].string?.contains("not in the index yet") == true, "\(behind["search"])")
         // The second export repeats the first one's method, so its version replaced the first in the catalogue
@@ -127,7 +123,7 @@ struct RecallProductPathTests {
         #expect(Self.source(behind, first) == nil && Self.source(behind, second) == nil, "the index answers with what it holds")
         await service.holdWork(false)
         #expect(await service.waitUntilIdle(within: .seconds(60)))
-        let caught = try await P.task(P.tools(session, stream: "asker-2"), C.proposeRequest)["recall_proposal"]
+        let caught = try await HistoricalRecallFixture.beginProposal(P.tools(session, stream: "asker-2"), C.proposeRequest)["recall_proposal"]
         #expect(caught["search"]["status"].string == "completed" && Self.source(caught, second) != nil, "\(caught)")
         await L.close(session)
     }
@@ -141,19 +137,19 @@ struct RecallProductPathTests {
         // The process that learns the second export ends before its worker enters it: the work stays pending in the archive.
         let tools = P.tools(session, stream: "learner-2")
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG","recall":false,
+            {"request":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
              "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
             """#)
         try await P.runPhotoExport(tools, session)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
-        _ = try await P.task(tools, P.photoInterpretation(candidate))
+        let ended = try await P.task(tools, #"{"outcome":"completed"}"#)
+        let candidate = try await P.candidateIDFixture(tools, session)
+        _ = try await P.interpretFixture(tools, session, P.photoInterpretation(candidate))
         let second = ProcedureAssembly.routeID(candidateID: candidate, revision: 1)
         await L.close(session)
         // The next process: a Recall that never ran, and a search that does not wait for it first.
         let reopened = MemoryService.shared(for: session.directory)
         RecallService.install(RecallService(memory: reopened, configuration: L.configuration()))
-        let proposal = try await P.task(P.tools(session, stream: "asker-next"), C.proposeRequest)["recall_proposal"]
+        let proposal = try await HistoricalRecallFixture.beginProposal(P.tools(session, stream: "asker-next"), C.proposeRequest)["recall_proposal"]
         #expect(proposal["search"]["status"].string == "completed", "\(proposal["search"])")
         #expect(Self.source(proposal, second) != nil, "the version learned just before is offered: \(proposal)")
         await L.close(session)
@@ -169,7 +165,7 @@ struct RecallProductPathTests {
         let missingModel = EmbeddingService { _ in throw EmbeddingService.Unavailable.notInstalled }
         let service = RecallService(memory: memory, configuration: configuration, embeddingService: missingModel)
         let (_, routeID) = try await L.learnPhoto(session, configuration: configuration, service: service)
-        let proposal = try await P.task(P.tools(session, stream: "asker"), C.proposeRequest)["recall_proposal"]
+        let proposal = try await HistoricalRecallFixture.beginProposal(P.tools(session, stream: "asker"), C.proposeRequest)["recall_proposal"]
         #expect(proposal["search"]["channel"].string == "lexical" && proposal["search"]["status"].string == "limited", "\(proposal["search"])")
         #expect(proposal["search"]["note"].string?.contains("the semantic index is unavailable") == true)
         #expect(proposal["index"]["note"].string?.hasPrefix("semantic model:") == true, "\(proposal["index"])")
@@ -184,19 +180,38 @@ struct RecallProductPathTests {
         let session = P.photoSession(try W.directory())
         _ = try await L.learnPhoto(session)
         let tools = P.tools(session, stream: "skipper")
-        let proposal = try await P.task(tools, C.proposeRequest)["recall_proposal"]
+        let proposal = try await HistoricalRecallFixture.beginPlannedProposal(tools, C.proposeRequest)["recall_proposal"]
         let id = try #require(proposal["proposal"].string)
+        let choiceRows = "SELECT query_id || ':' || proposal_id FROM memory_recall_choices ORDER BY query_id"
+        let queryRows = "SELECT query_id || ':' || delivery FROM memory_recall_queries ORDER BY query_id"
+        let choicesBefore = try P.rows(choiceRows, in: session)
+        let queriesBefore = try P.rows(queryRows, in: session)
+        #expect(try P.rows("SELECT count(*) FROM memory_recall_choices WHERE proposal_id = '\(id)'", in: session) == ["0"],
+                "The explicit service proposal has never been chosen")
+        let current = try #require(tools.openTask?.taskID)
+        #expect(choicesBefore.isEmpty, "Neither offering a plan part nor proposing a service choice selects a tract: \(choicesBefore)")
+        let planProposalTasks = try P.rows("SELECT t.task_uuid FROM memory_recall_proposals p JOIN memory_tasks t ON t.task_id = p.task_id WHERE p.proposal_id != '\(id)' ORDER BY p.proposal_id", in: session)
+        #expect(planProposalTasks == [current], "The other proposal belongs to the real plan: \(planProposalTasks), expected \(current)")
+        let storedOffer = try P.rows("SELECT CAST(p.proposal_id AS TEXT) || ':' || t.task_uuid FROM memory_recall_proposals p JOIN memory_tasks t ON t.task_id = p.task_id WHERE p.proposal_id = '\(id)'", in: session)
+        #expect(storedOffer == [id + ":" + current], "The returned numeric identity names this task's stored proposal: \(storedOffer)")
+        // The typed propose service passes no calibration. insertProposal creates a matching search query
+        // only for nonempty calibration; the current plan's calibrated offers are a separate contract.
+        let explicitReceipt = try P.rows("SELECT query_id FROM memory_recall_queries WHERE query_id = '\(id)'", in: session)
+        #expect(explicitReceipt.isEmpty, "This unchosen typed proposal has no query receipt: \(explicitReceipt)")
         _ = try await P.call(tools, "open_session", #"{"app":"\#(P.preview)"}"#)
         _ = try await P.call(tools, "act", #"{"session":"\#(session.id!.uuidString)","target":"Rotate Right"}"#)
         // The use is answered as not recorded; the end itself is recorded (review U2: refused, it left the task open).
-        let ended = try await P.task(tools, #"""
+        let ended = try await HistoricalRecallFixture.end(tools, #"""
             {"operation":"end","outcome":"completed","use":[{"query":"\#(id)","need":1,"outcome":"followed"}]}
             """#)
         #expect(ended["status"].string == "ended", "the task ends without the use: \(ended)")
         let problem = ended["use_not_recorded"].array?.first?.string ?? ""
-        #expect(problem.contains("is a proposal, not a query") && problem.contains("not recorded"), "\(ended)")
-        #expect(try Self.count("memory_recall_choices", session) == 0 && Self.count("memory_recall_queries", session) == 0)
-        #expect(try Self.count("memory_recall_proposals", session) == 1, "the proposal is kept as proposed, never chosen")
+        #expect(problem.contains("proposal") && problem.contains("not recorded"), "\(ended)")
+        #expect(try P.rows(choiceRows, in: session) == choicesBefore)
+        #expect(try P.rows(queryRows, in: session) == queriesBefore,
+                "An invalid use creates no query, choice or delivery receipt")
+        #expect(try P.rows("SELECT count(*) FROM memory_recall_choices WHERE proposal_id = '\(id)'", in: session) == ["0"])
+        #expect(try Self.count("memory_recall_proposals", session) == 2, "the proposal is kept as proposed, never chosen")
         await L.close(session)
     }
 
@@ -207,17 +222,18 @@ struct RecallProductPathTests {
         RecallService.install(RecallService(memory: memory, configuration: L.configuration()))
         let tools = P.tools(session)
         _ = try await P.task(tools, #"""
-            {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG","recall":false,
+            {"request":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
              "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
             """#)
         try await P.runPhotoExport(tools, session)
-        let ended = try await P.task(tools, #"{"operation":"end","outcome":"completed"}"#)
-        #expect(ended["status"].string == "ended" && ended["candidate"]["id"].string != nil && ended["candidate_error"] == .null, "\(ended)")
+        let ended = try await P.task(tools, #"{"outcome":"completed"}"#)
+        #expect(ended["status"].string == "ended" && ended["candidate"] == .null && ended["candidate_error"] == .null, "\(ended)")
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
         #expect(try Self.count("memory_agent_actions", session) > 0, "the trace is kept")
+        #expect(try await P.candidateFixture(tools, session)["id"].string != nil)
         #expect(try Self.count("memory_procedure_candidates", session) == 1)
         #expect(try Self.count("memory_procedure_versions", session) == 0, "no interpretation, no procedure")
-        let proposal = try await P.task(P.tools(session, stream: "asker"), C.proposeRequest)["recall_proposal"]
+        let proposal = try await HistoricalRecallFixture.beginProposal(P.tools(session, stream: "asker"), C.proposeRequest)["recall_proposal"]
         #expect(proposal["sources"].array?.isEmpty == true && proposal["guidance"].string == RecallProposalDelivery.nothingGuidance,
                 "\(proposal)")
         await L.close(session)
@@ -231,13 +247,15 @@ struct RecallProductPathTests {
         let (_, routeID) = try await L.learnPhoto(session)
         let tools = AutomationTools(session: session, profile: SessionProfile.cli.replacing(memory: .learn))
         tools.producer = CallProducer(source: .cli, streamID: "juniper")
-        let proposal = try await P.task(tools, C.proposeRequest)["recall_proposal"]
+        let response = try await HistoricalRecallFixture.beginProposal(tools, C.proposeRequest)
+        let proposal = response["recall_proposal"]
         #expect(proposal["sources"].array?.isEmpty == true)
-        #expect(proposal["search"]["note"].string == "the session profile does not read memory")
+        #expect(response["memory_read_reason"].string == RecallService.MemoryReadReason.profileDoesNotReadMemory.rawValue)
+        #expect(proposal["search"]["note"] == .null, "The raw service does not invent a model-facing explanation")
         #expect(proposal["index"]["status"].string == "off")
         #expect(proposal["search"]["partsConsidered"] == .number(0))
-        _ = try await P.task(tools, #"{"operation":"end","outcome":"abandoned"}"#)
-        let again = try await P.task(P.tools(session, stream: "juniper-read"), C.proposeRequest)["recall_proposal"]
+        _ = try await HistoricalRecallFixture.end(tools, #"{"operation":"end","outcome":"abandoned"}"#)
+        let again = try await HistoricalRecallFixture.beginProposal(P.tools(session, stream: "juniper-read"), C.proposeRequest)["recall_proposal"]
         #expect(Self.source(again, routeID) != nil)
         await L.close(session)
     }
@@ -255,20 +273,23 @@ struct RecallProductPathTests {
         await memory.close()
     }
 
-    @Test("the scene switch off preserves recording with the historical projection frozen")
-    func brainEnrichmentOffKeepsProjectionFrozen() async throws {
+    @Test("read-only memory keeps the historical projection frozen")
+    func readOnlyMemoryKeepsProjectionFrozen() async throws {
         let memory = try W.service()
         let window = W.window([W.format, W.save])
-        let shown = await SwitchBoard.$testing.withValue(SwitchBoard(values: ["brain_enrichment": "off"])) {
+        let shown = await MemoryAccess.$current.withValue(SessionProfile.cli.replacing(memory: .read).memoryAccess) {
             await W.recorder(memory).observe(window)
         }
-        #expect(shown == window.scene)
+        #expect(shown.knowledge?.status == .unrecognized)
+        var live = shown
+        live.knowledge = nil
+        #expect(live == window.scene, "A read-only enrichment can annotate status while preserving every live scene field")
         #expect(await memory.flush(within: .seconds(10)))
         #expect(try await memory.brain(of: W.bundle)?.objects.isEmpty == true)
         await memory.close()
     }
 
-    @Test("memory_task status says the archive this process records into and the Recall configuration it runs, for a run's preflight")
+    @Test("runtime identity says the archive this process records into and the Recall configuration it runs, for a run's preflight")
     func statusIdentity() async throws {
         let session = P.photoSession(try W.directory())
         let memory = MemoryService.shared(for: session.directory)
@@ -276,15 +297,15 @@ struct RecallProductPathTests {
         configuration.model = .graniteEmbedding107MMultilingual
         configuration.modelsDirectory = session.directory.appendingPathComponent("Models", isDirectory: true)
         RecallService.install(RecallService(memory: memory, configuration: configuration))
-        let status = try await P.task(AutomationTools(session: session, profile: .app), #"{"operation":"status"}"#)
+        let status = try await AutomationTools(session: session, profile: .app).runtimeIdentity()
         #expect(status["archive"].string == memory.url.path, "\(status)")
         let recall = status["recall"]
         #expect(recall["channel"].string == "hybrid" && recall["owns_index"].bool == true && recall["format"].string == "recall-document-1")
         #expect(recall["model"].string == "ibm-granite/granite-embedding-107m-multilingual@d6cffd338414d6a1c1f5decfad5fec62eebc90d5", "\(recall)")
         #expect(recall["models_folder"].string == configuration.modelsDirectory?.path && recall["model_state"].string == "not loaded yet")
         #expect(status["profile"]["readsMemory"].bool == true)
-        let controlled = try await P.task(AutomationTools(session: session,
-            profile: SessionProfile.cli.replacing(memory: .off)), #"{"operation":"status"}"#)
+        let controlled = try await AutomationTools(session: session,
+            profile: SessionProfile.cli.replacing(memory: .off)).runtimeIdentity()
         #expect(controlled["profile"]["readsMemory"].bool == false)
         #expect(controlled["profile"]["learnsMemory"].bool == false)
         await L.close(session)
@@ -299,20 +320,20 @@ struct RecallProductPathTests {
         let (_, routeID) = try await L.learnPhoto(worker)
         let session = P.photoSession(directory)
         let client = try await S.client(session)
-        let begun = try await S.task(client, C.proposeRequest)
+        let begun = try await S.beginProposalFixture(client, C.proposeRequest)
         let proposal = begun["recall_proposal"]
         let key = try #require(Self.source(proposal, routeID), "\(proposal)")
-        let chosen = try await S.task(client, C.choose(try #require(proposal["proposal"].string), [(key, 4, 7)]))
+        let chosen = try await HistoricalRecallFixture.choose(client.tools, C.choose(try #require(proposal["proposal"].string), [(key, 4, 7)]))
         let tract = try #require(chosen["recall"]["needs"].array?.first?["tracts"].array?.first, "\(chosen)")
         let name = (tract["parameters"].array ?? []).first { $0["name"].string == "output_name" }
         #expect(name?["value"].string == "foto_mail", "the client's own value, never the worker's foto_web: \(tract)")
         let query = try #require(chosen["recall"]["query"].string)
         try await S.export(client, session: session)
-        let ended = try await S.task(client, #"""
+        let ended = try await S.endFixture(client, #"""
             {"operation":"end","outcome":"completed","use":[{"query":"\#(query)","need":1,"outcome":"followed"}]}
             """#)
         #expect(ended["recall_use"].array?.first?["verified"].array?.compactMap { RecallCycleTests.int($0) } == [4, 5, 6, 7], "\(ended)")
-        #expect(try S.rows("SELECT source || ':' || source_stream_id FROM memory_recall_queries", worker) == ["mcp:mcp-client"])
+        #expect(try S.rows("SELECT source || ':' || source_stream_id FROM memory_recall_queries WHERE query_id = '\(query)'", worker) == ["mcp:mcp-client"])
         #expect(try S.rows("SELECT DISTINCT source || ':' || source_stream_id FROM memory_procedure_interpretations", worker) == ["app:worker-1"])
         #expect(try S.rows("SELECT count(*) FROM memory_recall_choice_links", worker) == ["4"])
         await L.close(worker)
@@ -326,7 +347,7 @@ struct RecallProductPathTests {
         let session = P.photoSession(directory)
         let client = try await S.client(session)
         _ = try await S.task(client, #"""
-            {"operation":"begin","goal":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG","recall":false,
+            {"request":"Find foto_demo, rotate it and export it as foto_web.jpg in JPEG",
              "inputs":[{"name":"criterion","value":"foto_demo"},{"name":"output_name","value":"foto_web"}]}
             """#)
         let id = session.id!.uuidString
@@ -338,21 +359,21 @@ struct RecallProductPathTests {
         try await S.export(client, session: session, name: "foto_web.jpg", format: "JPEG")
         _ = try await S.call(client, "open_session", #"{"app":"\#(P.finder)"}"#)
         _ = try await S.call(client, "act", #"{"session":"\#(id)","target":"Show Preview","verb":"set_toggle","value":"on"}"#)
-        let ended = try await S.task(client, #"{"operation":"end","outcome":"completed"}"#)
-        let candidate = try #require(ended["candidate"]["id"].string)
-        let interpreted = try await S.task(client, P.photoInterpretation(candidate))
+        let ended = try await S.task(client, #"{"outcome":"completed"}"#)
+        let candidate = try await P.candidateIDFixture(client.tools, session)
+        let interpreted = try await P.interpretFixture(client.tools, session, P.photoInterpretation(candidate))
         #expect(interpreted["status"].string == "interpreted", "\(interpreted)")
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
         let routeID = ProcedureAssembly.routeID(candidateID: candidate, revision: 1)
         let worker = P.photoSession(directory)
         let tools = P.tools(worker, stream: "worker-1")
-        let proposal = try await P.task(tools, C.proposeRequest)["recall_proposal"]
+        let proposal = try await HistoricalRecallFixture.beginProposal(tools, C.proposeRequest)["recall_proposal"]
         let key = try #require(Self.source(proposal, routeID), "\(proposal)")
-        let chosen = try await P.task(tools, C.choose(try #require(proposal["proposal"].string), [(key, 4, 7)]))
+        let chosen = try await HistoricalRecallFixture.choose(tools, C.choose(try #require(proposal["proposal"].string), [(key, 4, 7)]))
         #expect(chosen["status"].string == "chosen", "\(chosen)")
         #expect(try S.rows("SELECT source || ':' || source_stream_id FROM memory_procedure_interpretations", worker) == ["mcp:mcp-client"])
-        #expect(try S.rows("SELECT source || ':' || source_stream_id FROM memory_recall_queries", worker) == ["app:worker-1"])
-        #expect(try S.rows("SELECT DISTINCT source || ':' || source_stream_id FROM memory_recall_proposals", worker) == ["app:worker-1"])
+        #expect(try S.rows("SELECT DISTINCT source || ':' || source_stream_id FROM memory_recall_queries WHERE delivery != 'proposed'", worker) == ["app:worker-1"])
+        #expect(try S.rows("SELECT DISTINCT source || ':' || source_stream_id FROM memory_recall_proposals ORDER BY source", worker) == ["app:worker-1", "mcp:mcp-client"])
         await L.close(worker)
     }
 
@@ -366,9 +387,9 @@ struct RecallProductPathTests {
         await RecallService.shared(for: memory).schedule()
         #expect(await RecallService.shared(for: memory).waitUntilIdle(within: .seconds(60)))
         let tools = P.tools(session, stream: "after-reopen")
-        let proposal = try await P.task(tools, C.proposeRequest)["recall_proposal"]
+        let proposal = try await HistoricalRecallFixture.beginProposal(tools, C.proposeRequest)["recall_proposal"]
         let key = try #require(Self.source(proposal, routeID), "\(proposal)")
-        let chosen = try await P.task(tools, C.choose(try #require(proposal["proposal"].string), [(key, 4, 7)]))
+        let chosen = try await HistoricalRecallFixture.choose(tools, C.choose(try #require(proposal["proposal"].string), [(key, 4, 7)]))
         let tract = try #require(chosen["recall"]["needs"].array?.first?["tracts"].array?.first, "\(chosen)")
         #expect(tract["version"].string == routeID)
         #expect((tract["parameters"].array ?? []).contains { $0["name"].string == "output_format" && $0["value"].string == "PNG" }, "\(tract)")

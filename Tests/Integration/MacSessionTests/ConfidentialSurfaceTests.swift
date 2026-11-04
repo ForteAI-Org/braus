@@ -111,6 +111,7 @@ struct ConfidentialSurfaceTests {
 
     /// Mail's adapter as its verbs are declared, answering synthetic correspondence.
     final class MailFake: AppAdapting, @unchecked Sendable {
+        private(set) var failedReads = 0
         let name = "mail"
         let appNames = ["Mail"]
         let bundleIDs: Set<String> = ["com.apple.mail"]
@@ -140,6 +141,7 @@ struct ConfidentialSurfaceTests {
                     return AdapterOutcome(.foundActed, "The draft for \(arguments["to"].string ?? "") is saved.",
                                           result: .object(["id": .string("draft-1")]))
                 default:
+                    failedReads += 1
                     throw AdapterFailure("could not read '\(ConfidentialSurfaceTests.subject)' from \(ConfidentialSurfaceTests.person)")
             }
         }
@@ -165,33 +167,33 @@ struct ConfidentialSurfaceTests {
         let knowledge = FileManager.default.temporaryDirectory.appendingPathComponent("braus-p106-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let session = SurfaceFake(memory: knowledge)
-        let tools = AutomationTools(session: session)
-        tools.adapters = AppAdapters([MailFake()])
+        let tools = AutomationTools(session: session, adapters: AppAdapters([MailFake()]))
         tools.producer = CallProducer(source: .app, streamID: "p106", traceID: "confidential")
         final class Lines: @unchecked Sendable { var all: [String] = [] }
         let transcript = Lines()
         tools.record = { transcript.all.append($0) }
 
-        let opened = try await tools.call("open_session", .object(["app": .string("Mail")]))
-        let sessionID = try #require(CallDispatchRecordTests.sessionID(opened))
+        let opened = try await tools.call("open_session", .object(["app": .string("Mail"), "named": .bool(true)]))
+        try #require(session.id != nil)
+        try await StructuredCallFactsTests.plan(tools, request: "Handle synthetic correspondence")
         // An observe of the same window answers it unchanged since the open: the open's answer carries the scene.
-        _ = try await tools.call("observe", .object(["session": .string(sessionID)]))
-        let clicked = try await tools.call("act", .object(["session": .string(sessionID), "target": .string(Self.subject),
+        _ = try await tools.call("observe", .object([:]))
+        let clicked = try await tools.call("act", .object(["step": .string("r1"), "target": .string(Self.subject),
                                                           "verb": .string("click")]))
         // Release the interface before using the same app through its adapter.
-        _ = try await tools.call("close_session", .object(["session": .string(sessionID)]))
-        let read = try await tools.call("app_call", .object(["app": .string("Mail"), "verb": .string("read_message"),
+        _ = try await tools.call("call", .object(["name": .string("close_session"), "arguments": .object([:])]))
+        let read = try await tools.call("call", .object(["name": .string("mail.read_message"),
                                                              "arguments": .object(["id": .string("msg-1")])]))
-        let drafted = try await tools.call("app_call", .object([
-            "app": .string("Mail"), "verb": .string("create_draft"),
-            "arguments": .object(["to": .string(Self.person), "subject": .string(Self.subject), "body": .string(Self.draft)]),
+        let drafted = try await tools.call("call", .object([
+            "name": .string("mail.create_draft"),
+            "arguments": .object(["step": .string("r1"), "to": .string(Self.person), "subject": .string(Self.subject), "body": .string(Self.draft)]),
         ]))
-        let failed = try? await tools.call("app_call", .object(["app": .string("Mail"), "verb": .string("boom"),
+        let failed = try? await tools.call("call", .object(["name": .string("mail.boom"),
                                                                 "arguments": .object(["id": .string("msg-1")])]))
         // The content leaves the confidential surface: typed into another app's document.
-        let other = try await tools.call("open_session", .object(["app": .string("Pages")]))
-        let otherID = try #require(CallDispatchRecordTests.sessionID(other))
-        _ = try await tools.call("type_text", .object(["session": .string(otherID), "target": .string("Body"),
+        _ = try await tools.call("open_session", .object(["app": .string("Pages")]))
+        try #require(session.id != nil)
+        _ = try await tools.call("type_text", .object(["step": .string("r1"), "target": .string("Body"),
                                                        "text": .string(Self.body)]))
 
         // The model reads the content: the scene, the action's answer and the adapter's result carry it.
@@ -201,6 +203,8 @@ struct ConfidentialSurfaceTests {
         #expect(Self.text(drafted).contains(Self.person), Comment(rawValue: Self.text(drafted)))
         #expect(failed == nil || Self.text(failed ?? .null).contains("could not read"))
         #expect(session.typed == [Self.body], "the text went out as asked")
+
+        _ = try await tools.call("end", .object(["outcome": .string("completed")]))
 
         // No record keeps it: the archive's files and the transcript.
         let memory = MemoryService.shared(for: knowledge)

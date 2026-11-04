@@ -14,7 +14,7 @@ struct TurnBudgetTests {
         defer { do { try FileManager.default.removeItem(at: root) } catch { Issue.record(error) } }
         let host = TestTurnHost()
         let runner = testTurnRunner(host: host, root: root)
-        let call = ToolCall(id: "s", name: "status", arguments: Data("{}".utf8))
+        let call = ToolCall(id: "s", name: "observe", arguments: Data("{}".utf8))
         let transport = TurnTestTransport(Array(repeating: [.toolCall(call),
             .completed(.init(inputTokens: 10, outputTokens: 2, duration: .zero))], count: 150))
         var events: [TurnRunEvent] = []
@@ -25,7 +25,7 @@ struct TurnBudgetTests {
         #expect((error as? AutomationFailure)?.description.contains("100 rounds") == true)
         #expect(runner.toolCalls == 100)
         #expect(events.filter { event in
-            if case .tool(let text) = event { text.hasPrefix("→ status") } else { false }
+            if case .tool(let text) = event { text.hasPrefix("→ observe") } else { false }
         }.count == 100)
         #expect(runner.rounds == 101)
         #expect(events.filter { if case .usage = $0 { true } else { false } }.count == 1)

@@ -11,6 +11,22 @@ extension ModelText {
     }
 
     nonisolated static let capabilityTexts: [Entry] = [
+        Entry(key: .init(rawValue: "catalogue.reconcile_call"), owner: "AutomationMCP", delivery: .summary,
+            budgetCharacters: 264, text: "Reconcile an uncertain adapter write with a later recorded read. Supply the blocked identifier, finding, and the read response recorded_call as evidence. Updates the ledger without sending an app action.", legacy: false),
+        Entry(key: .init(rawValue: "catalogue.reconcile_call.en"), owner: "AutomationMCP", delivery: .summary,
+            budgetCharacters: 74, text: "How do I resolve an uncertain write with recorded read evidence?", legacy: false),
+        Entry(key: .init(rawValue: "catalogue.reconcile_call.it"), owner: "AutomationMCP", delivery: .summary,
+            budgetCharacters: 74, text: "Come riconcilio una modifica incerta con una lettura registrata?", legacy: false),
+        Entry(key: .init(rawValue: "reconcile_call.archive"), owner: "AutomationMCP", delivery: .summary,
+            budgetCharacters: 67, text: "This session has no operation archive for reconciliation.", legacy: false),
+        Entry(key: .init(rawValue: "reconcile_call.finding"), owner: "AutomationMCP", delivery: .summary,
+            budgetCharacters: 55, text: "The finding must be happened or not_happened.", legacy: false),
+        Entry(key: .init(rawValue: "reconcile_call.unowned"), owner: "AutomationMCP", delivery: .summary,
+            budgetCharacters: 84, text: "No unresolved operation with that identifier belongs to this stream.", legacy: false),
+        Entry(key: .init(rawValue: "reconcile_call.unsupported"), owner: "AutomationMCP", delivery: .summary,
+            budgetCharacters: 149, text: "The evidence does not support this finding for the affected resource. Read it again with its adapter; supply recorded_call from that response.", legacy: false),
+        Entry(key: .init(rawValue: "reconcile_call.receipt"), owner: "AutomationMCP", delivery: .summary,
+            budgetCharacters: 31, text: "recorded_call: {call}", legacy: false),
         Entry(key: .init(rawValue: "catalogue.problem"), owner: "AutomationMCP", delivery: .summary,
             budgetCharacters: 30, text: "{path}: {problem}", legacy: false),
         Entry(key: .init(rawValue: "catalogue.detail"), owner: "AutomationMCP", delivery: .summary,
@@ -48,8 +64,8 @@ extension ModelText {
             key: .init(rawValue: "capability.unresolvedSuffix"),
             owner: "AutomationMCP",
             delivery: .toolAnswer(tool: "unknown"),
-            budgetCharacters: 46,
-            text: "); reconcile it before this capability writes.",
+            budgetCharacters: 110,
+            text: "); read the affected resource, then find reconcile_call to record supported evidence before writing.",
             legacy: false
         ),
         Entry(

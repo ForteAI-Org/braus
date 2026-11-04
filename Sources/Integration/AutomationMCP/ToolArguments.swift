@@ -4,7 +4,6 @@ import Foundation
 import LocalMCP
 import Memory
 import PerceptionCore
-import Switches
 
 /// ToolArguments decodes a complete call before any effects begin.
 public enum ToolArguments {
@@ -12,9 +11,8 @@ public enum ToolArguments {
     private static var invalidExpectation: AutomationFailure {
         AutomationFailure(ModelText.text(.init(rawValue: "expect.invalidShape")), cause: "invalid_arguments")
     }
-    enum ExpectArm: String, Sendable { case off, on }
 
-    /// Decodes a screen predicate independently of the single-gesture schema switch.
+    /// Decodes a screen predicate for batch steps and host execution.
     /// Batch steps and command-line callers use this same decoder with JSON-compatible input.
     public static func expectation(from value: Any?) throws -> ScreenExpectation? {
         guard let value else { return nil }
@@ -55,19 +53,9 @@ public enum ToolArguments {
         throw invalidExpectation
     }
 
-    static func gestureExpectation(in arguments: JSONValue) throws -> ScreenExpectation? {
-        guard arguments.object?["expect"] != nil else { return nil }
-        guard SwitchBoard.current.arm("expect", default: ExpectArm.off) == .on else {
-            throw invalidExpectation
-        }
-        return try expectation(from: arguments["expect"])
-    }
-
-    /// Removes only the legacy session argument before validation, classification and recording.
-    static func admitted(_ arguments: JSONValue, surface: ToolSurface) -> JSONValue {
-        guard surface == .v2, case .object(var fields) = arguments else { return arguments }
-        fields.removeValue(forKey: "session")
-        return .object(fields)
+    /// Individual gestures do not accept expectations; plans and batches own them.
+    static func rejectGestureExpectation(in arguments: JSONValue) throws {
+        if arguments.object?["expect"] != nil { throw invalidExpectation }
     }
 
     static func step(in arguments: JSONValue) throws -> TodoRowID? {
@@ -225,20 +213,20 @@ public enum ToolArguments {
 
         init(_ name: String, _ args: JSONValue, inBatch: Bool = false) throws {
             let available = ToolCatalogue.availableDefinitions(for: [], surface: ToolCatalogue.currentSurface)
-            guard (["act", "select"] + inputTools + (inBatch && BatchMode.isEnabled ? ["menu"] : [])).contains(name),
+            guard (["act", "select"] + inputTools + (inBatch ? ["menu"] : [])).contains(name),
                   let definition = available.first(where: { $0["name"].string == name }) else {
                 throw ToolArguments.invalid("batch supports act, select, type_text, insert_text, press_key, scroll, drag and "
                                         + "context_menu only.")
             }
             let permitted = Set(definition["inputSchema"]["properties"].object?.keys.map { $0 } ?? [])
                 .union(["operation"])
-                .union(inBatch && BatchMode.isEnabled ? ["expect"] : [])
+                .union(inBatch ? ["expect"] : [])
                 .subtracting(inBatch ? ["then"] : [])
             guard let object = args.object, Set(object.keys).isSubset(of: permitted) else {
                 throw ToolArguments.invalid("Unknown step argument.")
             }
-            if inBatch && BatchMode.isEnabled { _ = try expectation(from: args.object?["expect"]) }
-            else { _ = try gestureExpectation(in: args) }
+            if inBatch { _ = try expectation(from: args.object?["expect"]) }
+            else { try rejectGestureExpectation(in: args) }
             let section = try optionalString(args, "section")
             switch name {
             case "menu": self = .menu(path: try requiredString(args, "path"))

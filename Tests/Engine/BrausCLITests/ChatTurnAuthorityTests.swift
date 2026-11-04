@@ -96,6 +96,7 @@ struct ChatTurnAuthorityTests {
             if let once { arguments += ["--once", once] }
             let options = try ChatOptions(arguments: arguments)
             let counting = self.counting
+            counting.memoryDirectory = knowledge
             session = try ChatSession(options: options, history: history, executable: root.appending(path: "claude"),
                                       session: { _ in counting })
             store = try ConversationStore(directory: root.appending(path: "Conversations", directoryHint: .isDirectory))
@@ -223,12 +224,11 @@ struct ChatTurnAuthorityTests {
 
     /// The session ID an `open_session` answer gives.
     static func sessionID(_ answer: JSONValue?) -> String? {
-        guard let text = answer?["result"]["content"].array?.first?["text"].string,
-              let value = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)) else { return nil }
-        return value["session"].string
+        answer?["result"]["structuredContent"]["session"].string
     }
 
     static let open: JSONValue = .object(["app": .string("Notes")])
+    static let status: JSONValue = .object(["name": .string("status"), "arguments": .object([:])])
 
     final class Flag { var isSet = false }
 
@@ -243,8 +243,12 @@ struct ChatTurnAuthorityTests {
             let old = try await chat.connection(of: 0)
             let held = try chat.client(old)
             let oldID = try #require(Self.sessionID(await Self.call(held, "open_session", Self.open)))
-            #expect(Self.admitted(await Self.call(held, "act", Self.act(oldID))))
+            _ = await Self.call(held, "plan", .object(["request": .string("Use Notes"),
+                "rows": .array([.object(["title": .string("Use Notes")])])]))
+            #expect(Self.admitted(await Self.call(held, "act", .object(["target": .string("B3"), "step": .string("r1")]))))
             #expect(chat.counting.calls == ["open", "act"])
+            #expect(Self.admitted(await Self.call(held, "call", Self.status)), "the active turn can read the delegated status")
+            _ = await Self.call(held, "end", .object(["outcome": .string("abandoned")]))
             try chat.go(0)
             try await first.value
 
@@ -252,9 +256,9 @@ struct ChatTurnAuthorityTests {
             #expect(!Self.admitted(await Self.call(try chat.client(old), "act", Self.act(oldID))), "its file")
             await chat.session.releaseSeat()
             #expect(chat.counting.id == nil, "releaseSeat closed the session")
-            #expect(!Self.admitted(await Self.call(held, "status")), "nothing resumes after releaseSeat")
+            #expect(!Self.admitted(await Self.call(held, "call", Self.status)), "nothing resumes after releaseSeat")
             try chat.adoptNew()
-            #expect(!Self.admitted(await Self.call(try chat.client(old), "status")), "nor after a new conversation")
+            #expect(!Self.admitted(await Self.call(try chat.client(old), "call", Self.status)), "nor after a new conversation")
             #expect(chat.counting.calls.count == 2)
 
             let second = chat.turn("two")
@@ -264,15 +268,19 @@ struct ChatTurnAuthorityTests {
             #expect(!Self.admitted(await Self.call(try chat.client(old), "act", Self.act(oldID))), "its file, too")
             let client = try chat.client(new)
             let stale = await Self.call(client, "act", Self.act(oldID))
-            #expect(Self.admitted(stale) && stale?["result"]["isError"] == .bool(true), "the old ID is refused")
+            #expect(stale?["error"] != nil && stale?["error"] != .null
+                || stale?["result"]["isError"] == .bool(true), "the obsolete session argument is refused")
             #expect(chat.counting.calls.count == 2, "nothing reached the session for the old client, file or ID")
             let newID = try #require(Self.sessionID(await Self.call(client, "open_session", Self.open)))
             #expect(newID != oldID)
-            #expect(Self.admitted(await Self.call(client, "act", Self.act(newID))))
+            _ = await Self.call(client, "plan", .object(["request": .string("Use Notes again"),
+                "rows": .array([.object(["title": .string("Use Notes again")])])]))
+            #expect(Self.admitted(await Self.call(client, "act", .object(["target": .string("B3"), "step": .string("r1")]))))
             #expect(chat.counting.calls == ["open", "act", "open", "act"])
+            _ = await Self.call(client, "end", .object(["outcome": .string("abandoned")]))
             try chat.go(1)
             try await second.value
-            #expect(!Self.admitted(await Self.call(client, "status")), "nothing once that turn ended either")
+            #expect(!Self.admitted(await Self.call(client, "call", Self.status)), "nothing once that turn ended either")
         }
     }
 

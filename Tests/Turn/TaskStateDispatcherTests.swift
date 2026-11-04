@@ -1,4 +1,4 @@
-import AutomationMCP
+@testable import AutomationMCP
 import AutomationRuntime
 import ChatCore
 import EngineCore
@@ -6,7 +6,6 @@ import Foundation
 import LocalMCP
 import ModelTransports
 import PerceptionCore
-import Switches
 import Testing
 @testable import Turn
 
@@ -18,8 +17,7 @@ struct TaskStateDispatcherTests {
         let tools = AutomationTools(session: session, capabilities: [])
         var inputs: [TaskStateInput] = []
         tools.observeTaskState { inputs.append($0) }
-        let arguments: JSONValue = .object(["session": .string(session.id!.uuidString),
-                                            "target": .string("Submit"), "verb": .string("click")])
+        let arguments: JSONValue = .object(["target": .string("Submit"), "verb": .string("click")])
         _ = try await tools.call("act", arguments)
         #expect(inputs.count == 1)
         #expect(inputs.first?.origin == .dispatcher)
@@ -27,12 +25,12 @@ struct TaskStateDispatcherTests {
         #expect(inputs.first?.key == "c1.finished")
         #expect(inputs.first?.fact == .callFinished(tool: "act", subject: "Submit", outcome: session.done.outcome))
         do {
-            _ = try await tools.call("unknown", .object([:]))
+            _ = try await tools.call("act", .object(["verb": .string("click")]))
             Issue.record("Expected refusal")
         } catch {
             #expect(inputs.count == 2)
             #expect(inputs.last?.sequence == 2)
-            if case .callFailed(tool: "unknown", reason: _) = inputs.last?.fact {} else {
+            if case .callFailed(tool: "act", reason: _) = inputs.last?.fact {} else {
                 Issue.record("Missing typed failure")
             }
         }
@@ -42,37 +40,51 @@ struct TaskStateDispatcherTests {
         #expect(!String(describing: inputs).contains("private read value"))
     }
 
-    @Test func deliveredGuideSectionsAreTyped() async throws {
-        let capability = try guideCapability()
-        let tools = AutomationTools(session: TaskStateSession(), capabilities: [GuideProvider(guide: capability)])
+    @Test func deliveredAttachedGuideSectionsAreTyped() async throws {
+        let directory = URL.temporaryDirectory.appending(path: "attached-state-" + UUID().uuidString)
+        let session = TaskStateSession()
+        session.memoryDirectory = directory
+        let profile = SessionProfile(attendance: .none, level: .actConnectors, memory: .learn,
+            catalogue: .openAndPrivate, takeover: false, options: .init(), name: "attached-state-test")
+        let tools = AutomationTools(session: session, profile: profile, guides: try attachedGuides(),
+            resolveGuideApp: { _ in OpenedApp(bundleID: "test.state", version: nil, locale: "en") })
+        _ = try await tools.call("open_session", .object(["app": .string("test.state")]))
         var inputs: [TaskStateInput] = []
         tools.observeTaskState { inputs.append($0) }
-        let arguments: JSONValue = .object(["app": .string("test.state"), "sections": .array([.string("Submit")])])
-        let observed = try await tools.call("help.read", arguments)
-        let sections = inputs.compactMap { input -> String? in
+        _ = try await tools.call("plan", .object(["request": .string("Submit the document"), "rows": .array([
+            .object(["title": .string("Submit"), "app": .string("test.state")])])]))
+        let receipts = inputs.compactMap { input -> String? in
             if case .loaded(.guide(id: _, section: let section)) = input.fact { return section }
             return nil
         }
-        #expect(sections == ["head", "Submit"])
-        #expect(inputs.allSatisfy { $0.sequence == 1 })
+        #expect(receipts.contains("head"))
+        #expect(receipts.contains("Submit"))
+        #expect(Set(inputs.map(\.sequence)).count == 1)
         #expect(Set(inputs.map(\.key)).count == inputs.count)
         let state = TaskStateFixtures.state(inputs)
-        #expect(state.sections[.loaded]?.lines.count == 2)
-        tools.observeTaskState(nil)
-        #expect(try await tools.call("help.read", arguments) == observed)
+        #expect(state.sections[.loaded]?.lines.count == receipts.count)
+        inputs.removeAll()
+        _ = try await tools.call("plan", .object(["rows": .array([
+            .object(["id": .string("r1"), "title": .string("Submit"), "app": .string("test.state")])])]))
+        let repeated = inputs.contains { if case .loaded(.guide) = $0.fact { return true }; return false }
+        #expect(!repeated)
+        _ = try await tools.call("end", .object(["outcome": .string("abandoned")]))
+        await MemoryService.shared(for: directory).close()
+        MemoryService.forget(directory)
+        try FileManager.default.removeItem(at: directory)
     }
 
     @Test func unobservedNestedCallsDoNotEnterTheParentState() async throws {
         let nested = AutomationTools(session: TaskStateSession(), capabilities: [])
         let tools = AutomationTools(session: TaskStateSession(),
-            capabilities: [GuideProvider(guide: try guideCapability(), nestedTools: nested)])
+            capabilities: [LoadedGuideProvider(nestedTools: nested)])
         var inputs: [TaskStateInput] = []
         tools.observeTaskState { inputs.append($0) }
-        _ = try await tools.call("help.read", .object([:]))
+        _ = try await tools.call("call", .object(["name": .string("help.read"), "arguments": .object([:])]))
         #expect(inputs.map(\.fact) == [.callFinished(tool: "help.read", subject: nil, outcome: nil)])
     }
 
-    private func guideCapability() throws -> GuideCapability {
+    private func attachedGuides() throws -> AppGuides {
         let guide = try AppGuide.parse("""
         ---
         {"app":"test.state","locale":"en","revision":1,"name":"Editing","description":"Editing help"}
@@ -84,50 +96,45 @@ struct TaskStateDispatcherTests {
         ## Export
         Use the export menu.
         """)
-        let guides = AppGuides(guides: [guide], search: GuideSearch(guides: [guide]), arm: .requested,
+        return AppGuides(guides: [guide], search: GuideSearch(guides: [guide]),
             estimateTokens: AutomationRuntime.TokenEstimate.tokens(in:), similarity: { _, _ in 0 })
-        return GuideCapability(guides: guides,
-            resolve: { _ in OpenedApp(bundleID: "test.state", version: nil, locale: "en") }, todo: { [] })
     }
 
     @Test func stateFromTheRealDispatcher() async throws {
-        var messages: [[TurnMessage]]?
-        for arm in ["on", "off"] {
-            try await SwitchBoard.$testing.withValue(SwitchBoard(values: ["task_state": arm])) {
-                let session = TaskStateSession()
-                let tools = AutomationTools(session: session, capabilities: [GuideProvider(guide: try guideCapability())])
-                let host = TestTurnHost()
-                let runner = TurnRunner(tools: tools, configuration: .init(
-                    workingDirectory: URL(filePath: "/fake/task-state"), bridgeExecutable: URL(filePath: "/bin/cat"),
-                    allowsSuspension: true, closesSessionOnEnd: false), host: host)
-                let arguments = "{\"session\":\"\(session.id!.uuidString)\",\"target\":\"Submit\",\"verb\":\"click\"}"
-                let transport = TurnTestTransport([
-                    [.toolCall(.init(id: "one", name: "act", arguments: Data(arguments.utf8)))],
-                    [.toolCall(.init(id: "two", name: "act", arguments: Data(arguments.replacingOccurrences(
-                        of: "Submit", with: "Disabled").utf8)))],
-                    [.toolCall(.init(id: "three", name: "help.read", arguments: Data(
-                        "{\"app\":\"test.state\",\"sections\":[\"Submit\"]}".utf8)))],
-                    [.delta("ok")]
-                ])
-                _ = try await runner.run(.init(prompt: "Submit", route: .modelLoop(transport: transport,
-                    contextWindow: nil))) { _ in }
-                if arm == "on" {
-                    #expect(runner.currentTaskState?.sections[.facts]?.provenance == [1])
-                    #expect(runner.currentTaskState?.sections[.failedAttempts]?.provenance == [2])
-                    #expect(runner.currentTaskState?.sections[.loaded]?.lines.count == 2)
-                    #expect(runner.currentTaskState?.rendered().contains("private read value") == false)
-                    let text = try #require(runner.currentTaskState?.rendered())
-                    print("TaskState dispatched: \(text.utf8.count) bytes, \(AutomationRuntime.TokenEstimate.tokens(in: text)) tokens")
-                } else { #expect(runner.currentTaskState == nil) }
-                if let messages { #expect(transport.messages == messages) } else { messages = transport.messages }
-                try await runner.close()
-            }
-        }
+        let session = TaskStateSession()
+        let tools = AutomationTools(session: session, capabilities: [LoadedGuideProvider()])
+        let host = TestTurnHost()
+        let runner = TurnRunner(tools: tools, configuration: .init(
+            workingDirectory: URL(filePath: "/fake/task-state"), bridgeExecutable: URL(filePath: "/bin/cat"),
+            allowsSuspension: true, closesSessionOnEnd: false), host: host)
+        let arguments = #"{"target":"Submit","verb":"click"}"#
+        let transport = TurnTestTransport([
+            [.toolCall(.init(id: "one", name: "act", arguments: Data(arguments.utf8)))],
+            [.toolCall(.init(id: "two", name: "act", arguments: Data(arguments.replacingOccurrences(
+                of: "Submit", with: "Disabled").utf8)))],
+            [.toolCall(.init(id: "three", name: "call", arguments: Data(
+                "{\"name\":\"help.read\",\"arguments\":{\"app\":\"test.state\",\"sections\":[\"Submit\"]}}".utf8)))],
+            [.delta("ok")]
+        ])
+        _ = try await runner.run(.init(prompt: "Submit", route: .modelLoop(transport: transport,
+            contextWindow: nil))) { _ in }
+        #expect(runner.currentTaskState?.sections[.facts]?.provenance == [1])
+        #expect(runner.currentTaskState?.sections[.failedAttempts]?.provenance == [2])
+        #expect(runner.currentTaskState?.sections[.loaded]?.lines.count == 2)
+        #expect(runner.currentTaskState?.rendered().contains("private read value") == false)
+        let text = try #require(runner.currentTaskState?.rendered())
+        print("TaskState dispatched: \(text.utf8.count) bytes, \(AutomationRuntime.TokenEstimate.tokens(in: text)) tokens")
+        try await runner.close()
     }
 
     @MainActor
     private final class TaskStateSession: AutomationSessionOperating {
         let id: UUID? = UUID(uuidString: "00000000-0000-0000-0000-000000000001")
+        var memoryDirectory: URL?
+        var memoryApplication: String? { "test.state" }
+        func applications(matching query: String?) async throws -> [ApplicationCandidate] {
+            [.init(name: "Example", bundleID: "test.state", version: nil, isRunning: true)]
+        }
         var done = ActOutcome(.foundActed, "private read value", check: OperationCheck(
             condition: .structuralEffect, method: .sceneDifference, verdict: .passed,
             observed: "private read value", performed: .requested,
@@ -148,9 +155,9 @@ struct TaskStateDispatcherTests {
         func close() async {}
     }
 
-    private nonisolated struct GuideProvider: CapabilityProviding {
+    /// Supplies synthetic loaded-content receipts to test dispatcher propagation independently of guide retrieval.
+    private nonisolated struct LoadedGuideProvider: CapabilityProviding {
         let family = "help"
-        let guide: GuideCapability
         var nestedTools: AutomationTools? = nil
         var contracts: [CapabilityContract] {
             [CapabilityContract(id: .init(rawValue: "help.read"), group: family, description: "Read help.",
@@ -161,12 +168,16 @@ struct TaskStateDispatcherTests {
         }
         func call(_ id: CapabilityID, arguments: JSONValue, context: CapabilityCallContext) async throws -> JSONValue {
             if let nestedTools {
-                let sessionID = try await MainActor.run { try #require(nestedTools.session.id) }
                 return try await nestedTools.call("act", .object([
-                    "session": .string(sessionID.uuidString),
                     "target": .string("Submit"), "verb": .string("click")]))
             }
-            return try await guide.call(.init(rawValue: "read_guide"), arguments: arguments, context: context)
+            await MainActor.run {
+                if let call = CallDispatcher.taskStateCall {
+                    call.loaded.append(.guide(id: "synthetic-attached-guide", section: "head"))
+                    call.loaded.append(.guide(id: "synthetic-attached-guide", section: "Submit"))
+                }
+            }
+            return .string("Synthetic attached guide receipts")
         }
     }
 }

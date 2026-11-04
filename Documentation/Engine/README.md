@@ -48,10 +48,10 @@ including the interpretation reminder. The runner requires `AutomationMCP`, `Aut
 
 `SeatLine` owns the pre-turn instructions and facts for both hosts. `SeatFacts` and
 `SeatTaskFacts` live in `AutomationRuntime`, below their producers and the renderer.
-The runner freezes `seat_line` for each turn: v1 preserves the original text, while
-v2 separates instructions from a bounded `braus_state` block with JSON strings.
-V2 requires `tool_surface=v2` before admission. Todo and admitted procedure counts
-remain absent until their respective read contracts are available.
+The runner separates instructions from a bounded `braus_state` block with JSON strings.
+The same structured facts and task prompt are used by app and CLI turns; there is no
+runtime choice of an older prompt or tool surface. Todo and admitted procedure counts
+are included only when their owning read contracts supply them.
 
 A runner admits one turn at a time. Suspension blocks new calls, interrupts admitted reads and
 waits for admitted actions to finish. The host retains the application episode; only its current
@@ -73,7 +73,7 @@ Command line contract fixtures and the three original application input fixtures
 `TaskState` in `Turn` retains typed runner inputs for the open task and checks todo states,
 failures, the latest whole scene revision and a 3,000 token ceiling. Its pure sections preserve
 request and digest operands, net outcomes with call provenance, and explicit observation limits.
-`task_state` defaults to `on`; `off` skips construction. Neither arm adds model messages.
+The runner always collects this state. Collection itself adds no model messages.
 Section sizes update when their contents change; checks use the cached character total. Failure
 history retains the latest 128 records and input deduplication retains the latest 2,048 keys,
 with separate dropped counts. Reapplying a key older than that retention window is a new input.
@@ -107,7 +107,8 @@ outcome, an evidenced terminal operation whose effect is not AX-represented, or 
 cancellation that is last or targets a net-outcome object can qualify a thread. Visibility loss
 is not deletion. Embeddings group eligible compatible threads only; they cannot supply facts,
 identity or inclusion. Typed operands are interned before rendering within 1,000 UTF-8 bytes.
-`human_step` retains omitted threads and provenance for the resumed turn; retained pixels remain
+The human-intervention owner retains omitted threads and provenance for the resumed turn;
+its internal detail operation is not exposed in the model's tool list. Retained pixels remain
 withheld. Replay v1 has no timing, row index or collection completeness contract, so those facts
 remain unknown. Synthetic callers can supply per-read complete membership explicitly; viewport
 presence never supplies it. Creation needs that membership evidence or a compatible named dialog
@@ -133,8 +134,8 @@ thread that touched it.
 | `memory-probe` (tool, `Tools/Engine/memory-probe`) | a second real process on one store file for the module's tests and `measure-memory-store.sh`: driven by lines on its standard input, one answer per line; a package executable, bundled nowhere |
 | `LiveScenes` | `LiveSceneProvider`, the `SceneProviding` for a window on the real screen: census, capture (the union with an open pop-up), pipeline |
 | `SeatDriving` (`Sources/Integration`) | the Driver's seat filling the Engine's roles: `SeatTarget` owns the host, the seat and the adopted window; `SeatSceneProvider` is `SceneProviding` over the seat's stills; `SeatActuator` is `Actuating` over routed Commands inside a Turn, answering every receipt with what the engine saw; `SeatControls` is `ControlPressing` without the geometric read; `SeatSettler` is `Settling` over the window stream the seat's owner runs ([ADR 0035](../Driver/adr/Adr0035SettleOnTheRunningWindowStream.md)) |
-| `AutomationRuntime` (`Sources/Integration`) | the composition root: `EngineRuntime` wires the foreground adapters or the Seat's, the expectations from `BrainMemory` over the directory's `MemoryService`, and the call's `CallRecorder` as the engine's observer. `MemoryService` is the one living memory of a Knowledge directory in the process (`shared(for:)`): `memory.sqlite`, opened on first use, written with essential facts confirmed before effects and at completion, with derived Brain/index work queued separately, read with a Brain cache, copied once a day; `CallRecorder` records one call (its request, start and end, its samples and what it taught the Brain); `ActionContext` is who acts under which trace; `MemoryClock` keeps the facts' calendar, the Brain's clock and durations apart; `ProcedureProducer` builds an attempt's candidate at a checkpoint or an end and records the agent's interpretation of it ([MemoryProcedures](MemoryProcedures.md)); `RecallService` keeps the Recall's index in line with the catalogue and answers a task's query with one selection per need, `RecallConfiguration` says how it searches, `RecallDelivery` is what the agent receives ([MemoryRecall](MemoryRecall.md); how the selector decides, on which data, and what it cannot decide: [RecallSelection](RecallSelection.md); the product's one path, in which the agent chooses the tracts and Engine validates them, `RecallService.propose`/`choose`: [RecallAgentChoice](RecallAgentChoice.md)). `AutomationSessionOperating` is the role the tools drive; its one desktop conformer is SeatBroker's `BrokeredAutomationSession`, for the app, the command line and the benchmark server alike |
-| `AutomationMCP` (`Sources/Integration`) | `AutomationTools`, the seventeen tools over `AutomationSessionOperating` and `memory_task` (`MemoryTaskTool`), with which the agent declares the task its calls serve, interprets the candidate procedure segmented from them, receives the Recall's proposal at `begin` and chooses its tracts (`choose`), searches again for a stated reason (`recall`) and reports their use (`use`); each call it answers is recorded under its `CallProducer` (the app's worker, an external MCP client, the CLI chat) when the session names a memory: a call that may change the application is refused when the memory cannot confirm its start, and its end, with the check its path made, is confirmed after it ([MemoryFacts](MemoryFacts.md)) |
+| `AutomationRuntime` (`Sources/Integration`) | the composition root: `EngineRuntime` wires the foreground adapters or the Seat's, the expectations from `BrainMemory` over the directory's `MemoryService`, and the call's `CallRecorder` as the engine's observer. `MemoryService` is the one living memory of a Knowledge directory in the process (`shared(for:)`): `memory.sqlite`, opened on first use, written with essential facts confirmed before effects and at completion, with derived Brain/index work queued separately, read with a Brain cache, copied once a day; `CallRecorder` records one call (its request, start and end, its samples and what it taught the Brain); `ActionContext` is who acts under which trace; `MemoryClock` keeps the facts' calendar, the Brain's clock and durations apart; `ProcedureProducer` builds an attempt's candidate at a checkpoint or an end and records the agent's interpretation of it ([MemoryProcedures](MemoryProcedures.md)); `RecallService` keeps the Recall's index in line with the catalogue and answers a task's query with one selection per need, `RecallConfiguration` says how it searches, `RecallDelivery` is what the agent receives ([MemoryRecall](MemoryRecall.md); how the selector decides, on which data, and what it cannot decide: [RecallSelection](RecallSelection.md); the persisted query/choice contracts underlying the current per-row plan offers: [RecallAgentChoice](RecallAgentChoice.md)). `AutomationSessionOperating` is the role the tools drive; its one desktop conformer is SeatBroker's `BrokeredAutomationSession`, for the app, the command line and the benchmark server alike |
+| `AutomationMCP` (`Sources/Integration`) | `AutomationTools` serves the fixed core over `AutomationSessionOperating`: `open_session`, `observe`, `act`, `type_text`, `press_key`, `menu`, `batch`, `plan`, `end`, `find`, `call`. `plan` opens or revises task rows, supplies compact procedure offers and validates selected parts; `step` attributes gestures to rows and `end` closes the task with result checks. The task handler performs internal procedure learning after a turn. `find` and `call` expose the permitted extra catalogue. Calls are recorded under their `CallProducer`; a mutation whose start cannot be committed is refused before effects, and its end retains the check its path actually made ([MemoryFacts](MemoryFacts.md)) |
 | `WebDriver` and `WebDriving` (`Sources/Web`) | Chrome over its DevTools pipe, and a page as the engine's roles see a window: the scene from Chrome's accessibility tree and layout, the actuator, controls, settler and window listing over the protocol, tabs named by synthetic process ids ([Web engine](WebDriver.md)) |
 | `WebSession` (`Sources/Integration`) | `WebAutomationSession`, a Chrome tab as a session with the same engine, recorder and memory, filed under `web:<host>`, reached through the app's router ([Web engine](WebDriver.md#sessions-and-the-memory)) |
 | `MacSession` (`Sources/Integration`) | `MacAutomationSession`, a native app through the MacDriver with no seat; at `open` it gives an app back to the router with a `MacHandoff`. `MacAppLeases`: one owner (a worker, an external connection) drives an app at a time in the process; another owner's session is refused before anything reaches the app, with no handoff to the seat (I03) |
@@ -171,8 +172,9 @@ approver and therefore refuses irreversible verbs. The explicit channel selectio
 ### Channels beyond the Seat
 
 `AutomationChannels` (`AutomationRuntime`) names the routes a composition adds to the Seat. The
-empty set, the default, composes every app on the Seat with no adapter or routing tool:
-the tools and sessions are those that existed before these routes.
+empty set, the default, composes every app on the Seat without additional native, web or
+adapter routes. The initial core tool list is unchanged by this selection; the discoverable
+catalogue and the available sessions follow the composed routes.
 
 | Channel | What it composes |
 | --- | --- |
@@ -182,8 +184,9 @@ the tools and sessions are those that existed before these routes.
 
 A composition root reads the set once at start and hands it to what it builds: the app from
 the `computer.channels` default (`AppPreferences.channels`, also a launch argument such as
-`-computer.channels native,web`), and `braus chat` from `--channels`, which supports `native`, `adapters` and `web`. `AutomationTools` serves the tools its
-state allows (`toolDefinitions`): the adapter tools while `adapters` is set, `named` while `router` is.
+`-computer.channels native,web`), and `braus chat` from `--channels`, which supports `native`, `adapters` and `web`. `AutomationTools` keeps the initial core fixed and exposes additional permitted capabilities
+through `find` and `call`: adapter entries exist while adapters are composed, and `named` is
+available on opening when another route is offered.
 A channel grants no authority of its own. Each route keeps its consent, permissions and policy.
 
 These are optional routes in this release; they are not enabled by default. Enabling a route
@@ -369,22 +372,24 @@ each step uses fresh perception and the same verified `select` or `act` implemen
 commands. `set_toggle --value on` leaves an already-checked box alone. A plain `act` still means click.
 Dropdown evidence goes into `--evidence <dir>/step-N` subfolders.
 
-The batch stops at the first failure, ambiguity, unverified effect, cancellation or unavailable
-original target, reports the step number and exits nonzero after cleanup. An `acted_noop` only
-continues for `set_toggle` when the desired state was already observed; dismissing a menu instead
-of clicking the requested target does not complete a batch step. Earlier effects remain and no
-step is automatically replayed. The last step may close the dialog. This version requires one
+The batch uses `BatchPolicy` for admission and continuation. Failure, ambiguity, cancellation,
+a missing current target or an unexpected surface stops the sequence. An unknown effect can
+continue only when the next target is available, or the executed step is the last one; it does
+not become a confirmed effect. A committing step must be last, have an expectation and follow
+confirmed earlier effects. A no-op continues only when its expected state is proved. Dismissing
+a menu instead of performing the requested action does not complete that action. Earlier effects
+remain and no step is automatically replayed. A stopped sequence reports its position and reason
+and exits nonzero after cleanup. The last step may close the dialog. This version requires one
 explicit window for the whole batch; it does not switch windows between steps or offer a batch
 dry run, since later controls can depend on earlier real effects. Use Cancel instead of Create
 when rehearsing this example without adding a path.
 
-Batch evidence, 2026-09-18: a live five-step New Paths sequence selected Stereo, set Auto-create
+Historical batch evidence, 2026-09-18, predating the current continuation policy: a live five-step New Paths sequence selected Stereo, set Auto-create
 sub paths off, set it on, verified an already-on no-op, and clicked Cancel. It completed 5/5 with
 one target adoption and one display teardown, returning to I/O Setup with Active Busses still
 174. A separate missing-menu-item sequence stopped at step 1/2 with exit 1, closed the menu,
-returned New Paths to the user, and did not execute its following Cancel step. `BatchTests`
-covers whole-plan validation, ordered execution, all rejected outcomes, thrown errors and
-cancellation between steps; `ActionEngineTests` also passes after sharing command execution.
+returned New Paths to the user, and did not execute its following Cancel step. The current policy requires its own validation and continuation tests; those historical runs
+do not establish acceptance of the current implementation.
 
 `select` resolves the current dropdown in a fresh captured scene, requests its native `AXShowMenu`,
 and observes the separate menu window through the Driver's WindowServer sensing. It captures
@@ -876,20 +881,16 @@ single conversion of producer evidence; an attached scene replaces an instructio
 through copies that change the scene, message or check. Historical readers derive no-op context only
 from the stored request. The archive continues to store its existing result vocabulary.
 
-The independent `Switches` target owns process configuration from `BRAUS_SWITCHES`, read once,
-with a single installation and task-local test overrides. `outcome=v1` is the default and keeps the
-existing action response. `outcome=v2` emits a row, bounded catalogue message and observation;
-transcripts retain the three typed fields. Invalid switch values fall back and are reported in status.
+Action results use a compact gesture/effect/recovery row, a bounded catalogue message and
+an observation when one was actually read. Transcripts retain the typed fields. This is the
+ordinary result contract, not a selectable rollout. Menu listings with no scene retain their
+list text as the observation. Standalone CLI acceptance and historical menu dry-run segmentation
+keep their own rules; batch no-op acceptance derives its proof only from a saved `set_toggle` request.
 
-Menu listings with no scene retain their existing list text as the observation in the new arm.
-Standalone CLI acceptance and historical menu dry-run segmentation keep their existing rules;
-batch no-op acceptance derives its proof only from a saved `set_toggle` request.
-
-In `outcome=v2`, SeatDriving carries remote refusal codes without role or application values.
-Uncertain delivery uses `EngineCore.GestureEffectUncertain`; Engine preserves its cause and
-uncertain check without importing SeatSession. Engine and SeatDriving depend on Switches to
-select this behavior at the producer. A menu that remains open can confirm a choice when the
-after-scene reads that choice in a control; other menu receipts retain their existing meaning.
+SeatDriving carries typed remote refusal codes without role or application values. Uncertain
+delivery uses `EngineCore.GestureEffectUncertain`; Engine preserves its cause and uncertain
+check without importing SeatSession. A menu that remains open can confirm a choice when the
+after-scene reads that choice in the correct control; an unrelated matching value proves nothing.
 
 ResultFormatter owns refusal memory for its session. CallDispatcher supplies the window identity
 from before delivery only when it still matches afterward. Each rendered scene updates a content
@@ -897,7 +898,32 @@ projection that excludes capture tokens and learned annotations. Identical conte
 last refusal; changed content or a sent gesture clears it for that window. The refusal key retains
 the exact tool, target, verb, typed arguments and cause in RAM, excluding request tokens and
 correlation IDs. An identical refusal yields `do_not_repeat`; uncertain delivery is never entered
-as a refusal. The default `outcome=v1` retains historical errors and checks.
+as a refusal. The archive's historical result vocabulary remains readable independently of the
+current model-facing rendering.
+
+### Runtime identity and separate studies
+
+<a id="current-runtime-contract"></a>
+
+`AutomationTools.runtimeIdentity()` reports archive, Recall and declared profile identity through
+an internal host read; it never calls or exposes the retired task tool. Its `runtime` object declares
+`contract: braus-t2-single-path`, wired `features`, `served_tools`, `tool_schema_sha256`,
+`tool_loading`, private guide scope
+and session-scoped `tool_attempts`. CLI preflight compares expected fields before provider work;
+per-request evidence stores this runtime object in `runtime.json`. A declared capability or a counted
+attempt is not a successful execution, observed effect or acceptance of an increment.
+
+Completed implementation choices are direct code paths. Session authority, memory access,
+archive resources and supported provider resources remain real composition inputs. Tool loading is fixed:
+all providers receive the canonical core and use find/call. The runtime `tool_loading: upfront` field
+only preserves the evidence format; it cannot select another implementation. EA5 native discovery
+is incomplete and belongs to a separate attested-client study. There is no implementation selector
+or rollout-switch module. Individual gestures exclude `expect`;
+row and batch expectations remain supported. Scene differences use the bounded anchor/last-base policy
+with a 75 percent limit. Private guides are attached only; open compositions do not load them.
+`pending_experiments` is an empty array retained in the evidence format. Any comparison of individual
+gesture expectations or chained scene differences requires a separate source patch, build and artifact
+identity. These choices establish one product contract, not a measured winner for the studies.
 
 ### Derived work after tool answers
 
@@ -921,11 +947,11 @@ including batch children, and falls back to the Brain's initial minimization out
 
 ### Uncertain delivery and takeover
 
-`EngineCore.DeliveryResult` separates a refused gesture from a delivery that may have acted.
-With `scene_after_uncertain=on`, Engine runs the site's existing reading and verdict once after
-uncertainty, attaches the scene and keeps `deliveryUncertain` in the check. The action record retains
-the delivery diagnostic, so a confirmed effect does not teach a confirmed delivery. The default
-`off` preserves historical answers. Neither arm repeats a failed gesture.
+`EngineCore.DeliveryResult` separates a refusal before a gesture from a delivery that may have
+acted. Engine runs the site's existing reading and verdict after uncertainty, attaches only the
+scene actually read and keeps `deliveryUncertain` in the check. The action record retains the
+delivery diagnostic, so a confirmed effect does not teach a confirmed delivery. No failed gesture
+is repeated to obtain evidence.
 
 Every Engine gesture passes through `post`. It refuses further input inside an uncertain delivery's
 judge or after a stop request. `InterruptibleWait` opens after a gesture returns, closes with the
@@ -933,30 +959,36 @@ action's outcome and cancels only child readings. A takeover never cancels the m
 so its ordinary completion and memory writes can finish. AutomationRuntime binds this low-level
 contract for TurnRunner without introducing a dependency from Engine to the runtime.
 
-`Outcome.converting` reads the same `scene_after_uncertain` switch through EngineCore's direct
-Switches dependency. The default arm retains historical uncertain rows even when a producer has
-a passing verdict. Open child readings forward caller cancellation as well as takeover stop;
-a stop after a verified outcome preserves that evidence.
+`Outcome.converting` preserves the observed verdict of an uncertain delivery, together with the
+fact that delivery itself remains uncertain. Open child readings forward caller cancellation as
+well as takeover stop; a stop after a verified outcome preserves that evidence.
 
-With `verdict_v2=on`, a passing effect keeps its verdict after a capped or unwatched wait, with the
-wait limit attached. `second_look=on` permits one additional reading of an eligible unknown effect,
-never another delivery. Both switches default to `off`. Each action owns a locked `VerdictTrace`,
-bound only for that action, which retains its judge and final records until conclusion. Verification
-uses the original before-scene and a budget counted from the last gesture's return (one second,
-two for Mac composition and menu commands). Menu and dialog commands share the menu executor;
-`PerceivedCommand` checks its final scene without starting another reading. Observation callbacks
-may outlive a cut reading in a cancelled child; they are escaping and actor-isolated at that boundary.
-Takeover cancels child readings, removes the after-scene and preserves the first delivery evidence;
-it never cancels the mutating caller's task. In the new arm, an unknown result with `noAfterScene`
+Qualification preserves a passing effect after a capped or unwatched wait and attaches the wait
+limit. The engine's rule identity is `engine-oracle-2`; a stored check's original `methodVersion`
+is preserved. A second look permits one additional reading of an eligible unknown effect, never
+another delivery. Each action owns a locked `VerdictTrace`, bound only for that action, which
+retains its judge and final records until conclusion. Eligibility still requires an unknown effect
+and the appropriate delivery/wait evidence; enabling this behavior does not add a read to every action.
+Verification uses the original before-scene and a budget counted from the last gesture's return
+(one second, two for Mac composition and menu commands). Menu and dialog commands share the menu
+executor; `PerceivedCommand` checks its final scene without starting another reading. Observation
+callbacks may outlive a cut reading in a cancelled child; they are escaping and actor-isolated at
+that boundary. Takeover cancels child readings, removes the after-scene and preserves the first
+delivery evidence; it never cancels the mutating caller's task. An unknown result with `noAfterScene`
 converts to `not_readable` before considering an earlier wait limit. A fixed pause without a settling
-role keeps its historical absence of a `SettleTrail` ending; it does not invent an unwatched wait.
+role keeps its absence of a `SettleTrail` ending; it does not invent an unwatched wait.
+
+Committing input is classified on attested focus and the current scene before dispatch. Return,
+Command-Return and line breaks in relevant text fields pass the same consequence/read-back policy;
+a dry run does not bypass this classification. Secure values are never read back. These checks are
+part of the delivered engine, not an optional protection selected by a profile.
 
 ## Task cycle
 
-`task_cycle=v1` retains the existing task tool and responses. The optional `v2` arm serves `plan`
-and `end`, with `step` on gestures. `TaskCycleHandler` owns the live plan, buffered call attribution,
-Stop and delivered-memory state. On tool surface v2, `plan` inputs and `end` result checks use the
-same compact parameter envelopes as the legacy task tool; parsing retains full runtime validation.
+The core serves `plan` and `end`, with `step` on gestures. `TaskCycleHandler` owns the live plan,
+buffered call attribution, Stop and delivered-memory state. `plan` inputs and `end` result checks
+use compact parameter envelopes with full runtime validation. Procedure interpretation is an
+internal after-turn responsibility; the model is not required to call a legacy task API.
 `TaskChannel` joins the first todo to task creation and joins final
 rows and completion evidence to the task's closure. `TodoEvent` belongs to AutomationRuntime and
 reaches hosts through `TurnRunEvent.todo` after a revision commits, on the main actor.
@@ -998,41 +1030,56 @@ archive representation. Qualification c-2 reads the call's item and predicate in
 earlier policy evaluations remain stored.
 
 `EngineCore.ScreenExpectation` owns the screen comparison shared by Memory and Engine. Operands stay
-in RAM through a task-local binding. `expect=on` adds the optional predicate to individual Engine
-commands; the default `off` retains their schema. A bound predicate is evaluated regardless of that
-switch. CLI batch `--expect` uses the public `ToolArguments.expectation(from:)` decoder and binds
-each step through the same channel; MCP batch v2 can supply its own binding through that decoder.
+in RAM through a task-local binding. The temporary `expect` comparison still determines whether
+individual gesture schemas expose and accept an optional predicate; its final product contract
+is pending. Row checks and already-bound expectations do not depend on that experiment. CLI batch
+`--expect` uses the public `ToolArguments.expectation(from:)` decoder and binds each step through
+the same channel; the MCP batch tool can supply its own binding through that decoder.
 The `menu` and `press` tools do not expose this argument. Engine compares final values and retains
-only the comparison result in the operation check. On the T2 base, pending ES4 integration uses the
-existing volatile action records and input readings for that comparison.
+only the comparison result in the operation check. The live comparison uses action records and input
+readings; durable evidence consists only of the proof actually committed by the recorder.
 
 ### Batch step policy
 
 `AutomationRuntime.BatchPolicy` owns the pure admission, target resolution, committing-step
-classification and continuation rules shared by MCP and the CLI. `batch=v1` remains the default;
-`batch=v2` checks current targets and typed outcomes within 20 steps, one application and 15 seconds.
-For model turns, `batch=v2` requires `task_cycle=v2`; `TurnRunner` rejects an incompatible
-configuration with `BatchConfigurationError.taskCycleV2Required` before turn admission.
+classification and continuation rules shared by MCP and the CLI. The dedicated `batch` tool checks
+current targets and typed outcomes within 20 steps, one application and 15 seconds. There is one
+batch execution policy and no alternative inline `then` form of the model's gesture tools.
 A committing step requires an expectation, the last position and confirmed earlier outcomes.
 Return and Command-Return are conservatively treated as committing until the consequence classifier
 can refine them. Both runners retain explicit uncertainty when an operation supplies no check,
 matching the evidence the recorder keeps.
 `BatchStepBoundary` forwards the host stop and deadline to a fresh ES3 wait for each step without
 cancelling delivery. Its provisional delivery allowance is three seconds, below the host drain limit.
-`batch_form=in_gestures` serves optional `then` steps through the same MCP runner.
+The standalone CLI's `--then` separator is command syntax, not a second MCP batch implementation.
 
 `BatchConclusion` belongs to Memory. SQLite keeps a `batch:v2` discriminator in the batch result's
 otherwise unused message column so complete policy runs also round-trip without changing the schema.
 Stopped runs additionally write `memory_batch_stops` in the parent conclusion transaction, using the
 stored integer event key. Policy runs read their child event UUIDs and saved step checks through the
-schema 22 boundary. Legacy summaries use `producerSummary`, while marked policy runs use `policySummary`.
+schema 22 boundary. Historical unmarked summaries remain decoded through `producerSummary`; current
+policy runs use `policySummary`. These stored discriminators preserve historical meaning and do not
+select a runtime implementation.
 
 Recall query, proposal and choice identities are assigned inside the store's write transaction before
 building their deliveries. Assignment changes only the rendered identity and its encoded byte count.
 A calibrated plan proposal shares its assigned identity with its search query; both reserve from the
 query and proposal keys together, and calibration is committed with the proposal. Public route,
 attempt and part UUIDs are resolved at the repository boundary, including admissibility and reuse
-calibration. Session memory access remains per request, and `recall=v1` remains the default.
+calibration. Session memory access remains per request. Plans deliver compact offers per row and validate
+a chosen offer against its current archive identity before using its part. This is the ordinary Recall
+path. Product search uses the chosen hybrid configuration; if local semantic resources are unavailable,
+the documented lexical fallback reports that limit rather than claiming hybrid execution. The model
+directory remains a resource input, not a product rollout selector.
+
+### Brain enrichment and scene text
+
+Scene enrichment follows the session's memory access. A session that cannot enrich returns the live
+scene without Brain additions; an allowed session uses the existing cancellable Brain read. There is
+no second on/off gate for this feature. Safe scene-text cuts are the ordinary renderer. Differences
+use the bounded anchor/last-base policy with a 75 percent limit and at most two scene dependencies.
+A comparison with chained differences requires a separate study build; it is not a runtime option
+and has no measured winner yet.
 
 ### Frozen naming projection storage
 

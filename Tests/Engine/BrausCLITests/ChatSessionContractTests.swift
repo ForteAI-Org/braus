@@ -1,5 +1,6 @@
 import AutomationRuntime
 import ChatCore
+import Capabilities
 import FileConversations
 import Foundation
 import LocalMCP
@@ -37,7 +38,9 @@ struct ChatSessionContractTests {
         let arguments = values.compactMap { $0.string }
             let index = try #require(arguments.firstIndex(of: "--append-system-prompt"))
             let snapshot: LocalMCP.JSONValue = .object([
-                "appText": .bool(arguments[index + 1] == TurnInstructions.compose(role: nil)),
+                "appText": .bool(arguments[index + 1] == TurnRunner.systemPrompt(role: nil,
+                    toolNames: ToolList.names(attendance: session.tools.toolList.attendance, level: session.tools.toolList.level).map(\.rawValue),
+                    groupIndex: session.tools.groupIndex, guidesEnabled: session.tools.guidesEnabled)),
                 "ending": .string("completed"), "prompt": received["standardInput"], "reply": .string(transcript.conversation.entries.filter { $0.kind == .assistant }.map(\.text).joined()),
                 "toolCalls": .number(Double(outcome.toolCalls)),
                 "usage": try JSONDecoder().decode(LocalMCP.JSONValue.self, from: JSONEncoder().encode(outcome.usage))

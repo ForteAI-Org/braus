@@ -56,12 +56,16 @@ public enum PerceivedCommand {
         var after: PerceivedWindow?
         var dispatched = false
         let outcome: ActOutcome
+        let expectationReadings = MenuBarCommand.ExpectationReadings(bundleID: bundleID, before: before)
         do {
-            outcome = try await command {
-                dispatched = true
-                let window = try await perceive()
-                after = window
-                return window.scene
+            outcome = try await MenuBarCommand.$expectationReadings.withValue(expectationReadings) {
+                try await command {
+                    dispatched = true
+                    let window = try await perceive()
+                    after = window
+                    expectationReadings.after = window
+                    return window.scene
+                }
             }
         } catch {
             if dispatched, let recorder { await recorder.record(before: before, menu: nil, after: after, bundleID: bundleID) }

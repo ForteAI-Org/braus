@@ -2,7 +2,6 @@ import CoreGraphics
 import EngineCore
 import Foundation
 import PerceptionCore
-import Switches
 import Testing
 @testable import Engine
 
@@ -23,31 +22,29 @@ struct MisleadingMessageTests {
         }
     }
 
-    @Test(arguments: ["v1", "v2"])
-    func openMenuWithVisibleChoice(_ arm: String) async throws {
-        await SwitchBoard.$testing.withValue(SwitchBoard(values: ["outcome": arm])) {
-            let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
-            let choice = SceneElement(id: "choice", kind: .control, label: "Blue",
-                bounds: NormalizedRect(x: 0.2, y: 0.2, width: 0.2, height: 0.1), role: "AXMenuItem", container: "Colour")
-            let readback = SceneElement(id: "control", kind: .control, label: "Colour",
-                bounds: NormalizedRect(x: 0.2, y: 0.1, width: 0.2, height: 0.1), role: "AXPopUpButton", value: "Blue")
-            func window(_ elements: [SceneElement]) -> PerceivedWindow {
-                PerceivedWindow(scene: SceneSnapshot(bundleID: "fake.app", appName: "Fake", windowTitle: "Window",
-                    viewportPixelSize: ViewportPixelSize(width: 800, height: 600), elements: elements), frame: frame)
-            }
-            let engine = ActionEngine(ActionEngine.Dependencies(
-                scenes: ActionEngineTests.ScriptedScenes([window([readback])]),
-                actuator: ActionEngineTests.RecordingActuator(),
-                windows: ActionEngineTests.ScriptedWindows([[WindowRow(layer: 101, frame: CGRect(x: 100, y: 200, width: 300, height: 200), title: nil, number: 9)]]),
-                controls: ActionEngineTests.FakeControls()
-            ), pause: { _ in })
-            let result = await engine.judged(.sent(.unattested),
-                ActionRequest(processID: 42, bundleID: "fake.app", appName: "Fake", target: "Blue", verb: .click),
-                element: choice, perceived: window([choice, readback]))
-            #expect(result?.check?.verdict == (arm == "v2" ? .passed : .failed))
-            #expect(result?.check?.condition == (arm == "v2" ? .menuItemChosen : .menuClosedAfterChoice))
-            #expect(result?.outcome.row == (arm == "v2" ? "sent · confirmed · continue" : "sent · absent · retry"))
+    @Test
+    func openMenuWithVisibleChoice() async throws {
+        let frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let choice = SceneElement(id: "choice", kind: .control, label: "Blue",
+            bounds: NormalizedRect(x: 0.2, y: 0.2, width: 0.2, height: 0.1), role: "AXMenuItem", container: "Colour")
+        let readback = SceneElement(id: "control", kind: .control, label: "Colour",
+            bounds: NormalizedRect(x: 0.2, y: 0.1, width: 0.2, height: 0.1), role: "AXPopUpButton", value: "Blue")
+        func window(_ elements: [SceneElement]) -> PerceivedWindow {
+            PerceivedWindow(scene: SceneSnapshot(bundleID: "fake.app", appName: "Fake", windowTitle: "Window",
+                viewportPixelSize: ViewportPixelSize(width: 800, height: 600), elements: elements), frame: frame)
         }
+        let engine = ActionEngine(ActionEngine.Dependencies(
+            scenes: ActionEngineTests.ScriptedScenes([window([readback])]),
+            actuator: ActionEngineTests.RecordingActuator(),
+            windows: ActionEngineTests.ScriptedWindows([[WindowRow(layer: 101, frame: CGRect(x: 100, y: 200, width: 300, height: 200), title: nil, number: 9)]]),
+            controls: ActionEngineTests.FakeControls()
+        ), pause: { _ in })
+        let result = await engine.judged(.sent(.unattested),
+            ActionRequest(processID: 42, bundleID: "fake.app", appName: "Fake", target: "Blue", verb: .click),
+            element: choice, perceived: window([choice, readback]))
+        #expect(result?.check?.verdict == .passed)
+        #expect(result?.check?.condition == .menuItemChosen)
+        #expect(result?.outcome.row == "sent · confirmed · continue")
     }
     @Test func openPopupCannotConfirmUnrelatedMatches() {
         let frame = CGRect(x: 0, y: 0, width: 800, height: 600)

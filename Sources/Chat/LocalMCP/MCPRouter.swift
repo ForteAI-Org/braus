@@ -11,6 +11,7 @@ public final class MCPRouter {
     public typealias Call = @MainActor (String, JSONValue) async throws -> JSONValue
     private var tools: [JSONValue]
     private let call: Call
+    private let rejectedToolAttempt: (@MainActor (String) -> Void)?
     private let instructions: String?
     private let announcesToolListChanges: Bool
     private var notificationSinks: [UUID: @MainActor (JSONValue) -> Void] = [:]
@@ -59,11 +60,13 @@ public final class MCPRouter {
         instructions: String?,
         notSentForPerson: JSONValue = MCPRouter.notSentForPerson,
         announcesToolListChanges: Bool = false,
+        rejectedToolAttempt: (@MainActor (String) -> Void)? = nil,
         call: @escaping Call
     ) {
         self.tools = tools
         self.personResult = notSentForPerson
         self.call = call
+        self.rejectedToolAttempt = rejectedToolAttempt
         self.instructions = instructions
         self.announcesToolListChanges = announcesToolListChanges
     }
@@ -113,7 +116,9 @@ public final class MCPRouter {
             if method == "notifications/cancelled" {
                 let cancelledID = request["params"]["requestId"]
                 if let index = queue.firstIndex(where: { $0.id == cancelledID }) {
-                    queue.remove(at: index).continuation.resume(returning: nil)
+                    let cancelled = queue.remove(at: index)
+                    rejectedToolAttempt?(cancelled.name)
+                    cancelled.continuation.resume(returning: nil)
                     finishDrainIfIdle()
                 } else if admission != .suspendedForPerson, cancelledID == activeRequestID {
                     activeCall?.cancel()
@@ -138,13 +143,15 @@ public final class MCPRouter {
             case "ping": result = .object([:])
             case "tools/list": result = .object(["tools": .array(tools)])
             case "tools/call":
+                let attemptedName = request["params"]["name"].string ?? "<unlisted>"
                 switch admission {
-                case .suspendedForPerson: return response(id, personResult)
-                case .stopped: return stoppingError(id)
+                case .suspendedForPerson: rejectedToolAttempt?(attemptedName); return response(id, personResult)
+                case .stopped: rejectedToolAttempt?(attemptedName); return stoppingError(id)
                 case .open: break
                 }
                 guard let name = request["params"]["name"].string,
                       tools.contains(where: { $0["name"].string == name }) else {
+                    rejectedToolAttempt?(attemptedName)
                     return error(id, -32602, "Unknown tool.")
                 }
                 return await withCheckedContinuation { continuation in
@@ -165,6 +172,7 @@ public final class MCPRouter {
         guard admission == .open else { answerQueue(); return }
         let next = queue.removeFirst()
         guard tools.contains(where: { $0["name"].string == next.name }) else {
+            rejectedToolAttempt?(next.name)
             next.continuation.resume(returning: error(next.id, -32602, "Unknown tool."))
             startNextCall()
             finishDrainIfIdle()
@@ -191,6 +199,7 @@ public final class MCPRouter {
         let waiting = queue
         queue.removeAll()
         for entry in waiting {
+            rejectedToolAttempt?(entry.name)
             let answer = admission == .suspendedForPerson
                 ? response(entry.id, personResult) : stoppingError(entry.id)
             entry.continuation.resume(returning: answer)
