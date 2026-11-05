@@ -194,11 +194,7 @@ enum ToolCatalogue {
                         + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.15")) : "")
                  + (channels.contains(.web) ? webOpening : "")
                  + Self.sceneLegend,
-                 ["app": text, "window": .object(["type": .string("string")])].merging(routes ? [
-                    "named": .object(["type": .string("boolean"),
-                                      "description": .string(ModelText.text(.init(rawValue: "tool_catalogue.step.v1.16"))
-                                                             + SharedRoutes.namedApp)])
-                 ] : [:], uniquingKeysWith: { $1 }), ["app"]),
+                 ["app": text, "window": .object(["type": .string("string")])], ["app"]),
             tool("observe", ModelText.text(.init(rawValue: "tool_catalogue.step.v1.17"))
                  + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.18"))
                  + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.19"))
@@ -310,22 +306,36 @@ enum ToolCatalogue {
         Double(bytes) > Double(approvedBytes) * 1.2
     }
 
-    /// Adds policy arguments only in the policy arm; the default definitions stay byte identical.
+    /// Builds operation-specific contracts for the canonical batch.
     private static func batchDefinitions(_ definitions: [JSONValue]) -> [JSONValue] {
         guard let batch = definitions.first(where: { $0["name"].string == "batch" }) else { return definitions }
-        let variants = batch["inputSchema"]["properties"]["steps"]["items"]["oneOf"].array ?? []
-        var fields: [String: JSONValue] = [:]
+        let originals = batch["inputSchema"]["properties"]["steps"]["items"]["oneOf"].array ?? []
+        var fields: [String: JSONValue] = ["expect": TaskCheckSchema.screen]
         var operations: [JSONValue] = []
-        for variant in variants {
-            for (key, value) in variant["properties"].object ?? [:] where key != "operation" { fields[key] = value }
-            operations.append(variant["properties"]["operation"]["const"])
+        var variants = originals.map { variant -> JSONValue in
+            var properties = variant["properties"].object ?? [:]
+            let operation = properties.removeValue(forKey: "operation")?["const"] ?? .null
+            operations.append(operation)
+            fields.merge(properties, uniquingKeysWith: { _, new in new })
+            properties = properties.mapValues { _ in .object([:]) }
+            properties["operation"] = .object(["enum": .array([operation])])
+            properties["expect"] = .object([:])
+            properties["step"] = TaskCheckSchema.text
+            var branch = schema(properties, (variant["required"].array ?? []).compactMap(\.string).filter { $0 != "operation" }).object ?? [:]
+            branch.removeValue(forKey: "type")
+            return .object(branch)
         }
         operations.append(.string("menu"))
         fields["operation"] = .object(["type": .string("string"), "enum": .array(operations)])
-        fields["path"] = .object(["type": .string("string")])
-        fields["expect"] = .object(["type": .string("object")])
+        fields["path"] = TaskCheckSchema.text
+        var menu = schema(["operation": .object(["enum": .array([.string("menu")])]),
+            "path": .object([:]), "expect": .object([:]), "step": TaskCheckSchema.text], ["path"]).object ?? [:]
+        menu.removeValue(forKey: "type")
+        variants.append(.object(menu))
+        var item = schema(fields, ["operation"]).object ?? [:]
+        item["oneOf"] = .array(variants)
         let steps: JSONValue = .object(["type": .string("array"), "minItems": .number(1),
-            "maxItems": .number(Double(BatchPolicy.maximumSteps)), "items": schema(fields, ["operation"])])
+            "maxItems": .number(Double(BatchPolicy.maximumSteps)), "items": .object(item)])
         return definitions.compactMap { definition in
             guard var tool = definition.object, let name = tool["name"]?.string,
                   var input = tool["inputSchema"]?.object, var properties = input["properties"]?.object else { return definition }
@@ -351,24 +361,6 @@ enum ToolCatalogue {
             var properties = input["properties"]?.object ?? [:]
             properties.removeValue(forKey: "session")
             input["required"] = .array((input["required"]?.array ?? []).filter { $0.string != "session" })
-            if name == "batch", var steps = properties["steps"]?.object,
-               let variants = steps["items"]?["oneOf"].array {
-                var fields: [String: JSONValue] = [:]
-                var operations: [JSONValue] = []
-                for variant in variants {
-                    for (key, value) in variant["properties"].object ?? [:] where key != "operation" {
-                        fields[key] = value
-                    }
-                    operations.append(variant["properties"]["operation"]["const"])
-                }
-                fields["operation"] = .object(["type": .string("string"), "enum": .array(operations)])
-                steps["items"] = schema(fields, ["operation"])
-                properties["steps"] = .object(steps)
-            }
-            if name == "open_session", var named = properties["named"]?.object {
-                named["description"] = .string(ModelText.text(.init(rawValue: "tool.open_session.v2.named")))
-                properties["named"] = .object(named)
-            }
             if name == "memory_task" {
                 // The task parser retains its full validation; the served schema names the envelope and types.
                 properties = properties.mapValues(compactTaskParameter)
@@ -378,7 +370,8 @@ enum ToolCatalogue {
             let description = name == "batch"
                 ? ModelText.text(.init(rawValue: "batch.description.v2"))
                 : ModelText.text(.init(rawValue: "tool.\(name).v2.description"))
-            tool["description"] = .string(description)
+            tool["description"] = .string(description + (name == "open_session" && !channels.isDisjoint(with: [.web, .adapters])
+                ? ModelText.text(.init(rawValue: "tool.open_session.v2.routing")) : ""))
             return .object(tool)
         }, surface: surface)
     }
@@ -395,14 +388,14 @@ enum ToolCatalogue {
                 // Each row is parsed by ToolArguments.step before recording or gestures.
                 // Keep its schema within the shared validator's supported vocabulary.
                 let step: JSONValue = .object(["type": .string("string"), "minLength": .number(1)])
-                func marked(_ value: JSONValue) -> JSONValue {
+                func marked(_ value: JSONValue, typed: Bool = true) -> JSONValue {
                     guard var schema = value.object, var fields = schema["properties"]?.object else { return value }
-                    fields["step"] = step
+                    fields["step"] = typed ? step : .object([:])
                     schema["properties"] = .object(fields)
                     return .object(schema)
                 }
-                if let variants = items["oneOf"]?.array { items["oneOf"] = .array(variants.map(marked)) }
-                else { items = marked(.object(items)).object ?? items }
+                items = marked(.object(items)).object ?? items
+                if let variants = items["oneOf"]?.array { items["oneOf"] = .array(variants.map { marked($0, typed: false) }) }
                 steps["items"] = .object(items)
                 properties["steps"] = .object(steps)
             }
@@ -412,19 +405,27 @@ enum ToolCatalogue {
         }
         let legacy = MemoryTaskTool.definition["inputSchema"]["properties"]
         let text: JSONValue = .object(["type": .string("string"), "minLength": .number(1)])
-        let row = schema(["id": text, "title": text, "app": text, "part": text, "expect": .object([:])], ["title"])
+        let title: JSONValue = .object(["type": .string("string"), "minLength": .number(1), "maxLength": .number(Double(Todo.titleLimit))])
+        let reason: JSONValue = .object(["type": .string("string"), "minLength": .number(1), "maxLength": .number(200),
+            "description": .string(ModelText.text(.init(rawValue: "task_cycle.reason_limit.v2")))])
+        let row = schema(["id": text, "title": title, "app": text, "part": text, "expect": TaskCheckSchema.check], ["title"])
         let rows: JSONValue = .object(["type": .string("array"), "items": row, "minItems": .number(1), "maxItems": .number(Double(Todo.rowLimit))])
         result.append(.object(["name": .string("plan"),
             "description": .string(ModelText.text(.init(rawValue: "task_cycle.plan.v2"))),
-            "inputSchema": schema(["request": text, "inputs": compactTaskParameter(legacy["inputs"]), "rows": rows, "reason": text], ["rows"]),
+            "inputSchema": schema(["request": text, "inputs": compactTaskParameter(legacy["inputs"]), "rows": rows, "reason": reason], ["rows"]),
             "annotations": .object(["readOnlyHint": .bool(false)])]))
         result.append(.object(["name": .string("end"),
             "description": .string(ModelText.text(.init(rawValue: "task_cycle.end.v2"))),
             "inputSchema": schema(["outcome": .object(["type": .string("string"),
                 "enum": .array(["completed", "failed", "abandoned"].map(JSONValue.string))]),
-                "note": text, "result_check": compactTaskParameter(legacy["result_check"])], ["outcome"]),
+                "note": text, "result_check": TaskCheckSchema.result], ["outcome"]),
             "annotations": .object(["readOnlyHint": .bool(false)])]))
-        return result
+        return result.map { definition in
+            guard var tool = definition.object else { return definition }
+            do { tool["inputSchema"] = try SchemaPacking.pack(tool["inputSchema"] ?? .null) }
+            catch { preconditionFailure("Invalid tool schema: \(error)") }
+            return .object(tool)
+        }
     }
 
     /// Registered now; service and discoverability belong to the person interaction increment.
@@ -441,9 +442,9 @@ enum ToolCatalogue {
     private static func compactTaskParameter(_ value: JSONValue) -> JSONValue {
         guard let fields = value.object else { return value }
         if fields["type"]?.string == "object" {
-            let properties = (fields["properties"]?.object ?? [:]).mapValues { _ in JSONValue.object([:]) }
-            return .object(["type": .string("object"), "properties": .object(properties),
-                            "additionalProperties": .bool(false)])
+            var compact = fields
+            compact["properties"] = .object((fields["properties"]?.object ?? [:]).mapValues(compactTaskParameter))
+            return .object(compact)
         }
         if let variants = fields["anyOf"]?.array {
             return .object(["anyOf": .array(variants.map(compactTaskParameter))])

@@ -35,7 +35,48 @@ public enum SchemaValidation {
     /// Returns the first schema failure, or the first argument failure in stable property order.
     /// The root has depth zero; schemas nested more than 32 levels are rejected, even if unused.
     public static func firstProblem(_ arguments: JSONValue, schema: JSONValue) -> Problem? {
-        schemaProblem(schema, path: "$", depth: 0) ?? problem(arguments, schema: schema, path: "$")
+        do {
+            let expanded = try expanded(schema, root: schema, depth: 0, visiting: [])
+            return schemaProblem(expanded, path: "$", depth: 0) ?? problem(arguments, schema: expanded, path: "$")
+        } catch let issue as Problem { return issue }
+        catch { return Problem("$", .invalidSchema) }
+    }
+
+    /// Accepts bounded local definitions only; no remote lookup, recursive expansion or sibling overrides.
+    private static func expanded(_ schema: JSONValue, root: JSONValue, depth: Int,
+                                 visiting: Set<String>) throws -> JSONValue {
+        guard depth <= 32 else { throw Problem("$", .schemaTooDeep) }
+        guard var fields = schema.object else { return schema }
+        if let reference = fields["$ref"] {
+            guard visiting.isEmpty, fields.count == 1, let word = reference.string, word.hasPrefix("#/$defs/") else {
+                throw Problem("$", .invalidSchema)
+            }
+            let name = String(word.dropFirst(8))
+            guard !name.isEmpty, !name.contains("/"), !name.contains("~"), !visiting.contains(name),
+                  let target = root["$defs"].object?[name] else { throw Problem("$", .invalidSchema) }
+            return try expanded(target, root: root, depth: depth + 1, visiting: visiting.union([name]))
+        }
+        if let definitions = fields.removeValue(forKey: "$defs") {
+            guard let values = definitions.object else { throw Problem("$", .invalidSchema) }
+            for name in values.keys.sorted() {
+                let value = try expanded(values[name]!, root: root, depth: depth + 1, visiting: visiting.union([name]))
+                if let issue = schemaProblem(value, path: "$", depth: depth + 1) { throw issue }
+            }
+        }
+        if let properties = fields["properties"]?.object {
+            var values: [String: JSONValue] = [:]
+            for name in properties.keys.sorted() {
+                values[name] = try expanded(properties[name]!, root: root, depth: depth + 1, visiting: visiting)
+            }
+            fields["properties"] = .object(values)
+        }
+        if let items = fields["items"] { fields["items"] = try expanded(items, root: root, depth: depth + 1, visiting: visiting) }
+        for name in ["anyOf", "oneOf", "allOf"] {
+            if let alternatives = fields[name]?.array {
+                fields[name] = .array(try alternatives.map { try expanded($0, root: root, depth: depth + 1, visiting: visiting) })
+            }
+        }
+        return .object(fields)
     }
 
     private static let types: Set<String> = ["object", "array", "string", "boolean", "null", "number", "integer"]

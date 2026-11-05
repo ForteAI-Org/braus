@@ -6,7 +6,8 @@ root=$(cd "$(dirname "$0")/../../.." && pwd)
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/agentseat-bench-contract.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 
-xcrun swiftc \
+"$(xcrun --find swift)c" \
+    -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
     -module-cache-path "$scratch/module-cache" \
     "$root/Tools/Driver/SeatBench/IdentityAllocationAssessment.swift" \
     "$root/Tools/Driver/SeatBenchTests/IdentityAllocationAssessmentTests.swift" \

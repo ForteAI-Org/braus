@@ -14,7 +14,16 @@ extension TaskCycleHandler {
 
     /// Previews changed row choices using the current task's values and offer identities.
     func chooseParts(_ rows: [TodoRow], task: OpenTask, content: TaskRevisionContent,
-                     owner: TaskProducer, memory: MemoryService, state: PlanMemoryState) async throws {
+                     owner: TaskProducer, memory: MemoryService, state: PlanMemoryState,
+                     explicit: Set<TodoRowID>) async throws {
         _ = await preparePlanChoices(rows, task: task, content: content, owner: owner, memory: memory, state: state)
+        let accepted = Set(state.choices.map(\.row))
+        if let refused = rows.first(where: {
+            explicit.contains($0.id) && $0.part != nil && deliveredPlanParts[$0.id] != $0.part
+                && !accepted.contains($0.id)
+        }) {
+            throw MemoryTaskTool.Failure(code: "invalid_part",
+                message: Self.planNotice(refused.id, ModelText.text(.init(rawValue: "recall.choiceInvalid"))))
+        }
     }
 }

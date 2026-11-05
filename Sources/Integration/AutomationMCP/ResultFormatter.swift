@@ -666,6 +666,7 @@ final class ResultFormatter {
         tool: String,
         mayHaveActed: Bool,
         minimized: String? = nil,
+        openingFailure: ApplicationOpeningFailure? = nil,
         surface: ToolSurface = ToolCatalogue.currentSurface
     ) -> JSONValue {
         let cause = (error as? AutomationFailure)?.cause ?? "thrown"
@@ -677,7 +678,8 @@ final class ResultFormatter {
         var text = outcome.row + "\n" + OutcomeText.message(
             OutcomeKey(outcome: outcome, verb: tool, cause: cause), label: nil
         )
-        if !mayHaveActed, let minimized { text += "\n" + minimized }
+        // Opening state is known even when launch had effects; ordinary gesture failures keep their caution.
+        if !mayHaveActed || openingFailure != nil, let minimized { text += "\n" + minimized }
         return MCPRouter.answerResult(Self.block(.outcome, text), isError: true)
     }
 

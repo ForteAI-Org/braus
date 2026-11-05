@@ -27,6 +27,8 @@
 
 SWIFT  := xcrun swift
 PYTHON := python3
+# Derive the native helper compiler from Swift itself: xcrun can resolve swiftc to a different toolchain.
+SWIFTC ?= $(if $(filter /%,$(SWIFT)),$(SWIFT)c,$(shell xcrun --find swift)c)
 TIER   := bash Tools/Driver/Scripts/run-tier.sh
 
 BASELINES := Tests/Driver/Benchmarks/Baselines
@@ -137,15 +139,15 @@ native-test-runner:
 	@$(SWIFT) build --build-tests
 	@platform="$$(xcrun --sdk macosx --show-sdk-platform-path)"; \
 	sdk="$$(xcrun --sdk macosx --show-sdk-path)"; \
-	testing="$$($(SWIFT)c -print-target-info | $(PYTHON) -c 'import json, sys; print(json.load(sys.stdin)["paths"]["runtimeResourcePath"])')/macosx/testing"; \
+	testing="$$($(SWIFTC) -print-target-info | $(PYTHON) -c 'import json, sys; print(json.load(sys.stdin)["paths"]["runtimeResourcePath"])')/macosx/testing"; \
 	if [ -f "$$testing/libTesting.dylib" ]; then \
-	    $(SWIFT)c -parse-as-library -sdk "$$sdk" \
+	    $(SWIFTC) -parse-as-library -sdk "$$sdk" \
 	        -I "$$testing" -L "$$testing" -lTesting -Xlinker -rpath -Xlinker "$$testing" \
 	        -Xlinker -rpath -Xlinker "$$platform/Developer/Library/Frameworks" \
 	        -Xlinker -rpath -Xlinker "$$platform/Developer/usr/lib" \
 	        Tools/Driver/Scripts/NativeTestMain.swift -o .build/native-driver-test-main; \
 	else \
-	    $(SWIFT)c -parse-as-library -sdk "$$sdk" \
+	    $(SWIFTC) -parse-as-library -sdk "$$sdk" \
 	        -F "$$platform/Developer/Library/Frameworks" \
 	        -Xlinker -rpath -Xlinker "$$platform/Developer/Library/Frameworks" \
 	        -Xlinker -rpath -Xlinker "$$platform/Developer/usr/lib" \

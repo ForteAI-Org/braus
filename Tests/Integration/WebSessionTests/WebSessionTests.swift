@@ -129,14 +129,15 @@ struct WebSessionTests {
         #expect(desktop.calls == ["windows 42"])
     }
 
-    @Test("Closing the router closes both sides")
-    func closesBoth() async throws {
+    @Test("Closing the router releases its opened route once and leaves the unused desktop alone")
+    func closesOwnedRouteOnce() async throws {
         let desktop = DesktopProbe()
         let web     = DesktopProbe()
         let router  = RoutingAutomationSession(desktop: desktop, web: web)
         _ = try await router.open(application: "web:example.com", window: nil)
         await router.close()
-        #expect(desktop.calls == ["close"])
+        await router.close()
+        #expect(desktop.calls.isEmpty)
         #expect(web.calls == ["open web:example.com", "close"])
         #expect(router.id == nil)
     }

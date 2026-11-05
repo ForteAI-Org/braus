@@ -41,6 +41,8 @@ struct ModelTextNamesTests {
     func names() {
         #expect(validate(ModelText.catalogue, context: RuleContext()).filter { $0.code == .name }.isEmpty)
         #expect(validate([specimen("Never use a shell.")], context: RuleContext()).isEmpty)
+        #expect(validate([specimen("Initial tools: observe. Call these directly.")], context: RuleContext()).isEmpty)
+        #expect(validate([specimen("Call these_tools directly.")], context: RuleContext()).contains { $0.code == .name })
         #expect(validate([specimen("Never use a computer-use fallback.")], context: RuleContext()).isEmpty)
         #expect(validate([specimen("Call observe with expected_value.")], context: RuleContext()).isEmpty)
         #expect(validate([specimen("The call completed. Do not repeat it.", delivery: .toolAnswer(tool: "act"))],

@@ -116,11 +116,20 @@ struct FilesThroughTheToolsTests {
         func bytes(_ path: String) -> Data? { try? Data(contentsOf: root.appendingPathComponent(path)) }
 
         /// Every file under `folder` with its bytes.
-        static func files(under folder: URL) throws -> [String: Data] {
+        static func files(under folder: URL, read: (URL) throws -> Data = { try Data(contentsOf: $0) }) throws -> [String: Data] {
             var found: [String: Data] = [:]
             for case let item as URL in FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])! {
                 guard (try? item.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
-                found[item.path] = try Data(contentsOf: item)
+                do { found[item.path] = try read(item) }
+                catch {
+                    let failure = error as NSError
+                    let name = item.lastPathComponent
+                    // SQLite removes a backup's temporary journal after committing the copy.
+                    // Only that proven disappearance is outside this current-file snapshot.
+                    guard failure.domain == NSCocoaErrorDomain, failure.code == NSFileReadNoSuchFileError,
+                          name.hasPrefix(".memory.sqlite.backup-"), name.contains(".partial-"), name.hasSuffix("-journal"),
+                          !FileManager.default.fileExists(atPath: item.path) else { throw error }
+                }
             }
             return found
         }
@@ -271,6 +280,42 @@ struct FilesThroughTheToolsTests {
             #expect(one.bytes("Box/here.txt") == Data("one".utf8) && one.bytes("here.txt") == Data("two".utf8), "the same root, two directories")
             #expect(FileManager.default.currentDirectoryPath == before)
             await two.end()
+        }
+    }
+
+    @Test func memoryScanOnlyToleratesAnActuallyDisappearedBackupJournal() throws {
+        let root = URL.temporaryDirectory.appending(path: "p12-scan-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = root.appending(path: ".memory.sqlite.backup-fixture.partial-fixture-journal")
+        let persistent = root.appending(path: "memory.sqlite")
+        let marker = Data("PUBLIC_SCAN_MARKER".utf8)
+        try marker.write(to: persistent)
+        try marker.write(to: journal)
+        // Foundation's enumerator spells the /var alias as /private/var on this host.
+        // This flat fixture has two unique names; retain exact byte and membership assertions.
+        func bytes(_ files: [String: Data], _ name: URL) -> Data? {
+            files.first { URL(filePath: $0.key).lastPathComponent == name.lastPathComponent }?.value
+        }
+        let full = try Fixture.files(under: root)
+        #expect(full.count == 2 && bytes(full, journal) == marker && bytes(full, persistent) == marker)
+        let snapshot = try Fixture.files(under: root) { item in
+            if item.lastPathComponent == journal.lastPathComponent { try FileManager.default.removeItem(at: item) }
+            return try Data(contentsOf: item)
+        }
+        #expect(snapshot.count == 1 && bytes(snapshot, persistent) == marker && bytes(snapshot, journal) == nil)
+        try marker.write(to: journal)
+        #expect(throws: (any Error).self) {
+            _ = try Fixture.files(under: root) { item in
+                if item.lastPathComponent == journal.lastPathComponent { throw CocoaError(.fileReadNoSuchFile) }
+                return try Data(contentsOf: item)
+            }
+        }
+        #expect(throws: (any Error).self) {
+            _ = try Fixture.files(under: root) { item in
+                if item.lastPathComponent == persistent.lastPathComponent { try FileManager.default.removeItem(at: item) }
+                return try Data(contentsOf: item)
+            }
         }
     }
 

@@ -44,6 +44,20 @@ public final class AgentSession {
     public var isUsingApp: Bool { held != nil }
 
     private let driver: SeatDriver
+
+    /// OpeningPlatform supplies only platform effects; this session keeps all assignment state.
+    /// Tests substitute these operations without replacing open, use or failure classification.
+    struct OpeningPlatform {
+        var resolve: @MainActor (String) async throws -> TargetApp
+        var launch: @MainActor (TargetApp) async throws -> TargetApp
+        var adopt: @MainActor (TargetWindow) async throws -> Void
+        var release: @MainActor () async -> Void
+        var handback: @MainActor () -> String?
+        var hasUnrestoredWindow: @MainActor () -> Bool
+        var quitUnseated: @MainActor (pid_t) -> Bool = { _ in false }
+    }
+
+    var openingPlatform: OpeningPlatform
     /// The lease's leave-open decision survives preview abandonment; replaceable in lifecycle tests.
     var leavesLentApplicationOpen: () -> Bool
 
@@ -62,6 +76,8 @@ public final class AgentSession {
     private var lastDelivery: SeatObservationDelivery?
     private var lastScene: SceneSnapshot?
     private var held: HeldApp?
+    /// A failed adoption's cleanup diagnosis, retained until a completed close or lease release returns it.
+    private(set) var openingCleanupWarning: String?
 
     /// The application the session has to finish with: the process whose window
     /// was handed to the seat, and where that application came from. Provenance
@@ -123,6 +139,17 @@ public final class AgentSession {
         self.perception = perception
         self.recorder = recorder
         self.environment = environment
+        self.openingPlatform = OpeningPlatform(
+            resolve: { name in
+                try await ApplicationOpening.resolvedOffMain(name, in: TargetEnumerator.preparedTargets())
+            },
+            launch: { try await environment.launch($0) },
+            adopt: { try await driver.adopt($0) },
+            release: { await driver.release() },
+            handback: { driver.releaseAssignedApplication() },
+            hasUnrestoredWindow: { driver.hasUnrestoredWindow },
+            quitUnseated: { ledger.quitUnseated($0) }
+        )
     }
 
     /// Lends the held application to the person's chosen screen while the worker is suspended.
@@ -197,7 +224,7 @@ public final class AgentSession {
         held = HeldApp(pid: window.pid, name: app.name,
                        provenance: ledger.provenance(of: window.pid))
         do {
-            try await driver.adopt(window)
+            try await openingPlatform.adopt(window)
             // Only a window the seat attested is ever closed, and only the one this open made.
             if let opened, opened.window.windowNumber == window.windowNumber,
                let identity = driver.window?.reference.identity,
@@ -209,6 +236,8 @@ public final class AgentSession {
             // the adoption's own sentence is still the diagnosis.
             let refusal = await finishWithHeldApp()
             guard let refusal else { throw error }
+            openingCleanupWarning = refusal
+            if error is CancellationError { throw error }
             throw SeatBrokerError.driver(error.localizedDescription + " " + refusal)
         }
     }
@@ -241,7 +270,7 @@ public final class AgentSession {
     @discardableResult
     public func open(applicationNamed name: String, windowTitled title: String? = nil) async throws -> TargetApp {
         guard isOpen else { throw SeatBrokerError.sessionClosed }
-        let wanted = try await ApplicationOpening.resolvedOffMain(name, in: TargetEnumerator.preparedTargets())
+        let wanted = try await openingPlatform.resolve(name)
         // Re-opening the held application would finish with it first, which
         // quits it when the agent opened it, and then adopt its dying window.
         guard !isUsingApp || wanted.pid != target?.pid else {
@@ -290,14 +319,18 @@ public final class AgentSession {
                 close  : { await BrowserOpening.close($0) }
             )
         }
-        let opened = try await environment.launch(wanted)
+        let opened = try await openingPlatform.launch(wanted)
         let window: TargetWindow
         if let title {
             let named = opened.windows.filter { $0.title.caseInsensitiveCompare(title) == .orderedSame }
             guard named.count == 1, let only = named.first else {
-                throw SeatBrokerError.driver("Expected one window of \(opened.name) named '\(title)'. Open: "
-                    + opened.windows.map { $0.title.isEmpty ? "untitled" : $0.title }.joined(separator: ", ")
-                    + ". " + unseated(opened, wasLaunched: wanted.pid == nil))
+                let wasLaunched = wanted.pid == nil
+                let quitAccepted = wasLaunched && opened.pid.map { openingPlatform.quitUnseated($0) } == true
+                try Task.checkCancellation()
+                throw ApplicationOpeningFailure(state: isUsingApp ? .previousRetained : .noActiveSession,
+                    reason: .windowTitleMismatch(.init(application: opened.name, requested: title,
+                        available: opened.windows.map(\.title), matches: named.count,
+                        wasLaunched: wasLaunched, quitRequestAccepted: quitAccepted)))
             }
             window = only
         } else {
@@ -313,15 +346,43 @@ public final class AgentSession {
         do {
             try await use(window, of: opened)
         } catch {
+            // use completed cleanup; cancellation must keep its type for the caller's drain.
+            if error is CancellationError { throw error }
             throw ApplicationOpening.notSeated(opened, cause: error)
         }
         return opened
     }
 
+    /// ReplacementFailure reports whether failure left the earlier adopted application held.
+    struct ReplacementFailure: Error, LocalizedError {
+        let underlying: any Error
+        let previousRetained: Bool
+        let cleanupWarning: String?
+
+        init(underlying: any Error, previousRetained: Bool, cleanupWarning: String? = nil) {
+            self.underlying = underlying
+            self.previousRetained = previousRetained
+            self.cleanupWarning = cleanupWarning
+        }
+
+        var errorDescription: String? { underlying.localizedDescription }
+    }
+
+    /// Opens through the existing driver path and attests its actual post-failure state, without replay.
+    func openReplacingApplication(_ name: String, window title: String?) async throws -> TargetApp {
+        let previous = held?.pid
+        do {
+            return try await open(applicationNamed: name, windowTitled: title)
+        } catch {
+            throw ReplacementFailure(underlying: error,
+                previousRetained: previous != nil && held?.pid == previous, cleanupWarning: openingCleanupWarning)
+        }
+    }
+
     /// Quits `app` when this open launched it, since no seat took a window of it, and says what
     /// became of it. An application found running is never quit here, whatever its provenance.
     private func unseated(_ app: TargetApp, wasLaunched: Bool) -> String {
-        let wasQuit = wasLaunched && app.pid.map { ledger.quitUnseated($0) } == true
+        let wasQuit = wasLaunched && app.pid.map { openingPlatform.quitUnseated($0) } == true
         return ApplicationOpening.unseated(app.name, wasLaunched: wasLaunched, wasQuit: wasQuit)
     }
 
@@ -337,7 +398,7 @@ public final class AgentSession {
     /// return the host still owes keeps it past that. Called at the end of a lease.
     func finishUsingApp() async -> String? {
         guard isOpen else { return nil }
-        let finish = await finishWithHeldApp()
+        let finish = takingOpeningCleanupWarning(adding: await finishWithHeldApp())
         let canRetire = driver.canRetireHost()
         let action = canRetire
             ? "keeping the host for \(idleRetirementDelay) with no lease, then taking it down"
@@ -349,6 +410,13 @@ public final class AgentSession {
             \(action, privacy: .public)
             """)
         return Self.endingLease(finish: finish, canRetire: canRetire, retire: scheduleRetirement)
+    }
+
+    private func takingOpeningCleanupWarning(adding warning: String?) -> String? {
+        let pending = openingCleanupWarning
+        openingCleanupWarning = nil
+        let warnings = [pending, warning].compactMap { $0 }
+        return warnings.isEmpty ? nil : Array(Set(warnings)).sorted().joined(separator: " ")
     }
 
     /// What ending a lease says, after scheduling the host's retirement when nothing on it is owed.
@@ -431,8 +499,8 @@ public final class AgentSession {
         await driver.abandonHumanInput()
         if wasLent {
             held = nil
-            await driver.release()
-            return driver.releaseAssignedApplication()
+            await openingPlatform.release()
+            return openingPlatform.handback()
         }
         guard let held else { return nil }
         self.held = nil
@@ -440,14 +508,14 @@ public final class AgentSession {
             held.openedWindow,
             isPresent: isWindowPresent,
             close    : closeWindow,
-            release  : { await self.driver.release() }
+            release  : { await self.openingPlatform.release() }
         )
         let notClosed = leftOpen
             ? "The new \(held.name) window opened for this session could not be closed, "
                 + "so it was returned to your desktop still open."
             : nil
-        let handback = driver.releaseAssignedApplication()
-        let unrestored = driver.hasUnrestoredWindow
+        let handback = openingPlatform.handback()
+        let unrestored = openingPlatform.hasUnrestoredWindow()
         Self.diagnosticLog.notice("""
             finishing \(held.name, privacy: .public) pid \(held.pid, privacy: .public) \
             \(String(describing: held.provenance), privacy: .public): \
@@ -864,7 +932,7 @@ public final class AgentSession {
         stopAdmittingCommands()
         // A retirement still waiting does nothing now, and one under way is waited for.
         await cancelRetirement()
-        let refusal = await finishWithHeldApp()
+        let refusal = takingOpeningCleanupWarning(adding: await finishWithHeldApp())
         let teardown = isRetired ? nil : await stopHost()
         let sentences = [refusal, teardown].compactMap { $0 }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")

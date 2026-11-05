@@ -1,3 +1,4 @@
+import Capabilities
 import Foundation
 import LocalMCP
 import Memory
@@ -28,16 +29,20 @@ struct PlanRequest {
         guard rows.count <= Todo.rowLimit else {
             throw MemoryTaskTool.Failure(code: "todo_row_limit", message: ModelText.text(.init(rawValue: "task_cycle.limit.v2")))
         }
+        let requested = try ToolArguments.optionalString(arguments, "request")
+        if fields["inputs"] != nil,
+           SchemaValidation.firstProblem(arguments["inputs"], schema: MemoryTaskTool.definition["inputSchema"]["properties"]["inputs"]) != nil {
+            throw MemoryTaskTool.Failure(code: "invalid_plan", message: ModelText.text(.init(rawValue: "task_cycle.inputs_invalid.v2")))
+        }
         let declared = MemoryTaskTool.declaredSecrets(in: arguments)
         let minimization = minimization.adding(secrets: declared)
-        var begin: [String: JSONValue] = ["operation": .string("begin"), "goal": arguments["request"] == .null
-            ? .string("Plan revision") : arguments["request"], "recall": .bool(false)]
+        var begin: [String: JSONValue] = ["operation": .string("begin"), "goal": .string(requested ?? "Plan revision"), "recall": .bool(false)]
         if fields["inputs"] != nil { begin["inputs"] = arguments["inputs"] }
         guard case .begin(let content, _, _) = try MemoryTaskTool.decode(.object(begin),
             minimization: minimization, messageRef: messageRef) else {
             throw MemoryTaskTool.Failure(code: "invalid_plan", message: ModelText.text(.init(rawValue: "task_cycle.inputs_invalid.v2")))
         }
-        self.request = fields["request"] == nil ? nil : content.goal
+        self.request = requested == nil ? nil : content.goal
         inputs = fields["inputs"] == nil ? nil : content.inputs
         rawInputs = arguments["inputs"]
         reason = try ToolArguments.optionalString(arguments, "reason").map { minimization.minimize(text: $0).0 }
@@ -51,13 +56,16 @@ struct PlanRequest {
                 throw MemoryTaskTool.Failure(code: "invalid_plan", message: ModelText.text(.init(rawValue: "task_cycle.row_fields.v2")))
             }
             let title = try ToolArguments.requiredString(row, "title")
-            guard title.count <= Todo.titleLimit else {
+            guard title.unicodeScalars.count <= Todo.titleLimit else {
                 throw MemoryTaskTool.Failure(code: "todo_title_limit", message: ModelText.text(.init(rawValue: "task_cycle.title_limit.v2")))
+            }
+            if fields["expect"] != nil, SchemaValidation.firstProblem(row["expect"], schema: TaskCheckSchema.check) != nil {
+                throw MemoryTaskTool.Failure(code: "invalid_plan", message: ModelText.text(.init(rawValue: "task_cycle.predicate_shape")))
             }
             let checks = try MemoryTaskTool.resultChecks(row["expect"], minimization: minimization)
             let expectedLength: Int
-            if case .nothing(let reason) = checks.first?.read { expectedLength = reason.count }
-            else { expectedLength = checks.first?.read.texts.joined().count ?? 0 }
+            if case .nothing(let reason) = checks.first?.read { expectedLength = reason.unicodeScalars.count }
+            else { expectedLength = checks.first?.read.texts.joined().unicodeScalars.count ?? 0 }
             guard checks.count <= 1, expectedLength <= Todo.expectedLimit else {
                 throw MemoryTaskTool.Failure(code: "todo_expected_limit", message: ModelText.text(.init(rawValue: "task_cycle.expected_limit.v2")))
             }
@@ -83,6 +91,9 @@ struct EndRequest {
         }
         self.outcome = outcome
         note = try ToolArguments.optionalString(arguments, "note").map { minimization.minimize(text: $0).0 }
+        if fields["result_check"] != nil, SchemaValidation.firstProblem(arguments["result_check"], schema: TaskCheckSchema.result) != nil {
+            throw MemoryTaskTool.Failure(code: "invalid_end", message: ModelText.text(.init(rawValue: "task_cycle.predicate_shape")))
+        }
         checks = try MemoryTaskTool.resultChecks(arguments["result_check"], minimization: minimization)
     }
 }

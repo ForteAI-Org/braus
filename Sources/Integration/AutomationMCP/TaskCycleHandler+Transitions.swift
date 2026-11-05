@@ -16,18 +16,18 @@ extension TaskCycleHandler {
     func step(to row: TodoRowID?, gesture: String) async throws -> StepTransition? {
         guard let row else { return nil }
         guard let task = openTask else {
-            throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle.step_open.v2")), cause: "unknown_step")
+            throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle.step_open.v2")), cause: "unknown_step", beforeDispatch: true)
         }
         let (memory, owner) = try cycleMemory()
         guard let current = try await currentTodo(memory),
               let next = current.rows.first(where: { $0.id == row }), next.status != .abandoned, next.status != .done else {
-            throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle.step_open.v2")), cause: "unknown_step")
+            throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle.step_open.v2")), cause: "unknown_step", beforeDispatch: true)
         }
         let active = current.rows.first { $0.status == .inProgress }
         guard active?.id != row else { return nil }
         let nextPending = current.rows.first { $0.status == .pending }
         guard nextPending?.id == row else {
-            throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle.step_order.v2")), cause: "plan_revision_required")
+            throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle.step_order.v2")), cause: "plan_revision_required", beforeDispatch: true)
         }
         var verdict: TodoRevision.RowVerdict?
         if let active {
@@ -166,6 +166,11 @@ extension TaskCycleHandler {
         var answer: [String: JSONValue] = ["status": .string("ended"), "task": .string(task.taskID),
             "outcome": .string(request.outcome.rawValue), "completion_evidence": evidence]
         if let checked { answer["result_check"] = checked }
+        if let active, let closed = rows.first(where: { $0.id == active.id }) {
+            answer["row_check"] = .object(["id": .string(active.id.rawValue),
+                "status": .string(closed.status.rawValue), "verdict": .string(verdict.rawValue)])
+        }
+        answer["unexecuted_rows"] = .array(current.rows.filter { $0.status == .pending }.map { .string($0.id.rawValue) })
         if access.learns, request.outcome == .completed {
             do {
                 if let summary = try await ProcedureProducer.candidate(attemptID: task.attemptID, producer: owner, memory: memory),

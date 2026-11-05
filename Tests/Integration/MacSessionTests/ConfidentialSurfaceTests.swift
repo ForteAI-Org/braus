@@ -173,7 +173,7 @@ struct ConfidentialSurfaceTests {
         let transcript = Lines()
         tools.record = { transcript.all.append($0) }
 
-        let opened = try await tools.call("open_session", .object(["app": .string("Mail"), "named": .bool(true)]))
+        let opened = try await tools.call("open_session", .object(["app": .string("Mail")]))
         try #require(session.id != nil)
         try await StructuredCallFactsTests.plan(tools, request: "Handle synthetic correspondence")
         // An observe of the same window answers it unchanged since the open: the open's answer carries the scene.

@@ -2,12 +2,18 @@ import Foundation
 
 extension ModelText {
     nonisolated static let toolDescriptionTexts: [Entry] = [
+        Entry(key: .init(rawValue: "tool.open_session.v2.routing"), owner: "AutomationMCP", delivery: .toolDescription(tool: "open_session"),
+              budgetCharacters: 180, text: " Web addresses use the available web route.", legacy: false),
+        Entry(key: .init(rawValue: "task_cycle.predicate_shape"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
+              budgetCharacters: 220, text: "A result predicate needs typed fields, for example {\"element\":\"Result\",\"value\":\"89\"} or {\"none\":\"reason\"}.", legacy: false),
+        Entry(key: .init(rawValue: "task_cycle.value_types"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
+              budgetCharacters: 160, text: "Task values must use the declared field types, including a boolean secret.", legacy: false),
         Entry(key: .init(rawValue: "batch.then.v2"), owner: "AutomationMCP", delivery: .toolDescription(tool: "act"),
               budgetCharacters: 160,
               text: "Each step uses operation (a gesture name) and that gesture's arguments. Optional expect declares an element or window result. No nested then.", legacy: false),
         Entry(key: .init(rawValue: "batch.description.v2"), owner: "AutomationMCP", delivery: .toolDescription(tool: "batch"),
               budgetCharacters: 500,
-              text: "Run up to 20 gestures in one app within 15 seconds. Targets are checked before each step. Later IDs are translated through the entry scene. menu is allowed. A committing step must be last, follow confirmed steps and declare expect (element or window). Stops cleanly when the person takes control. Returns one outcome row per attempted step and one final scene.", legacy: false),
+              text: "Run up to 20 gestures in one app within 15s. Each item requires operation and its arguments. expect checks an element/window. Committing steps must be last, after confirmed steps, with expect. Human control stops the batch. Returns step outcomes and one scene.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.named_files.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
               budgetCharacters: 160, text: "named must be a list of file names.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.step_order.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
@@ -21,13 +27,13 @@ extension ModelText {
         Entry(key: .init(rawValue: "task_cycle.inputs_invalid.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
               budgetCharacters: 160, text: "Invalid plan inputs.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.reason_limit.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
-              budgetCharacters: 160, text: "Reason must be at most 200 bytes.", legacy: false),
+              budgetCharacters: 160, text: "Reason: at most 200 bytes in utf-8.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.row_fields.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
               budgetCharacters: 160, text: "Rows contain no nested steps or unknown fields.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.title_limit.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
-              budgetCharacters: 160, text: "Row titles must be at most 120 characters.", legacy: false),
+              budgetCharacters: 160, text: "Row titles: at most 120 Unicode codepoints.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.expected_limit.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
-              budgetCharacters: 160, text: "A row has one expectation of at most 160 characters.", legacy: false),
+              budgetCharacters: 160, text: "A row expectation: at most 160 Unicode codepoints across its predicate texts.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.end_outcome.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
               budgetCharacters: 160, text: "End requires completed, failed or abandoned.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.unknown_tool.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
@@ -66,9 +72,9 @@ extension ModelText {
               budgetCharacters: 160, text: "step must name a row returned by plan.", legacy: false),
 
         Entry(key: .init(rawValue: "task_cycle.plan.v2"), owner: "AutomationMCP", delivery: .toolDescription(tool: "plan"),
-              budgetCharacters: 1800, text: "Open the task with request, inputs and rows; with a task open, plan always revises it. End before a different task. Each row is a subprocedure, normally 3-10 rows, never a gesture. There is no second level: Braus records gestures under the row named by step. Keep ids for retained rows; omit id for new rows. Adding, removing or reordering rows requires reason on a revision, never on the first plan. New rows receive memory; retained rows receive it again only after context loss. Select a proposed memory part with part in a revision. For an unknown app, Braus returns candidates and no memory for that row. Titles have at most 120 characters and expectations 160. At most 10 rows; summarize completed rows into one, or end and continue in a new task.", legacy: false),
+              budgetCharacters: 1800, text: "Open request, inputs and rows; revise an open task. End before another task. Rows (usually 3-10) are subprocedures, never gestures. Keep retained ids; omit id for new rows. Structural changes need reason. Select offered parts in revisions. expect: one predicate, 160 Unicode codepoints across texts except app, e.g. {\"element\":\"Result\",\"value\":\"89\"}. At 10 rows, summarize completed rows or end and start a new task.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.end.v2"), owner: "AutomationMCP", delivery: .toolDescription(tool: "end"),
-              budgetCharacters: 500, text: "Close the current task with outcome, a short note and result predicates. Braus reads the result and returns completion evidence; the evidence covers only the declared predicates. A window being open does not prove the goal.", legacy: false),
+              budgetCharacters: 500, text: "Close with an honest outcome and up to eight result predicates: {\"element\":\"Result\",\"value\":\"89\"} or {\"none\":\"reason\"}. Completion evidence covers declared checks; an open window does not prove the goal.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.ask_person.v2"), owner: "AutomationMCP", delivery: .toolDescription(tool: "ask_person"),
               budgetCharacters: 400, text: "Ask a question with context and answer type single, multiple or text; provide 2-4 options for a choice. The person who can answer must be present. This interaction is not available yet.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.instructions.v2"), owner: "AutomationMCP", delivery: .systemPrompt(order: 90),
@@ -126,7 +132,7 @@ extension ModelText {
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "open_session"),
             budgetCharacters: 114,
-            text: "Exact name of a ## section heading from the current scene, or of a {container} shown in it. Omit when unnecessary.",
+            text: "Shown section or container name; omit when unnecessary.",
             legacy: true
         ),
         Entry(
@@ -1064,9 +1070,7 @@ extension ModelText {
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "open_session"),
             budgetCharacters: 194,
-            text: "Open an app and adopt its selected window, or open a web address when the web channel is "
-                + "available. Returns the current scene; set named only when the person explicitly named the "
-                + "app or service.",
+            text: "Open exactly the requested app and return its scene; no route substitution. Same app resumes. Switching apps may close one Braus launched; failure after release leaves no session.",
             legacy: false
         ),
         Entry(
@@ -1074,8 +1078,7 @@ extension ModelText {
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "observe"),
             budgetCharacters: 114,
-            text: "Read the current window before choosing the next action. Returns scene changes, or the "
-                + "whole scene with full=true.",
+            text: "Read the held window; full=true returns the whole scene, otherwise changes.",
             legacy: false
         ),
         Entry(
@@ -1083,8 +1086,7 @@ extension ModelText {
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "act"),
             budgetCharacters: 147,
-            text: "Act on a visible target by its label or identifier, with an optional verb, section and "
-                + "desired toggle value. Returns the outcome and scene changes.",
+            text: "Act on a shown label or id, with optional verb, section or toggle value.",
             legacy: false
         ),
         Entry(
@@ -1101,8 +1103,7 @@ extension ModelText {
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "type_text"),
             budgetCharacters: 116,
-            text: "Enter text into a named visible field, replacing its value when replace=true. Returns the "
-                + "outcome and scene changes.",
+            text: "Enter text into a shown field; replace=true by default.",
             legacy: false
         ),
         Entry(
@@ -1110,8 +1111,7 @@ extension ModelText {
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "insert_text"),
             budgetCharacters: 140,
-            text: "Insert text into the focused field. Supply expected_value when the complete resulting "
-                + "value is known; returns the outcome and scene changes.",
+            text: "Insert at the observed current focus and selection. Use type_text to choose a field. expected_value checks the complete resulting value.",
             legacy: false
         ),
         Entry(
@@ -1119,8 +1119,7 @@ extension ModelText {
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "press_key"),
             budgetCharacters: 140,
-            text: "Press a key chord in the current window, optionally repeated. Returns the outcome and "
-                + "scene changes; shortcut support depends on the target.",
+            text: "Press a key chord in the held window, optionally repeated; support depends on the target.",
             legacy: false
         ),
         Entry(
@@ -1238,15 +1237,6 @@ extension ModelText {
             budgetCharacters: 170,
             text: " Before acting on apps for a new request, begin its task. After checking the result, end "
                 + "the task with a result check for completion and interpret its proposed procedure.",
-            legacy: false
-        ),
-        Entry(
-            key: .init(rawValue: "tool.open_session.v2.named"),
-            owner: "AutomationMCP",
-            delivery: .toolDescription(tool: "open_session"),
-            budgetCharacters: 103,
-            text: "True only when the person explicitly named this app or service, rather than a kind of "
-                + "thing to work on.",
             legacy: false
         ),
     ]

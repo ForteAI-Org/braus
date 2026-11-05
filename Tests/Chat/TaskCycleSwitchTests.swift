@@ -21,7 +21,7 @@ struct TaskCycleContractTests {
     @Test func promptKeepsCycleAndEvidenceRulesWithoutLegacyInstructions() {
         let names = AutomationTools.definitions.compactMap { $0["name"].string }
         let text = ModelText.systemPrompt(toolNames: names, groupIndex: nil, searchesWeb: false, role: nil)
-        #expect(text.contains("Use `step` to name the row served"))
+        #expect(text.contains("Pass step:\"r1\" on gestures or batches; step is an argument, not a tool"))
         #expect(!text.contains("Interpret the proposed procedure"))
         #expect(!text.contains("memory_task"))
         #expect(!text.contains("<guide>"))
@@ -33,22 +33,35 @@ struct TaskCycleContractTests {
         #expect(!AutomationTools.instructions.contains("memory_task"))
     }
 
-    @Test func batchGesturesCarryStep() throws {
+    private func batchSchema() throws -> JSONValue {
         let batch = try #require(ToolCatalogue.definitions(for: [], surface: .tagged).first { $0["name"].string == "batch" })
-        let items = batch["inputSchema"]["properties"]["steps"]["items"]
-        let variants = items["oneOf"].array ?? [items]
-        #expect(variants.allSatisfy { $0["properties"]["step"]["type"].string == "string" })
+        var schema = try #require(batch["inputSchema"].object)
+        var fields = try #require(schema["properties"]?.object)
+        fields.removeValue(forKey: "step")
+        schema["properties"] = .object(fields)
+        return .object(schema)
+    }
+
+    @Test func batchGesturesCarryStep() throws {
+        let schema = try batchSchema()
+        let valid: JSONValue = .object(["steps": .array([.object(["operation": .string("act"),
+            "target": .string("Create"), "step": .string("r1")])])])
+        #expect(SchemaValidation.firstProblem(valid, schema: schema) == nil)
+        for invalid: JSONValue in [.number(1), .bool(false), .array([])] {
+            let args: JSONValue = .object(["steps": .array([.object(["operation": .string("act"),
+                "target": .string("Create"), "step": invalid])])])
+            #expect(SchemaValidation.firstProblem(args, schema: schema)?.path == "$.steps[0].step")
+        }
     }
 
     @Test func batchRowSchemasValidateTheirAdvertisedTypes() throws {
-        let batch = try #require(ToolCatalogue.definitions(for: [], surface: .tagged).first { $0["name"].string == "batch" })
-        let schema = batch["inputSchema"]["properties"]["steps"]
-        let valid: JSONValue = .array([.object(["operation": .string("act"), "target": .string("Create"), "step": .string("r1")])])
-        #expect(SchemaValidation.firstProblem(valid, schema: schema) == nil)
+        let schema = try batchSchema()
+        let row: [String: JSONValue] = ["operation": .string("act"), "target": .string("Create"), "step": .string("r1")]
+        #expect(SchemaValidation.firstProblem(.object(["steps": .array([.object(row)])]), schema: schema) == nil)
         for field in ["target", "step"] {
-            var row = try #require(valid.array?.first?.object)
-            row[field] = .number(1)
-            #expect(SchemaValidation.firstProblem(.array([.object(row)]), schema: schema)?.path == "$[0].\(field)")
+            var invalid = row
+            invalid[field] = .number(1)
+            #expect(SchemaValidation.firstProblem(.object(["steps": .array([.object(invalid)])]), schema: schema)?.path == "$.steps[0].\(field)")
         }
     }
 

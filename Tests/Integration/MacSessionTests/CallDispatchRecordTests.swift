@@ -210,7 +210,7 @@ struct CallDispatchRecordTests {
         await MemoryService.closeAll()
     }
 
-    @Test("an open_session the router answers with another route or a question reaches no session and records no dispatch")
+    @Test("an explicit open_session records the real application route instead of substituting advice")
     func redirectAndAskDispatchNothing() async throws {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
@@ -223,11 +223,11 @@ struct CallDispatchRecordTests {
         let maps = try await Self.call(tools, "open_session", .object(["app": .string("Maps")]))
         let mail = try await Self.call(tools, "open_session", .object(["app": .string("Mail")]))
         func text(_ answer: JSONValue) -> String { answer["content"].array?.first?["text"].string ?? "" }
-        #expect(text(maps).contains("\"route\"") && text(mail).contains("\"ask\""), "\(text(maps)) \(text(mail))")
-        #expect(fake.opened.isEmpty, "no session was opened")
+        #expect(!text(maps).contains("\"opened\":false") && !text(mail).contains("\"opened\":false"))
+        #expect(fake.opened == ["Maps", "Mail"])
         let calls = try await Self.recorded("redirect", in: knowledge)
         #expect(calls.count == 2 && calls.allSatisfy { $0.status == .completed }, "\(calls)")
-        #expect(calls.allSatisfy { $0.route == nil && $0.dispatch == nil }, "\(calls)")
+        #expect(calls.allSatisfy { $0.route == CallRoute(.desktop) && $0.dispatch == nil && $0.advice == nil }, "\(calls)")
         await MemoryService.closeAll()
     }
 
@@ -302,7 +302,7 @@ struct CallDispatchRecordTests {
             #expect(fake.opened.isEmpty && fake.id == nil)
             #expect(try await Self.recorded("invalid-core", in: knowledge).isEmpty)
         }
-        _ = try await tools.call("open_session", .object(["app": .string("Notes"), "named": .bool(true)]))
+        _ = try await tools.call("open_session", .object(["app": .string("Notes")]))
         #expect(fake.opened == ["Notes"] && fake.id != nil)
         #expect(try await Self.recorded("invalid-core", in: knowledge).count == 1)
         await MemoryService.closeAll()
@@ -310,92 +310,59 @@ struct CallDispatchRecordTests {
 
     // MARK: M05: a redirect's advice on the record
 
-    @Test("M05 RA-1: an open_session the router answers with another route or a question records the decision, its route and its words with the end, under the task's real attribution while it is open and under none after it ended, each call its own row; nothing else: no route, adapter, sample, effect or rung, nothing opened; a declared secret in the route's address and the words is withheld from the archive open and closed, the transcript and the answer")
+    @Test("M05 RA-1: explicit openings record their real route and task attribution, preserving minimization")
     func redirectAdviceRecorded() async throws {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
-        let fake  = RouteFake(.desktop, memory: knowledge)
-        let router = TaskRouter(catalogue: RouteCatalogue(RouteCatalogue.standard.entries.map { entry in
-            entry.kind == .mail ? RouteEntry(.mail, .webMail, replaces: entry.replaces, needsLogin: true) : entry
-        }))
-        let tools = AutomationTools(session: fake, channels: [.web], router: router)
+        let fake = RouteFake(.desktop, memory: knowledge)
+        let tools = AutomationTools(session: fake, channels: [.web])
         tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "advice")
         let transcript = Transcript()
         tools.record = { transcript.lines.append($0) }
-        // A task that declares the route's host a secret; its attribution as the tools hold it.
-        let secret = "google.com/maps"
+        let secret = "Maps"
         _ = try await Self.call(tools, "plan", .object([
             "request": .string("Find the place"), "rows": .array([.object(["title": .string("Find the place")])]),
-            "inputs": .array([.object(["name": .string("place"), "value": .string(secret), "secret": .bool(true)])]),
-        ]))
-        let attribution = try #require(tools.openTask?.attribution, "the task is open")
-        let maps = try await Self.call(tools, "open_session", .object(["app": .string("Maps")]))
-        let mail = try await Self.call(tools, "open_session", .object(["app": .string("Mail")]))
+            "inputs": .array([.object(["name": .string("place"), "value": .string(secret), "secret": .bool(true)])])]))
+        let attribution = try #require(tools.openTask?.attribution)
+        for app in ["Maps", "Mail"] { _ = try await Self.call(tools, "open_session", .object(["app": .string(app)])) }
         _ = try await Self.call(tools, "end", .object(["outcome": .string("completed")]))
-        #expect(tools.openTask == nil, "the task ended")
-        // After the end, the same decisions again on the same tools: their own rows, under no task.
-        let mapsAfter = try await Self.call(tools, "open_session", .object(["app": .string("Maps")]))
-        let mailAfter = try await Self.call(tools, "open_session", .object(["app": .string("Mail")]))
-        #expect(fake.opened.isEmpty, "nothing opened")
-        for answer in [maps, mail, mapsAfter, mailAfter] {
-            #expect(Self.answered(answer)["opened"] == .bool(false) && !Self.text(answer).contains(secret), Comment(rawValue: Self.text(answer)))
-        }
-        #expect(Self.text(maps).contains(ValueMinimization.marker) && Self.answered(maps)["route"].string?.hasPrefix("web:") == true)
-        #expect(transcript.lines.allSatisfy { !$0.contains(secret) }, "the transcript holds the secret")
-
-        let calls = try await Self.recorded("advice", in: knowledge)
-        let opens = calls.filter { $0.tool == "open_session" }
-        try #require(opens.count == 4, "Expected four recorded opens: \(opens)")
-        #expect(opens.count == 4 && Set(opens.map(\.eventID)).count == 4, "four open_session calls, four event ids: \(opens.map(\.eventID))")
-        for open in opens {
-            #expect(open.status == .completed && open.route == nil && open.dispatch == nil
-                    && open.rung == nil && open.performed == nil && open.samples == 0, "\(open)")
-        }
-        // The advice is exactly what was answered (both minimized under the same secret), the decision typed.
-        func expected(_ answer: JSONValue) -> CallRouteAdvice? {
-            let value = Self.answered(answer)
-            if let question = value["ask"].string { return CallRouteAdvice(decision: .ask, route: nil, message: question) }
-            guard let route = value["route"].string, let message = value["message"].string else { return nil }
-            return CallRouteAdvice(decision: .use, route: route, message: message)
-        }
-        #expect(opens[0].advice == expected(maps) && opens[0].advice?.decision == .use
-                && opens[0].advice?.route?.contains(ValueMinimization.marker) == true && opens[0].advice?.route?.contains(secret) == false
-                && opens[0].advice?.message.contains(secret) == false, "\(String(describing: opens[0].advice))")
-        #expect(opens[1].advice == expected(mail) && opens[1].advice?.decision == .ask && opens[1].advice?.route == nil
-                && opens[1].advice?.message.isEmpty == false, "\(String(describing: opens[1].advice))")
-        #expect(opens[2].advice == expected(mapsAfter) && opens[3].advice == expected(mailAfter))
-        // Under the task while open, under none after it ended.
-        #expect(opens[0].attribution == attribution && opens[1].attribution == attribution, "\(opens.map(\.attribution))")
-        #expect(opens[2].attribution == nil && opens[3].attribution == nil, "\(opens.map(\.attribution))")
-        // The archive's files, its WAL among them, while it is open (after the flush in `recorded`) and once closed.
-        #expect(try CallRungRecordTests.files(under: knowledge, holding: secret).isEmpty, "the open archive holds the secret")
+        for app in ["Maps", "Mail"] { _ = try await Self.call(tools, "open_session", .object(["app": .string(app)])) }
+        #expect(fake.opened == ["Maps", "Mail", "Maps", "Mail"])
+        let opens = try await Self.recorded("advice", in: knowledge).filter { $0.tool == "open_session" }
+        try #require(opens.count == 4)
+        #expect(Set(opens.map(\.eventID)).count == 4)
+        #expect(opens.allSatisfy { $0.status == .completed && $0.route == CallRoute(.desktop)
+            && ($0.advice == nil || $0.advice?.decision == .open) })
+        #expect(opens[0].attribution == attribution && opens[1].attribution == attribution)
+        #expect(opens[2].attribution == nil && opens[3].attribution == nil)
+        #expect(transcript.lines.allSatisfy { !$0.contains(secret) })
+        #expect(try CallRungRecordTests.files(under: knowledge, holding: secret).isEmpty)
         await MemoryService.closeAll()
-        #expect(try CallRungRecordTests.files(under: knowledge, holding: secret).isEmpty, "the closed archive holds the secret")
+        #expect(try CallRungRecordTests.files(under: knowledge, holding: secret).isEmpty)
     }
 
-    @Test("M05 RA-2: an open_session that opens records its route as today and no advice; the next, redirected, records its own and leaves the earlier call's none; one the tools refuse before the router records neither; counts exact, nothing replayed")
+    @Test("M05 RA-2: explicit openings record actual routes; invalid arguments record no dispatch")
     func openKeepsItsDispatchAndNoAdvice() async throws {
         let knowledge = Self.knowledge()
         defer { try? FileManager.default.removeItem(at: knowledge) }
         let fake  = RouteFake(.desktop, memory: knowledge)
         let tools = AutomationTools(session: fake, channels: [.web])
         tools.producer = CallProducer(source: .app, streamID: "m05", traceID: "advice-open")
-        let opened = try await Self.call(tools, "open_session", .object(["app": .string("Maps"), "named": .bool(true)]))
+        let opened = try await Self.call(tools, "open_session", .object(["app": .string("Maps")]))
         _ = try #require(fake.id)
         #expect(fake.opened == ["Maps"])
         let redirected = Self.answered(try await Self.call(tools, "open_session", .object(["app": .string("Maps")])))
-        #expect(redirected["opened"] == .bool(false) && redirected["route"].string == "web:google.com/maps", "\(redirected)")
+        #expect(redirected["opened"] != .bool(false) && redirected["route"] == .null)
         await #expect(throws: AutomationFailure.self, "refused by the tools before the router") {
             _ = try await Self.call(tools, "open_session", .object(["app": .string("Maps"), "named": .string("yes")]))
         }
         _ = try await Self.call(tools, "close_session", .object([:]))
-        #expect(fake.opened == ["Maps"], "opened once, never again")
+        #expect(fake.opened == ["Maps", "Maps"], "one opening per admitted request")
         let calls = try await Self.recorded("advice-open", in: knowledge)
         try #require(calls.count == 3, "Invalid arguments are refused before recording; three valid calls: \(calls)")
         #expect(calls.map(\.tool) == ["open_session", "open_session", "close_session"], "\(calls.map(\.tool))")
         #expect(calls[0].status == .completed && calls[0].route == CallRoute(.desktop) && calls[0].advice == nil, "\(calls[0])")
-        #expect(calls[1].status == .completed && calls[1].route == nil && calls[1].advice?.decision == .use
-                && calls[1].advice?.route == "web:google.com/maps", "\(calls[1])")
+        #expect(calls[1].status == .completed && calls[1].route == CallRoute(.desktop) && calls[1].advice == nil)
         #expect(calls[2].tool == "close_session" && calls[2].advice == nil && calls.allSatisfy { $0.dispatch == nil && $0.rung == nil
                                                                 && $0.attribution == nil })
         #expect(calls[1].performed == nil && calls[1].samples == 0)
@@ -425,12 +392,12 @@ struct CallDispatchRecordTests {
             "inputs": .array([.object(["name": .string("app"), "value": .string(secret), "secret": .bool(true)])]),
         ]))
         let attribution = try #require(tools.openTask?.attribution)
-        // Under the task: Finder opens with the fallback note (no files adapter in this build); Calendar is redirected.
+        // Optional notes remain informational; both requested applications open.
         let finder = try await Self.call(tools, "open_session", .object(["app": .string(secret)]))
         #expect(fake.id != nil && fake.opened.count == 1)
         #expect(Self.answered(finder)["routeNote"].string == finderNote && !Self.text(finder).contains(secret), Comment(rawValue: Self.text(finder)))
         let calendar = try await Self.call(tools, "open_session", .object(["app": .string("Calendar")]))
-        #expect(Self.answered(calendar)["opened"] == .bool(false) && fake.opened.count == 1)
+        #expect(Self.answered(calendar)["opened"] != .bool(false) && fake.opened.count == 2)
         _ = try await Self.call(tools, "end", .object(["outcome": .string("completed")]))
         #expect(tools.openTask == nil)
         // After the task: a refusal before the router; an opening that fails right after the decision with the note;
@@ -438,16 +405,16 @@ struct CallDispatchRecordTests {
         await #expect(throws: AutomationFailure.self) {
             _ = try await Self.call(tools, "open_session", .object(["app": .string("Maps"), "named": .string("yes")]))
         }
-        #expect(fake.opened.count == 1, "refused before the router: not invoked")
+        #expect(fake.opened.count == 2, "refused before the router: not invoked")
         fake.failsOpen = AutomationFailure("Finder showed no window.")
         let failedOpen = try await Self.call(tools, "open_session", .object(["app": .string(secret)]))
         #expect(failedOpen["isError"].bool == true, "\(failedOpen)")
         fake.failsOpen = nil
-        #expect(fake.opened.count == 2, "the failing open was invoked once, never again")
-        _ = try await Self.call(tools, "open_session", .object(["app": .string("Maps"), "named": .bool(true)]))
-        #expect(fake.opened.count == 3, "the named open was invoked once")
+        #expect(fake.opened.count == 3, "the failing open was invoked once, never again")
+        _ = try await Self.call(tools, "open_session", .object(["app": .string("Maps")]))
+        #expect(fake.opened.count == 4, "the named open was invoked once")
         let messages = try await Self.call(tools, "open_session", .object(["app": .string("Messages")]))
-        #expect(Self.answered(messages)["routeNote"].string == messagesNote && fake.opened.count == 4)
+        #expect(Self.answered(messages)["routeNote"].string == messagesNote && fake.opened.count == 5)
         // The session open now is the last one the fake opened (Messages): closed by its own id.
         _ = try await Self.call(tools, "close_session", .object([:]))
         #expect(transcript.lines.allSatisfy { !$0.contains(secret) }, "the transcript holds the secret")
@@ -459,8 +426,8 @@ struct CallDispatchRecordTests {
         // 1. Finder opened with the fallback note: the real route, the open decision with exactly the note, the task.
         #expect(opens[0].status == .completed && opens[0].route == CallRoute(.native) && opens[0].attribution == attribution, "\(opens[0])")
         #expect(opens[0].advice == CallRouteAdvice(decision: .open, route: nil, message: finderNote), "\(String(describing: opens[0].advice))")
-        // 2. Calendar redirected: a use, no route, the task.
-        #expect(opens[1].advice?.decision == .use && opens[1].advice?.route == "app_call(calendar)" && opens[1].route == nil
+        // Calendar opens on the real route under the same task, without substituting an adapter.
+        #expect(opens[1].advice == nil && opens[1].route == CallRoute(.native)
                 && opens[1].attribution == attribution, "\(opens[1])")
         // Invalid arguments above reached neither the router nor the operation recorder.
         // 4. The opening failed after the decision: the same note kept as the call's fact, the route row of the dispatch that

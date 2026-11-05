@@ -109,13 +109,16 @@ struct AutomationToolsTests {
         #expect(field == "control|textfield")
     }
 
-    @Test("opening distinguishes an explicitly named application from a generic request")
-    func namedMeansTheAppOrItsBrand() throws {
-        let definition = try #require(AutomationTools.definitions(for: .web).first { $0["name"].string == "open_session" })
-        let named = definition["inputSchema"]["properties"]["named"]
-        #expect(named["type"].string == "boolean")
-        #expect(named["description"].string?.contains("person") == true)
-        #expect(definition["description"].string?.contains("explicitly named") == true)
+    @Test("opening always names the requested app and offers no named selector")
+    func openingHasOneExplicitAppContract() throws {
+        for channels: AutomationChannels in [[], [.native], [.web], [.adapters], .all] {
+            let definition = try #require(AutomationTools.definitions(for: channels).first { $0["name"].string == "open_session" })
+            let schema = definition["inputSchema"]
+            #expect(schema["properties"]["named"] == .null)
+            #expect(schema["required"] == .array([.string("app")]))
+            #expect(schema["additionalProperties"] == .bool(false))
+            #expect(definition["description"].string?.contains("Open exactly the requested app and return its scene") == true)
+        }
     }
 
     @Test("instructions describe only composed routes while the opening contract stays compact")
@@ -134,7 +137,7 @@ struct AutomationToolsTests {
             #expect(text.contains("A web page opens in Braus's own browser engine") == channels.contains(.web))
             #expect(text.contains(browserApps) != channels.contains(.web))
             let opening = try #require(AutomationTools.definitions(for: channels).first { $0["name"].string == "open_session" })
-            #expect(opening["description"].string?.contains("Returns the current scene") == true)
+            #expect(opening["description"].string?.contains("return its scene") == true)
         }
         let tools = AutomationTools(session: SyntheticSession(), channels: [.native, .web])
         #expect(tools.instructions == AutomationTools.instructions(for: [.native, .web]))
@@ -636,7 +639,7 @@ extension AutomationToolsTests {
                 .first { $0["name"].string == "open_session" }?["description"].string ?? ""
         }
         #expect(!opening(false).contains("web:<host>"))
-        #expect(opening(true).contains("Returns the current scene"))
+        #expect(opening(true).contains("return its scene"))
         #expect(!AutomationTools.instructions.contains("web:<host>"))
         let web = AutomationTools.instructions(offeringAdapters: false, offeringWeb: true)
         #expect(web.contains("call open_session with web:<host> or an http(s) address"))
@@ -808,7 +811,7 @@ extension AutomationToolsTests {
         let act = try #require(AutomationTools.definitions.first { $0["name"].string == "act" })
         #expect(act["inputSchema"]["properties"]["section"]["type"].string == "string")
         let opening = try #require(AutomationTools.definitions.first { $0["name"].string == "open_session" })
-        #expect(opening["description"].string?.contains("current scene") == true)
+        #expect(opening["description"].string?.contains("return its scene") == true)
         #expect(definition["description"].string?.contains("full=true") == true)
         #expect(definition["inputSchema"]["properties"]["full"]["type"] == .string("boolean"))
         #expect(definition["inputSchema"]["required"] == .array([]))

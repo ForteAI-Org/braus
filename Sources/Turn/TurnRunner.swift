@@ -64,7 +64,7 @@ public final class TurnRunner {
 
     private lazy var router = MCPRouter(
         tools: tools.toolDefinitions,
-        instructions: AutomationTools.mcpInstructions(.firstLine),
+        instructions: tools.clientInstructions(.firstLine),
         rejectedToolAttempt: { [tools] name in tools.recordToolAttempt(name) }
     ) { [unowned self] name, arguments in
         try await call(name, arguments)
@@ -152,12 +152,15 @@ public final class TurnRunner {
         // The loop carries earlier words, but does not resend earlier tool results.
         if case .modelLoop = request.route { reset(.compaction) }
         let facts = hosting?.seatFacts()
-        let seat: String?
+        var seat: String?
         let task = await tools.taskFacts(for: facts?.application?.bundleID)
         seat = try tools.withStoppedTaskNotice { notice in
             var pieces: [SeatLine.Piece] = notice == nil ? [] : [.stoppedTask]
             if request.reviewingHumanIntervention { pieces.append(.reviewAfterPerson) }
             return try SeatLine.render(pieces: pieces, seat: facts, task: task)
+        }
+        if case .modelLoop = request.route, let plan = try await tools.openTaskContext() {
+            seat = [seat, plan].compactMap { $0 }.joined(separator: "\n\n")
         }
         switch request.route {
         case .modelLoop(let transport, let window):

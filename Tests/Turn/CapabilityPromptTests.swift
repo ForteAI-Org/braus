@@ -12,13 +12,15 @@ struct CapabilityPromptTests {
     @Test func fixedPartBudgetAndGroupIndex() throws {
         let tools = AutomationTools(session: TurnTestSession(), channels: .all)
         let names = tools.toolDefinitions.compactMap { $0["name"].string }
-        let text = TurnRunner.systemPrompt(role: nil, tools: tools.instructions,
-            toolNames: names, groupIndex: tools.groupIndex)
         #expect(names == ToolList.core.map(\.rawValue))
-        #expect(text.contains(tools.groupIndex))
-        let bytes = try ToolCatalogue.fixedPartBytes(instructions: text, definitions: tools.toolDefinitions)
-        print("EA2_FIXED channels=all bytes=\(bytes) tools=\(names.count)")
-        #expect(bytes <= 15_360)
+        for searchesWeb in [false, true] {
+            let text = TurnRunner.systemPrompt(role: nil, searchesWeb: searchesWeb, tools: tools.instructions,
+                toolNames: names, groupIndex: tools.groupIndex)
+            #expect(text.contains(tools.groupIndex))
+            let bytes = try ToolCatalogue.fixedPartBytes(instructions: text, definitions: tools.toolDefinitions)
+            print("EA2_FIXED channels=all searchesWeb=\(searchesWeb) bytes=\(bytes) tools=\(names.count)")
+            #expect(bytes <= 15_360)
+        }
     }
 
     @Test func systemPromptGetsListAndIndex() async throws {

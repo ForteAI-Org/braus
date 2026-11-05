@@ -18,6 +18,7 @@ final class ToolResultSession: AutomationSessionOperating {
     var openedWindowTitles: [String?] = []
     var results: [ActOutcomeKind] = []
     var actionError: (any Error)?
+    var openingFailure: (any Error)?
     var actionResult: ActOutcome?
     var throwOnTarget: String?
     var observationFailure: AutomationFailure?
@@ -33,6 +34,7 @@ final class ToolResultSession: AutomationSessionOperating {
 
     func open(application: String, window: String?) async throws -> SceneSnapshot {
         calls.append("open")
+        if let openingFailure { throw openingFailure }
         openedWindowTitles.append(window)
         id = UUID()
         return scene

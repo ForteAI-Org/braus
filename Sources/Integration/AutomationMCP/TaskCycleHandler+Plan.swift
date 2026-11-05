@@ -83,6 +83,21 @@ extension TaskCycleHandler {
         try checkPlan()
         let inputFacts = await Self.fingerprints(of: request.rawInputs)
         try checkPlan()
+        var invalidated = Set(request.rows.compactMap { offered -> TodoRowID? in
+            guard let id = offered.id, let previous = old?.rows.first(where: { $0.id == id }) else { return nil }
+            return offered.title != previous.title || (offered.app ?? previous.app) != previous.app ? id : nil
+        })
+        if let inputs = request.inputs, let current = openTask {
+            let base = try await TaskChannel.revision(current.revision, of: current.taskID, producer: owner, memory: memory)
+            try checkPlan()
+            if inputs.count != base.content.inputs.count || !zip(inputs, base.content.inputs).allSatisfy({ $0.isExactly($1) }) {
+                invalidated.formUnion(retained)
+            }
+        }
+        for id in invalidated {
+            state.offers.removeValue(forKey: id)
+            state.composition.removeValue(forKey: id)
+        }
         var nextID = (old?.rows.compactMap { Int($0.id.rawValue.dropFirst()) }.max() ?? 0)
         var checks = rowChecks
         var rows: [TodoRow] = []
@@ -96,10 +111,10 @@ extension TaskCycleHandler {
             let previous = old?.rows.first { $0.id == id }
             let app = offered.app ?? previous?.app
             let changedCheck = offered.expected.map { $0.read != rowChecks[id]?.read } ?? false
-            let reopens = previous?.status == .done && (changedCheck || app != previous?.app)
+            let reopens = previous?.status == .done && (changedCheck || app != previous?.app || invalidated.contains(id))
             rows.append(TodoRow(id: id, title: offered.title, app: app,
                 status: reopens ? .pending : previous?.status ?? .pending,
-                part: planPart(offered.part, row: id, previous: previous?.part, state: state), expected: offered.expected?.kept ?? previous?.expected))
+                part: try planPart(offered.part, row: id, previous: invalidated.contains(id) ? nil : previous?.part, state: state), expected: offered.expected?.kept ?? previous?.expected))
             if let expected = offered.expected { checks[id] = expected }
         }
         for var removed in old?.rows ?? [] where !rows.contains(where: { $0.id == removed.id }) {
@@ -112,12 +127,13 @@ extension TaskCycleHandler {
             let content = try TaskRevisionContent(goal: request.request ?? base.content.goal,
                 requestedResult: base.content.requestedResult, constraints: base.content.constraints,
                 inputs: request.inputs ?? base.content.inputs, messageRefs: base.content.messageRefs)
-            try await chooseParts(rows, task: current, content: content, owner: owner, memory: memory, state: state)
+            try await chooseParts(rows, task: current, content: content, owner: owner, memory: memory, state: state,
+                explicit: Set(request.rows.compactMap { $0.part == nil ? nil : $0.id }))
             try checkPlan()
             let changedExpectations = Set(checks.compactMap { id, check in rowChecks[id]?.read != check.read ? id : nil })
                 .union(rows.filter { row in row.expected != nil && old?.rows.first(where: { $0.id == row.id })?.app != row.app }.map(\.id))
             let revision = makeRevision(.revised(reason: request.reason), rows: rows, taskID: current.taskID,
-                at: memory.clock.calendarMS(), revisedExpectations: changedExpectations)
+                at: memory.clock.calendarMS(), revisedExpectations: changedExpectations.union(invalidated))
             try Task.checkCancellation()
             if !content.isExactly(base.content) {
                 let revised = try await TaskChannel.revise(current, expecting: current.revision, content: content,
@@ -171,6 +187,13 @@ extension TaskCycleHandler {
         for (id, check) in checks where rowChecks[id]?.read != check.read {
             rowOpenings.removeValue(forKey: id)
             rowExpectationTimes[id] = todoRecordedAtMS
+        }
+        for id in invalidated {
+            deliveredRows.remove(id)
+            rowMemory.removeValue(forKey: id)
+            deliveredOffers.removeValue(forKey: id)
+            deliveredComposition.removeValue(forKey: id)
+            deliveredPlanParts.removeValue(forKey: id)
         }
         rowChecks = checks
         if old == nil { fingerprints = inputFacts }

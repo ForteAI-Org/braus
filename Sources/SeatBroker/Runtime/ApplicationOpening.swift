@@ -282,12 +282,12 @@ nonisolated enum ApplicationOpening {
             + cause.localizedDescription)
     }
 
-    /// What became of an application that opened and was never seated: quit again when this open
-    /// launched it, and left running when it was already open, since that one is the person's.
+    /// Reports a quit request for an app this open launched, without claiming its exit was observed.
+    /// An application that was already open is left alone.
     static func unseated(_ name: String, wasLaunched: Bool, wasQuit: Bool) -> String {
         switch (wasLaunched, wasQuit) {
-            case (true, true) : "\(name) was closed again, since this open had launched it."
-            case (true, false): "\(name) could not be closed again and is still running; quit it yourself."
+            case (true, true) : "\(name) was asked to quit; its exit was not verified."
+            case (true, false): "A quit request for \(name) was not confirmed; check whether it is still running."
             case (false, _)   : "\(name) was left running, since it was already open."
         }
     }

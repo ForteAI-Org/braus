@@ -59,7 +59,7 @@ public nonisolated enum ModelText {
     private static var allCatalogue: [Entry] {
         systemPromptTexts + toolDescriptionTexts + toolAnswerTexts + refusalTexts
             + mcpInstructionTexts + seatLineTexts + legendTexts + summaryTexts + outcomeTexts + capabilityTexts
-            + serviceTexts + guideTexts + taskStateTexts + recallTexts
+            + serviceTexts + guideTexts + taskStateTexts + recallTexts + openingFailureTexts
     }
 
     private static let entries = Dictionary(uniqueKeysWithValues: allCatalogue.map { ($0.key, $0.text) })

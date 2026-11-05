@@ -23,7 +23,7 @@ final class ExternalMCPSession {
     lazy var router: MCPRouter = {
         let router = MCPRouter(
             tools: profile.desktop ? tools.toolDefinitions : [],
-            instructions: profile.desktop ? AutomationTools.mcpInstructions(.full) : Self.withoutDesktop,
+            instructions: profile.desktop ? tools.clientInstructions(.full) : Self.withoutDesktop,
             rejectedToolAttempt: { [tools] name in tools.recordToolAttempt(name) }
         ) { [weak self, tools] name, arguments in
             guard let self, !self.isClosed else {

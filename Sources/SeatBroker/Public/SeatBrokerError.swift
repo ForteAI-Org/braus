@@ -62,7 +62,8 @@ public enum SeatBrokerError: LocalizedError {
         case .windowOnAnotherDesktop(let application):
             "\(application)'s window is on another desktop: bring it to the current desktop and ask again."
         case .noWindowShown(let application, let seconds, let wasLaunched, let wasQuit):
-            "\(application) launched but showed no window within \(seconds) s. "
+            (wasLaunched ? "\(application) launched" : "\(application) is running")
+                + " but showed no window within \(seconds) s. "
                 + ApplicationOpening.unseated(application, wasLaunched: wasLaunched, wasQuit: wasQuit)
         }
     }

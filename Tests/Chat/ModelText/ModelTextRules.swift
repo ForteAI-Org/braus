@@ -91,7 +91,7 @@ func validate(_ entries: [ModelText.Entry], context: RuleContext) -> [Violation]
             guard !phrase.lowercased().hasPrefix("the ") else { continue }
             guard let word = phrase.split(separator: " ").last else { continue }
             let name = String(word)
-            guard !["a", "an", "the"].contains(name.lowercased()) else { continue }
+            guard !["a", "an", "the", "these"].contains(name.lowercased()) else { continue }
             if !context.toolNames.contains(name) { add(entry, .name); add(entry, .contradiction) }
         }
         for phrase in matches("\\b[a-z][a-z_0-9]* then [a-z][a-z_0-9]*\\b", text) {

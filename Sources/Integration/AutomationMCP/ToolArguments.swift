@@ -9,7 +9,7 @@ import PerceptionCore
 public enum ToolArguments {
     public enum ExpectationError: Error, Sendable, Equatable { case invalidShape }
     private static var invalidExpectation: AutomationFailure {
-        AutomationFailure(ModelText.text(.init(rawValue: "expect.invalidShape")), cause: "invalid_arguments")
+        AutomationFailure(ModelText.text(.init(rawValue: "expect.invalidShape")), cause: "invalid_arguments", beforeDispatch: true)
     }
 
     /// Decodes a screen predicate for batch steps and host execution.
@@ -23,7 +23,7 @@ public enum ToolArguments {
             do { json = try JSONDecoder().decode(JSONValue.self, from: JSONSerialization.data(withJSONObject: value)) }
             catch { throw invalidExpectation }
         }
-        if json == .null { return nil }
+        if json == .null { throw invalidExpectation }
         guard let fields = json.object else { throw invalidExpectation }
         if let title = json["window"].string, !title.isEmpty {
             guard Set(fields.keys).isSubset(of: ["window", "open"]),
@@ -69,7 +69,7 @@ public enum ToolArguments {
     }
 
     private static func invalid(_ message: String) -> AutomationFailure {
-        AutomationFailure(message, cause: "invalid_arguments")
+        AutomationFailure(message, cause: "invalid_arguments", beforeDispatch: true)
     }
 
     /// The request of a call as the contract keeps it, from the arguments `answer` will decode the

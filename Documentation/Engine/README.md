@@ -167,9 +167,33 @@ in front and its gestures need no raising, which is why the engine treats that r
 
 ### Routing and adapter consent
 
-The application resolver supplies the bundle identity before `open_session` chooses another route. The unified
-router keeps the native, desktop and web sessions, their dispatch records and explicit handoffs; closing it closes
-all owned sessions.
+`open_session` opens the requested application; a cheaper web or adapter suggestion never substitutes it.
+The tool has no `named` selector; the requested application is always explicit.
+The application resolver supplies identity for same-app resume. The unified router prepares the requested
+route before transferring control, keeps actual dispatch records and explicit handoffs, and closes its
+owned resources once. Informational notes may be returned without changing what opens.
+
+Native preparation holds B separately from A and publishes the new runtime only after a usable scene;
+failed preparation preserves A's runtime and claim. Cancellation after an ignored asynchronous wait is
+checked before publication. Only a newly adopted session can be reported as opened after human interruption;
+A's retained ID alone is no evidence that B opened.
+
+Opening diagnostics retain typed lookup and exact-window-selection causes across the native handoff.
+Missing and ambiguous installed-app lookups are distinct pre-launch causes; ambiguity carries only the
+match count across the boundary, without exposing candidate identities or selecting one automatically.
+Lookup producers attest that no application opening was requested before any observation. A held
+selection refusal requests no explicit target switch, app opening or quit, while effects of its preceding
+observation remain uncertain because it can follow or adopt windows. The application session and lease
+remain active, without claiming that the previously selected window is unchanged. A selection failure after
+opening keeps its uncertainty. The session and router report the state actually retained after cleanup.
+ModelText renders the same minimized cause for tools and CLI diagnostics, without parsing driver text.
+
+The Seat route reuses its lease when changing apps. Its existing driver may finish with A, including quitting
+an app Braus launched, before adopting B. It cannot guarantee that all windows remain open until task end or
+roll back a post-transfer failure. This limit is stated in the served `open_session` description. A pre-transfer
+refusal retains A only when the opener attests it is still held; otherwise failure leaves no active session,
+without reopening A automatically. Cleanup warnings survive route changes. Session owners serialize calls
+and cancel and drain an opening before `close`; arbitrary overlapping opens are outside this contract.
 Mail's default route is the local `mail` adapter. An irreversible adapter verb needs approval for that call and its
 own read-back contract; a stopped worker turn refuses its pending approvals. The standalone adapter CLI has no
 approver and therefore refuses irreversible verbs. The explicit channel selection remains authoritative; the legacy
@@ -185,14 +209,14 @@ catalogue and the available sessions follow the composed routes.
 | Channel | What it composes |
 | --- | --- |
 | `native` | `RoutingAutomationSession` with `MacAutomationSession` before the Seat; a `RouteHandoff` gives the app to the desktop session |
-| `web` | the router's Chrome tab (`WebAutomationSession`), and `TaskRouter` before `open_session`, which then takes `named` |
+| `web` | the router's Chrome tab (`WebAutomationSession`); only an explicit web address selects it |
 | `adapters` | `app_capabilities` and `app_call` over `AppAdapters.standard()` |
 
 A composition root reads the set once at start and hands it to what it builds: the app from
 the `computer.channels` default (`AppPreferences.channels`, also a launch argument such as
 `-computer.channels native,web`), and `braus chat` from `--channels`, which supports `native`, `adapters` and `web`. `AutomationTools` keeps the initial core fixed and exposes additional permitted capabilities
-through `find` and `call`: adapter entries exist while adapters are composed, and `named` is
-available on opening when another route is offered.
+through `find` and `call`: adapter entries exist while adapters are composed. Available advisory routes
+do not intercept an explicit app opening.
 A channel grants no authority of its own. Each route keeps its consent, permissions and policy.
 
 These are optional routes in this release; they are not enabled by default. Enabling a route
@@ -998,6 +1022,13 @@ internal after-turn responsibility; the model is not required to call a legacy t
 `TaskChannel` joins the first todo to task creation and joins final
 rows and completion evidence to the task's closure. `TodoEvent` belongs to AutomationRuntime and
 reaches hosts through `TurnRunEvent.todo` after a revision commits, on the main actor.
+
+After the end checkpoint commits, `end.row_check` reports the checked active row's `id`, actual
+closed `status` and `verdict`, separately from task-level `completion_evidence`. It is absent when
+no row was active. `unexecuted_rows` lists the current pending row IDs abandoned by that end, in
+plan order. These fields reuse committed facts: they add no reads or writes, never promote pending
+rows and do not change the model's declared outcome. Interruption or checkpoint failure before commit returns no
+successful closure facts; a failed write retains the existing task for an explicit retry.
 
 `SQLiteTodoRepository` uses the approved schema 22 resource without creating or migrating tables.
 After DB2 migration, ordinary schema 22 archives expose the todo store automatically.

@@ -375,7 +375,7 @@ struct BrokeredAutomationSessionTests {
                 SceneSnapshot(bundleID: "com.apple.dock", appName: "Dock", windowTitle: title,
                               viewportPixelSize: ViewportPixelSize(width: 10, height: 10), elements: [])
             },
-            switching: { _, _, wanted in
+            switching: { _, _, wanted, _ in
                 switches.append(wanted)
                 if wanted == "Missing" { throw Opened() }
                 title = wanted
@@ -425,8 +425,8 @@ struct BrokeredAutomationSessionTests {
         _ = try await desktop.open(application: "Test", window: nil)
         let first = try #require(desktop.id)
 
-        // A live seat still refuses a second open.
-        await #expect(throws: AutomationFailure.self) { try await desktop.open(application: "Test", window: nil) }
+        // The same live application resumes without another seating.
+        _ = try await desktop.open(application: "Test", window: nil)
         #expect(desktop.id == first)
 
         stopped = true
@@ -627,12 +627,12 @@ struct BrokeredAutomationSessionTests {
         #expect(sentence.hasPrefix("TextEdit was launched in the background and showed no window within 20 s."))
         #expect(sentence.contains("the seat never brings an application to the front"))
         #expect(sentence.contains("the computer was given back"))
-        #expect(sentence.contains("TextEdit was closed again, since this open had launched it."))
+        #expect(sentence.contains("TextEdit was asked to quit; its exit was not verified."))
         #expect(!sentence.contains("still running"))
         #expect(broker.queue.entries.isEmpty)
     }
 
-    @Test("an application that was never seated says whether it was closed again or left running")
+    @Test("an application that was never seated reports quit requests without inventing process exit")
     func anUnseatedApplicationSaysWhatBecameOfIt() {
         func sentence(_ wasLaunched: Bool, _ wasQuit: Bool) -> String {
             let error = SeatBrokerError.noWindowShown(application: "Notes", seconds: 20, wasLaunched: wasLaunched,
@@ -641,10 +641,10 @@ struct BrokeredAutomationSessionTests {
         }
         #expect(sentence(false, false).hasPrefix("Notes is running and showed no window within 20 s."))
         #expect(sentence(false, false).contains("Notes was left running, since it was already open."))
-        #expect(sentence(true, false).contains("Notes could not be closed again and is still running"))
+        #expect(sentence(true, false).contains("A quit request for Notes was not confirmed"))
         #expect(SeatBrokerError.noWindowShown(application: "Notes", seconds: 20, wasLaunched: true, wasQuit: true)
             .localizedDescription == "Notes launched but showed no window within 20 s. "
-                + "Notes was closed again, since this open had launched it.")
+                + "Notes was asked to quit; its exit was not verified.")
     }
 
     @Test("a seat that cannot observe is worded for the agent, not printed as its case")

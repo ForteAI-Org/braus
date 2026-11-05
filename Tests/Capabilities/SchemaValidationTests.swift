@@ -61,6 +61,8 @@ struct SchemaValidationTests {
     @Test func stringAndArraySizesAndUniqueItems() {
         let text: JSONValue = .object(["type": .string("string"), "minLength": .number(1), "maxLength": .number(2)])
         #expect(SchemaValidation.firstProblem(.string("é"), schema: text) == nil)
+        #expect(SchemaValidation.firstProblem(.string("a\u{0301}"), schema: text) == nil)
+        #expect(SchemaValidation.firstProblem(.string("a\u{0301}b"), schema: text) != nil)
         #expect(SchemaValidation.firstProblem(.string(""), schema: text) != nil)
         #expect(SchemaValidation.firstProblem(.string("abc"), schema: text) != nil)
         let array: JSONValue = .object([
@@ -93,7 +95,7 @@ struct SchemaValidationTests {
 
     @Test func unsupportedKeywordsInvalidateTheWholeSchema() {
         for keyword in ["const", "pattern", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
-                        "minProperties", "maxProperties", "$ref", "format", "not", "contains"] {
+                        "minProperties", "maxProperties", "format", "not", "contains"] {
             let schema: JSONValue = .object([keyword: .string("unsupported")])
             #expect(SchemaValidation.firstProblem(.null, schema: schema)?.code == .unsupportedSchemaKeyword(keyword), "Accepted \(keyword)")
             let unused = objectSchema(["unused": schema])

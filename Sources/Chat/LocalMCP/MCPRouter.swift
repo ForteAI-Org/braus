@@ -247,10 +247,13 @@ public final class MCPRouter {
     /// The result a tool call that threw carries back to the model: the error in its own words, marked
     /// as an error, with the guidance that its effects may be partial.
     public static func failureResult(_ error: any Error) -> JSONValue {
-        toolResult(.object([
+        let beforeDispatch = (error as? any MCPFailureContext)?.isBeforeDispatch == true
+        return toolResult(.object([
             "status": .string("error"),
             "message": .string(String(describing: error)),
-            "guidance": .string("Effects may be partial. Observe before deciding the next action; do not replay automatically.")
+            "dispatch": .string(beforeDispatch ? "not_dispatched" : "not_known"),
+            "guidance": .string(beforeDispatch ? "Nothing was dispatched. Correct the arguments before trying again."
+                : "Effects may be partial. Observe before deciding the next action; do not replay automatically.")
         ]), isError: true)
     }
 

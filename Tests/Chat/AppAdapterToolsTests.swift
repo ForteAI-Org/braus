@@ -187,7 +187,7 @@ struct AppAdapterToolsTests {
 
     // MARK: open_session and the task router
 
-    /// The `named` argument `open_session` takes from these tools, `.null` when it takes none.
+    /// The retired selector must be absent from every composed opening schema.
     private static func namedProperty(of tools: AutomationTools) -> JSONValue {
         tools.toolDefinitions.first { $0["name"].string == "open_session" }?["inputSchema"]["properties"]["named"] ?? .null
     }
@@ -198,26 +198,29 @@ struct AppAdapterToolsTests {
         return try await tools.call("open_session", .object(arguments)).payload
     }
 
-    @Test("open_session on an app the resolver names as one with an adapter answers the adapter and opens nothing")
-    func routedToTheAdapter() async throws {
+    @Test("open_session opens the requested app even when its adapter is ready")
+    func explicitOpeningDoesNotSubstituteTheAdapter() async throws {
         let session = RoutingSession()
         let tools   = AutomationTools(session: session, adapters: AppAdapters([CalendarStub(.ready)]))
         let answer  = try await Self.open(tools, "Calendario")
-        #expect(answer["opened"] == .bool(false))
-        #expect(answer["route"].string == "app_call(calendar)")
-        #expect(answer["message"].string?.contains("use find") == true)
-        #expect(answer["message"].string?.contains("then call") == true)
-        #expect(answer["message"].string?.contains("app_capabilities") == false)
-        #expect(session.resolved == ["Calendario"] && session.opened.isEmpty)
-        #expect(Self.namedProperty(of: tools)["type"].string == "boolean")
+        #expect(answer["session"].string == session.id?.uuidString)
+        #expect(answer["route"] == .null && answer["routeNote"] == .null)
+        #expect(session.resolved == ["Calendario"] && session.opened == ["Calendario"])
+        #expect(Self.namedProperty(of: tools) == .null)
     }
 
-    @Test("open_session opens as asked when the person named the app, or the seat holds it already")
-    func namedOrHeldOpens() async throws {
+    @Test("open_session rejects the retired named selector without effects, then opens as asked")
+    func retiredNamedIsRejectedBeforeOpening() async throws {
         let session = RoutingSession()
         let tools   = AutomationTools(session: session, adapters: AppAdapters([CalendarStub(.ready)]))
-        _ = try await Self.open(tools, "Calendario", named: true)
-        #expect(session.opened == ["Calendario"] && session.resolved.isEmpty)
+        for named in [false, true] {
+            await #expect(throws: AutomationFailure.self) {
+                try await Self.open(tools, "Calendario", named: named)
+            }
+        }
+        #expect(session.opened.isEmpty && session.resolved.isEmpty)
+        _ = try await Self.open(tools, "Calendario")
+        #expect(session.opened == ["Calendario"] && session.resolved == ["Calendario"])
         session.held = "com.apple.iCal"
         _ = try await Self.open(tools, "Calendar")
         #expect(session.opened == ["Calendario", "Calendar"])
@@ -237,17 +240,20 @@ struct AppAdapterToolsTests {
         #expect(Self.namedProperty(of: tools) == .null)
     }
 
-    @Test("with the web session composed, open_session on an app a website does answers web:<host>, unless named")
-    func routedToTheWeb() async throws {
+    @Test("with the web composed, explicit app opening never substitutes the website or accepts named")
+    func explicitOpeningDoesNotSubstituteTheWeb() async throws {
         let session = RoutingSession()
         let tools   = AutomationTools(session: session, offersWeb: true)
         let answer  = try await Self.open(tools, "Mappe")
-        #expect(answer["opened"] == .bool(false))
-        #expect(answer["route"].string == "web:google.com/maps")
-        #expect(answer["message"].string?.contains("named true") == true)
-        #expect(session.opened.isEmpty)
-        #expect(Self.namedProperty(of: tools)["type"].string == "boolean")
-        _ = try await Self.open(tools, "Mappe", named: true)
+        #expect(answer["session"].string == session.id?.uuidString)
+        #expect(answer["route"] == .null && answer["routeNote"] == .null)
+        #expect(session.opened == ["Mappe"])
+        #expect(Self.namedProperty(of: tools) == .null)
+        for named in [false, true] {
+            await #expect(throws: AutomationFailure.self) {
+                try await Self.open(tools, "Mappe", named: named)
+            }
+        }
         #expect(session.opened == ["Mappe"])
         _ = try await Self.open(AutomationTools(session: session), "Mappe")
         #expect(session.opened == ["Mappe", "Mappe"])

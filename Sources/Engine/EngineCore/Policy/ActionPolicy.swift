@@ -17,7 +17,7 @@ public enum ActionPolicy {
     static let destructiveTerms: [String] = [
         // English
         "delete", "remove", "trash", "discard", "erase", "reset", "format", "uninstall", "purge", "wipe",
-        "destroy", "overwrite", "replace all", "quit", "sign out", "log out", "logout", "deactivate",
+        "destroy", "clear", "effacer", "löschen", "borrar", "overwrite", "replace all", "quit", "sign out", "log out", "logout", "deactivate",
         "revoke", "send", "publish", "submit", "buy", "purchase", "pay", "confirm order",
         // Italian, as stems
         "elimin", "cancell", "rimuov", "cestin", "ripristin", "azzera", "svuot", "sovrascriv",
@@ -29,8 +29,8 @@ public enum ActionPolicy {
     /// A pane selector is no action either: a radio button or a tab only selects one of its siblings, and
     /// one named exactly by a pane's name picks the pane and runs nothing. Numbers' inspector selector
     /// "Format", an `AXRadioButton` beside "Organise", was refused for its substring (B2 trial, 17/10/2026).
-    /// A button, a menu item, an element with no role, and every other label, "Format Disk" included,
-    /// keep the label's rule.
+    /// Ambiguous clear words remain protected: absence of selection or dialogs does not prove a transient target.
+    /// Other buttons, menu items and controls with unknown roles keep the conservative label rule.
     public static func isDestructive(
         label    : String?,
         bundleID : String? = nil,
@@ -39,6 +39,9 @@ public enum ActionPolicy {
     ) -> Bool {
         guard let label else { return false }
         let lowered = label.lowercased()
+        if isClearWord(lowered.split(whereSeparator: \.isWhitespace).first.map { String($0).trimmingCharacters(in: .punctuationCharacters) } ?? "") {
+            return true
+        }
         if isAudioSendSelector(label: lowered, bundleID: bundleID, role: role, container: container) {
             return false
         }
@@ -46,6 +49,10 @@ public enum ActionPolicy {
             return false
         }
         return destructiveTerms.contains { lowered.contains($0) }
+    }
+
+    private static func isClearWord(_ word: String) -> Bool {
+        ["cancella", "azzera", "svuota", "clear", "erase", "effacer", "löschen", "borrar"].contains(word)
     }
 
     /// The roles of a control that selects one of its siblings and runs nothing.

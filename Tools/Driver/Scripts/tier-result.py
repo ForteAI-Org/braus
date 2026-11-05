@@ -5,8 +5,8 @@ import pathlib
 import re
 import sys
 
-SUMMARY = re.compile(r'^.*?Test run with (\d+) tests?\b.*?\b(passed|failed)\b', re.MULTILINE)
-SKIPPED = re.compile(r'^[^\w\n]*Test (?!run with ).+ skipped(?:[.:].*)?$', re.MULTILINE)
+SUMMARY = re.compile(r'^[ \t]*[✔✘] Test run with (\d+) tests?\b.*?\b(passed|failed)\b', re.MULTILINE)
+SKIPPED = re.compile(r'^[ \t]*➜ Test (?!run with ).+ skipped(?:[.:].*)?$', re.MULTILINE)
 
 
 def summarize(text, expected, runner_status, expected_runs):

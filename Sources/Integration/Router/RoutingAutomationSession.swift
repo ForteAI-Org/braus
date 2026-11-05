@@ -21,7 +21,7 @@ import WindowServerListing
 /// - A native session can also give the app back at the start of a later call, before acting (the app
 ///   came in front during the last one): the desktop session opens it and the same call runs there.
 ///
-/// Which app to open at all is the `TaskRouter`'s, asked by `open_session` before this session.
+/// An explicit application is opened as requested. Task-route advice does not replace it.
 ///
 /// Each dispatch is reported to the call's recorder (`CallRecorder.current`) before it runs: the session it goes to,
 /// and the reason when the native session gave the app back. The record keeps the last, the route the call ran on
@@ -33,9 +33,12 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
     public let desktop: any AutomationSessionOperating
     public let web    : (any AutomationSessionOperating)?
     private var active: (any AutomationSessionOperating)?
+    /// Sessions with resources owned by this router, including an opening that handed back a claim.
+    private var owned: [ObjectIdentifier: any AutomationSessionOperating] = [:]
+    private var releaseWarnings: [String] = []
     /// Why the last native `open` went to the desktop session; nil when the native session took it.
     public private(set) var lastHandoff: (any RouteHandoff)?
-    /// The window title the last `open` asked for, for a handoff after it.
+    /// The requested or freshly observed window title, retained for a later handoff.
     private var openedWindow: String?
 
     public init(native: (any AutomationSessionOperating)? = nil, desktop: any AutomationSessionOperating,
@@ -50,8 +53,7 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
     public var id: UUID? { current.id }
 
     public func open(application: String, window: String?) async throws -> SceneSnapshot {
-        lastHandoff = nil
-        openedWindow = window
+        try Task.checkCancellation()
         if Self.isWebAddress(application) {
             guard let web else {
                 throw AutomationFailure("Web pages are not reachable from this session: it has no web session. "
@@ -60,39 +62,97 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
             return try await open(application, window: window, on: web)
         }
         guard let native else { return try await open(application, window: window, on: desktop) }
+        if let active, active === desktop, active.id != nil, let heldBundle = active.memoryApplication {
+            let requested = application.caseInsensitiveCompare(heldBundle) == .orderedSame
+                ? heldBundle : await active.resolvedBundleID(of: application)
+            try Task.checkCancellation()
+            if requested?.caseInsensitiveCompare(heldBundle) == .orderedSame {
+                return try await open(heldBundle, window: window, on: desktop)
+            }
+        }
+        let previousNativeBundle = native.memoryApplication
         do {
             return try await open(application, window: window, on: native)
         } catch let handoff as any RouteHandoff {
-            lastHandoff = handoff
             // The app is open now, so the desktop session finds it by its bundle id.
+            let selected = window ?? (previousNativeBundle == handoff.bundleID ? openedWindow : nil)
             return try await handingOver(from: native) {
-                try await open(handoff.bundleID, window: window, on: desktop, handedBack: handoff)
+                try await open(handoff.bundleID, window: selected, on: desktop, handedBack: handoff)
             }
         }
     }
 
-    /// Runs `body`, the desktop session taking the app `native` gave back, then closes `native`: its claim on the
-    /// app (`AppClaims`) lasts until the desktop session holds the app too, or failed to, so no other owner takes it
-    /// between.
+    /// Releases only the handoff's resources after the destination acquired its own claim or failed.
     private func handingOver<Answer>(from native: any AutomationSessionOperating,
                                      _ body: () async throws -> Answer) async throws -> Answer {
         do {
             let answer = try await body()
-            await native.close()
+            await release(native)
             return answer
         } catch {
-            await native.close()
+            await releaseHandoff(from: native)
             throw error
         }
     }
 
-    /// Moving to another session ends the open one, as opening a second app does.
+    private func releaseHandoff(from session: any AutomationSessionOperating) async {
+        if let holding = session as? any RouteHandoffHolding {
+            await holding.releaseHandoff()
+            if session.id == nil { owned.removeValue(forKey: ObjectIdentifier(session)) }
+        } else {
+            await release(session)
+        }
+    }
+
+    private func release(_ session: any AutomationSessionOperating) async {
+        guard owned.removeValue(forKey: ObjectIdentifier(session)) != nil else { return }
+        await session.close()
+        if let warning = session.closeWarning { releaseWarnings.append(warning) }
+    }
+
+    private func commit(_ next: any AutomationSessionOperating, window: String?,
+                        handoff: (any RouteHandoff)?) async {
+        let previous = active
+        active = next
+        openedWindow = window
+        lastHandoff = handoff
+        if let previous, previous !== next, !(handoff != nil && previous === native) {
+            await release(previous)
+        }
+    }
+
+    /// Prepares the requested route before transferring control and releasing the previous one.
     private func open(_ application: String, window: String?, on next: any AutomationSessionOperating,
                       handedBack handoff: (any RouteHandoff)? = nil) async throws -> SceneSnapshot {
-        if let active, active !== next, active.id != nil { await active.close() }
-        active = next
+        let previousSessionID = id
+        let key = ObjectIdentifier(next)
+        let wasOwned = owned[key] != nil
+        let previousID = next.id
+        owned[key] = next
         await report(next, handedBack: handoff)
-        return try await next.open(application: application, window: window)
+        do {
+            try Task.checkCancellation()
+            let scene = try await next.open(application: application, window: window)
+            try Task.checkCancellation()
+            let selected = window ?? (scene.windowTitle.isEmpty ? nil : scene.windowTitle)
+            await commit(next, window: selected, handoff: handoff)
+            return scene
+        } catch let handoff as any RouteHandoff {
+            throw handoff
+        } catch {
+            if error is CancellationError, AutomationCallInterruption.current?.wasInterrupted == true,
+               let id = next.id, id != previousID {
+                await commit(next, window: window, handoff: handoff)
+            } else if !wasOwned || next.id != previousID {
+                await release(next)
+            }
+            if let opening = error as? ApplicationOpeningFailure, opening.reason != nil {
+                let state: ApplicationOpeningFailure.State = id == nil ? .noActiveSession
+                    : id == previousSessionID ? .previousRetained : .unverifiedTarget
+                throw opening.reporting(state: state)
+            }
+            throw error
+        }
     }
 
     /// Tells the call's recorder, before the dispatch, which route `session` is, with the native session's reason
@@ -150,7 +210,6 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
             return try await call(session)
         } catch let handoff as any RouteHandoff {
             guard let native, session === native else { throw handoff }
-            lastHandoff = handoff
             _ = try await handingOver(from: native) {
                 try await open(handoff.bundleID, window: openedWindow, on: desktop, handedBack: handoff)
             }
@@ -159,13 +218,17 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
     }
 
     public func close() async {
-        var closed: Set<ObjectIdentifier> = []
-        for session in [native, desktop, web].compactMap({ $0 }) where closed.insert(ObjectIdentifier(session)).inserted {
-            await session.close()
-        }
+        let sessions = Array(owned.values)
+        for session in sessions { await release(session) }
+        active = nil
+        openedWindow = nil
     }
 
-    public var closeWarning: String? { current.closeWarning }
+    public var closeWarning: String? {
+        let warnings = releaseWarnings + (current.closeWarning.map { [$0] } ?? [])
+        let unique = warnings.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        return unique.isEmpty ? nil : unique.joined(separator: " ")
+    }
     public var seatNotice: String? { current.seatNotice }
     public var browserNotice: String? { current.browserNotice }
     public var observedWindowNumber: Int? { current.observedWindowNumber }

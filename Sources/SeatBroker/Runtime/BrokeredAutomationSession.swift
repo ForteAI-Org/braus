@@ -42,8 +42,9 @@ import VisionText
 ///
 /// Calls are serialized by the owner, as `AutomationSessionOperating` requires. Cancelling an
 /// `open` that waits in the queue takes the worker out of it; one cancelled after the seat was
-/// granted gives the seat back before it throws. A failed `open` leaves nothing held, and `close`
-/// is safe at any point and twice.
+/// granted gives the seat back before it throws. A refused replacement retains the previous app only when
+/// the opener attests it is still held; a failure after transfer closes the session without replaying A.
+/// Calls are serialized, and `close` follows cancellation and drain; closing twice is safe.
 @MainActor
 @Observable
 public final class BrokeredAutomationSession: AutomationSessionOperating {
@@ -100,7 +101,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private let missingGrant: @MainActor () -> PermissionKind?
     @ObservationIgnored private let requestGrants: @MainActor () -> Void
     @ObservationIgnored private let seating: Seating
-    @ObservationIgnored private let switching: @MainActor (SeatTarget, pid_t, String) async throws -> Void
+    @ObservationIgnored private let switching: @MainActor (SeatTarget, pid_t, String, String) async throws -> Void
     @ObservationIgnored private let perceiving: Perceiving
     @ObservationIgnored private let runningApplication: @MainActor (pid_t) -> NSRunningApplication?
     @ObservationIgnored private let idleWindow: Duration
@@ -186,7 +187,12 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The broker's own path: `open(applicationNamed:windowTitled:)` launches an application that
     /// is not running and records its provenance, then the session lends a target over its seat.
     static let seatedByTheBroker: Seating = { session, application, window in
-        let opened = try await session.open(applicationNamed: application, windowTitled: window)
+        let opened: TargetApp
+        if session.isUsingApp {
+            opened = try await session.openReplacingApplication(application, window: window)
+        } else {
+            opened = try await session.open(applicationNamed: application, windowTitled: window)
+        }
         return (opened, try session.borrowedSeatTarget())
     }
 
@@ -207,21 +213,29 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     /// Selects one exact current title among held windows, retaining the application's lease.
-    static func switchWindow(_ target: SeatTarget, processID: pid_t, title: String) async throws {
+    static func switchWindow(_ target: SeatTarget, processID: pid_t, title: String, application: String) async throws {
         let seat = try target.agentSeat()
         _ = try await target.observe()
-        let candidates = TargetEnumerator.windows(
-            of: processID, includingHeld: seat.adoptedWindows.map(\.reference)
-        ).filter { $0.title == title }
-        guard candidates.count == 1, let candidate = candidates.first else {
-            throw AutomationFailure("The window title is missing or ambiguous. Read windows and use one exact title.")
-        }
+        let windows = TargetEnumerator.windows(of: processID, includingHeld: seat.adoptedWindows.map(\.reference))
+        let candidate = try exactHeldWindow(in: windows, title: title, application: application)
         guard let held = seat.adoptedWindows.first(where: {
             $0.id == candidate.windowNumber && $0.reference.processID == processID
         }) else {
             throw AutomationFailure("That window is not yet held by the Seat. Observe before switching; keep the session open.")
         }
         _ = try await seat.switchTarget(to: held)
+    }
+
+    /// Resolves the exact requested title before an explicit target switch; enumeration stays with the seat.
+    static func exactHeldWindow(in windows: [TargetWindow], title: String, application: String) throws -> TargetWindow {
+        let candidates = windows.filter { $0.title == title }
+        guard candidates.count == 1, let candidate = candidates.first else {
+            let selection = ApplicationOpeningFailure.WindowSelection(application: application, requested: title,
+                available: windows.map(\.title), matches: candidates.count, wasLaunched: false,
+                quitRequestAccepted: false, openingAttempted: false)
+            throw ApplicationOpeningFailure(state: .previousRetained, reason: .windowTitleMismatch(selection))
+        }
+        return candidate
     }
 
     /// The recorder of the call this task is performing, or one of the session's own.
@@ -258,7 +272,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         idleWindow        : Duration = idleWindow,
         waitIdle          : @escaping IdleWaiting = { try await Task.sleep(for: $0) },
         readDialog        : @escaping DialogReading = { DialogButtonPress.openDialog(of: $0) },
-        switching         : @escaping @MainActor (SeatTarget, pid_t, String) async throws -> Void = switchWindow,
+        switching         : @escaping @MainActor (SeatTarget, pid_t, String, String) async throws -> Void = switchWindow,
         stoppedForGood    : @escaping @MainActor (SeatTarget) -> Bool = {
             SeatAdmission.stoppedForGood(try? $0.agentSeat())
         }
@@ -433,17 +447,27 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         Self.log.info("open_session: prior close finished after \(started.duration(to: .now).description, privacy: .public)")
         // A seat that stopped for good ends its session: this open replaces it, as close_session would.
         if case .holding = phase, let target, stoppedForGood(target) { await close() }
-        if case .holding = phase, let target, let running = application, let title,
-           (running.bundleIdentifier?.caseInsensitiveCompare(word) == .orderedSame
-            || running.localizedName?.caseInsensitiveCompare(word) == .orderedSame
-            || lastOpened?.name.caseInsensitiveCompare(word) == .orderedSame) {
-            try await switching(target, running.processIdentifier, title)
-            let scene = try await AutomationCallInterruption.openingScene { try await perceivedScene() }
-            if var opened = lastOpened {
-                opened.window = scene.windowTitle
-                lastOpened = opened
+        try Task.checkCancellation()
+        if case .holding = phase {
+            let bundleID = try await resolving(word)
+            try Task.checkCancellation()
+            if let target, let running = application,
+               lastOpened?.bundleID.caseInsensitiveCompare(bundleID) == .orderedSame {
+                if let title {
+                    let previous = id
+                    do { try await switching(target, running.processIdentifier, title, running.localizedName ?? word) }
+                    catch let failure as ApplicationOpeningFailure {
+                        let state: ApplicationOpeningFailure.State = id == nil ? .noActiveSession
+                            : (id == previous ? .previousRetained : .unverifiedTarget)
+                        throw failure.reporting(state: state)
+                    }
+                    if var opened = lastOpened { opened.window = ""; lastOpened = opened }
+                }
+                let scene = try await AutomationCallInterruption.openingScene { try await perceivedScene() }
+                if var opened = lastOpened { opened.window = scene.windowTitle; lastOpened = opened }
+                return scene
             }
-            return scene
+            return try await replace(application: word, bundleID: bundleID, window: title)
         }
         guard phase == .idle, closing == nil else {
             throw AutomationFailure("A Seat is already open. Observe it, or pass this app and an exact window title "
@@ -481,6 +505,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
             let adopting = ContinuousClock.now
             Self.log.info("open_session: launch/adoption starting")
             let seated = try await seating(lease.session, bundleID, title)
+            target = seated.target
+            try Task.checkCancellation()
             Self.log.info("open_session: launch/adoption finished in \(adopting.duration(to: .now).description, privacy: .public)")
             guard seated.opened.bundleID == bundleID else {
                 throw AutomationFailure("\(seated.opened.name) is not the application claimed for \(word); nothing "
@@ -525,8 +551,82 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
                 }
             }
             await close()
+            if let opening = error as? ApplicationOpeningFailure, opening.reason != nil {
+                throw opening.reporting(state: .noActiveSession, cleanupWarning: closeWarning)
+            }
             throw Self.refusal(for: error, blocking: blocking)
         }
+    }
+
+    /// Reuses the held lease. A pre-transfer refusal may retain A; after transfer the driver offers no rollback.
+    private func replace(application word: String, bundleID: String, window title: String?) async throws -> SceneSnapshot {
+        guard let lease else { throw SeatBrokerError.sessionClosed }
+        try Task.checkCancellation()
+        let nextClaim: AppClaims.Hold
+        switch claims.acquire(bundleID, owner: claimOwner) {
+        case .success(let hold): nextClaim = hold
+        case .failure(let refusal): throw AutomationFailure(AppClaims.sentence(refusal, name: word))
+        }
+        let previousID = id
+        var preparedTarget: SeatTarget?
+        var published = false
+        do {
+            let seated = try await seating(lease.session, bundleID, title)
+            preparedTarget = seated.target
+            try Task.checkCancellation()
+            guard seated.opened.bundleID == bundleID, let pid = seated.opened.pid,
+                  let running = runningApplication(pid) else {
+                throw ApplicationOpeningFailure(state: .unverifiedTarget)
+            }
+            let previousRuntime = runtime
+            let previousTarget = target
+            let previousClaim = claim
+            target = seated.target
+            runtime = EngineRuntime(knowledgeDirectory: knowledgeDirectory, seat: seated.target)
+            application = running
+            claim = nextClaim
+            id = UUID()
+            phase = .holding(application: seated.opened.name)
+            lastOpened = (seated.opened.name, seated.opened.bundleID, "")
+            published = true
+            watchHeldWindows()
+            await previousRuntime?.finish()
+            if let previousTarget, previousTarget !== seated.target { await previousTarget.stop() }
+            withExtendedLifetime(previousClaim) {}
+            let scene = try await AutomationCallInterruption.openingScene { try await perceivedScene() }
+            lastOpened = (seated.opened.name, seated.opened.bundleID, scene.windowTitle)
+            return scene
+        } catch is CancellationError where AutomationCallInterruption.current?.wasInterrupted == true
+            && published && id != previousID {
+            throw CancellationError()
+        } catch {
+            if let refusal = error as? AgentSession.ReplacementFailure, refusal.previousRetained {
+                if refusal.underlying is CancellationError { throw CancellationError() }
+                throw Self.retainedReplacementRefusal(for: refusal.underlying)
+            }
+            if !published, let preparedTarget, preparedTarget !== target { await preparedTarget.stop() }
+            await close()
+            let underlying = (error as? AgentSession.ReplacementFailure)?.underlying ?? error
+            if underlying is CancellationError { throw CancellationError() }
+            if let opening = underlying as? ApplicationOpeningFailure, opening.reason != nil {
+                throw opening.reporting(state: .noActiveSession, cleanupWarning: closeWarning)
+            }
+            throw ApplicationOpeningFailure(state: .noActiveSession,
+                underlying: Self.refusal(for: underlying), cleanupWarning: closeWarning)
+        }
+    }
+
+    /// Preserves opening facts and the retained-session state for a consumer's text catalogue.
+    static func retainedReplacementRefusal(for error: any Error) -> ApplicationOpeningFailure {
+        if let opening = error as? ApplicationOpeningFailure, opening.reason != nil {
+            return opening.reporting(state: .previousRetained)
+        }
+        let launch: ApplicationOpeningFailure.Launch?
+        if case .noWindowShown(let name, let seconds, let wasLaunched, let wasQuit)? = error as? SeatBrokerError {
+            launch = .init(application: name, seconds: seconds,
+                wasLaunched: wasLaunched, quitRequestAccepted: wasQuit)
+        } else { launch = nil }
+        return ApplicationOpeningFailure(state: .previousRetained, underlying: error, launch: launch)
     }
 
     /// The refusal for `error`, with the sentence naming a blocking dialog after it when there is one.

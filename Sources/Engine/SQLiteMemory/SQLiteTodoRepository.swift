@@ -123,8 +123,8 @@ public struct SQLiteTodoRepository: TodoStoring {
             let suffix = row.id.rawValue.dropFirst()
             guard row.id.rawValue.first == "r", suffix.first != "0", !suffix.isEmpty,
                   suffix.allSatisfy({ $0.isASCII && $0.isNumber }),
-                  !row.title.isEmpty, row.title.count <= Todo.titleLimit,
-                  (row.expected?.texts.joined().count ?? 0) <= Todo.expectedLimit else {
+                  !row.title.isEmpty, row.title.unicodeScalars.count <= Todo.titleLimit,
+                  (row.expected?.texts.joined().unicodeScalars.count ?? 0) <= Todo.expectedLimit else {
                 throw TodoStoreError.invalid("Invalid row identity, title or expectation length.")
             }
         }

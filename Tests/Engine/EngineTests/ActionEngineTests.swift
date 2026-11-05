@@ -1258,3 +1258,38 @@ extension ActionEngineTests {
         #expect(actuator.gestures.count == 1)
     }
 }
+
+extension ActionEngineTests {
+    @Test func unqualifiedClearStaysRefusedInAnOrdinaryWindow() async {
+        let clear = SceneElement(id: "clear", kind: .control, label: "Cancella", bounds: rect(0.2, 0.2), role: "AXButton")
+        let base = scene([clear])
+        let perceived = PerceivedWindow(scene: base.scene, frame: base.frame,
+            capture: .init(walkCompleted: true, windowFound: true, windowRole: "AXWindow", windowSubrole: "AXStandardWindow"), surface: .window)
+        let actuator = RecordingActuator()
+        let result = await engine(scenes: ScriptedScenes([perceived]), actuator: actuator).act(request("Cancella"))
+        #expect(actuator.gestures.isEmpty)
+        #expect(result.kind == .refused)
+    }
+}
+
+
+extension ActionEngineTests {
+    @Test func persistentClearAllIsRefusedInAnOrdinaryWindow() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "public-clear-counterexample-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let history = root.appending(path: "saved-history.txt")
+        let original = Data("PUBLIC_PERSISTENT_HISTORY".utf8)
+        try original.write(to: history)
+        let clear = SceneElement(id: "clear", kind: .control, label: "Clear all", bounds: rect(0.2, 0.2), role: "AXButton")
+        let base = scene([clear], title: "Saved history")
+        let perceived = PerceivedWindow(scene: base.scene, frame: base.frame,
+            capture: .init(walkCompleted: true, windowFound: true, windowRole: "AXWindow",
+                windowSubrole: "AXStandardWindow"), surface: .window)
+        let actuator = RecordingActuator()
+        let result = await engine(scenes: ScriptedScenes([perceived]), actuator: actuator).act(request("Clear all"))
+        #expect(result.kind == .refused)
+        #expect(actuator.gestures.isEmpty)
+        #expect(try Data(contentsOf: history) == original)
+    }
+}

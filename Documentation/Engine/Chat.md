@@ -256,14 +256,11 @@ script bounds its Apple events with `with timeout` (Mail 30 seconds, Notes'
 search 30, the rest 15), so a hung app answers a timeout rather than holding
 the queue.
 
-With the adapters, `open_session` takes `named` and asks the `TaskRouter`
-first: the session resolves the app's name to a bundle id as `open` would
-(the broker through `ApplicationOpening.resolve`, so a name in the person's
-language counts), and an app the `RouteCatalogue` gives an adapter (Calendar,
-Reminders, Notes, Finder, System Settings, Mail) is answered with that adapter
-and not opened, unless the person named the app, the seat already holds it, or
-the adapter cannot run. The answer says to call `open_session` again with
-`named` true when none of the adapter's verbs does the task.
+`open_session` always opens the explicitly requested application, including when a web
+route or ready adapter could serve the task. Its schema has no `named` selector;
+unknown arguments are refused before opening. The resolver still supplies application
+identity, and routing may supply an informational note without substituting a web page
+or invoking an adapter operation. Adapter verbs run only when explicitly called.
 
 Action tools use the host's current session implicitly. A stale session operand cannot select or
 reopen another session, and an action with no current session is refused. Saved observations and
@@ -430,3 +427,15 @@ being mistaken for procedural memory or an observation of the current scene.
 The resolver supplies locale, bundle identity and numeric app version. Formatting receives prepared
 values and escapes guide content in a nonempty `<guide>` data block. Private guide wiring and selection
 require their own tests; neither a runtime feature declaration nor a green open run certifies them.
+
+### Tool contract validation
+
+The canonical task and batch schemas preserve field types and operation requirements. Repeated schema fragments
+use bounded same-document `$defs` references. Validation accepts one level of named definitions, rejects external
+or recursive references, and checks unused definitions before dispatch. Semantic argument failures, such as a toggle
+without a value or a drag with both endpoints and offsets, also report that nothing was dispatched. Failures after a
+possible effect retain the instruction to inspect the current state before continuing.
+
+Ambiguous clear controls remain guarded. An ordinary window with no selection or dialog does not establish that a
+button acts on transient input: a persistent history reset can look identical. A positive fact from a trusted producer
+is still required to change that behavior.

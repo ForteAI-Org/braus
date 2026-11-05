@@ -54,7 +54,7 @@ public final class AutomationTools {
     /// built them with a per-call approver.
     public var adapters: AppAdapters? { dispatcher.adapters }
 
-    /// The routing rules `open_session` asks before any session opens (spec 2026-10-14-mac-driver-design,
+    /// The advisory routing rules; an explicit `open_session` still opens its requested app (spec 2026-10-14-mac-driver-design,
     /// section 2); nil opens every app as asked. Set with `.web` or `.adapters`, the routes it can offer: a web page
     /// only with a web session (its context says whether there is one), an adapter only with the adapters (R02).
     public var router: TaskRouter? { dispatcher.router }
@@ -321,6 +321,11 @@ public final class AutomationTools {
     }
 
     /// Reads task facts without consuming notices or scanning stored procedures.
+    /// Restores the current plan after the host loses earlier tool results, without another model call.
+    public func openTaskContext() async throws -> String? {
+        try await taskCycle.continuationContext()
+    }
+
     public func taskFacts(for bundleID: String?) async -> SeatTaskFacts {
         await taskCycle.taskFacts(for: bundleID)
     }
@@ -393,6 +398,14 @@ public final class AutomationTools {
     /// only with `.adapters`.
     public static func definitions(for channels: AutomationChannels) -> [JSONValue] {
         ToolCatalogue.definitions(for: channels)
+    }
+
+    /// Gives external clients guidance for the tool surface this session actually serves.
+    public func clientInstructions(_ form: MCPInstructionsForm) -> String {
+        let text = profile.level == .observe
+            ? ModelText.text(.init(rawValue: "tool_catalogue.mcpObserveInstructions"))
+            : Self.mcpInstructions(.full)
+        return form == .firstLine ? String(text.prefix { $0 != "\n" }) : text
     }
 
     /// Returns fixed MCP guidance, independent of the session's channels and current state.

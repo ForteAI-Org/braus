@@ -56,7 +56,7 @@ struct TurnRunnerSystemPromptTests {
         }
         #expect(text.contains("Before acting, open the task with `plan`"))
         #expect(text.contains("After checking, close with `end` and a result check"))
-        #expect(text.contains("Use `step` to name the row served"))
+        #expect(text.contains("Pass step:\"r1\" on gestures or batches; step is an argument, not a tool"))
     }
 }
 

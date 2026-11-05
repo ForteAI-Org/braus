@@ -1,3 +1,4 @@
+import AutomationMCP
 //
 //  BrokeredSeat.swift
 //  Braus
@@ -76,6 +77,9 @@ enum BrokeredSeat {
             }
         } catch {
             await close(desktop, broker)
+            if let opening = error as? ApplicationOpeningFailure {
+                throw AutomationFailure(ModelText.openingFailure(opening), cause: opening.state.rawValue)
+            }
             throw error
         }
         await close(desktop, broker)

@@ -647,97 +647,56 @@ struct MacSessionTests {
 
     // MARK: The router before every session
 
-    @Test("open_session asks the router first: a better route is answered, a named app is opened")
+    @Test("explicit application openings are not substituted by advisory web or adapter routes")
     func routerBeforeSession() async throws {
         let session = SessionStub(handoff: nil)
-        session.id = nil
         let tools = AutomationTools(session: session, channels: .web, adapters: AppAdapters([]))
-
-        let maps = try answer(await tools.call("open_session", .object(["app": .string("Maps")])))
-        #expect(maps["opened"] == .bool(false))
-        #expect(maps["route"].string == "web:google.com/maps")
-        #expect(session.opened.isEmpty)
-
-        let mail = try answer(await tools.call("open_session", .object(["app": .string("Mail")])))
-        #expect(session.id != nil && mail["session"].string == session.id?.uuidString, "without a composed Mail adapter its interface opens")
-        #expect(session.opened == ["Mail"])
-
-        _ = try await tools.call("open_session", .object(["app": .string("Maps"), "named": .bool(true)]))
-        #expect(session.opened == ["Mail", "Maps"])
-    }
-
-    @Test("R02: with the adapters and no web, open_session answers a ready adapter's route, opens a web-routed app as asked, and a named app as named")
-    func adaptersWithoutTheWeb() async throws {
-        let session = SessionStub(handoff: nil)
-        session.id = nil
-        let tools = AutomationTools(session: session, channels: .adapters, adapters: AppAdapters([ReadyAdapter()]))
-        #expect(tools.router != nil, "the adapters are a route of their own")
-        #expect(tools.instructions == AutomationTools.instructions(for: .adapters), "no web is served")
-
-        let calendar = try answer(await tools.call("open_session", .object(["app": .string("Calendar")])))
-        #expect(calendar["opened"] == .bool(false) && calendar["route"].string == "app_call(calendar)", "\(calendar)")
-        #expect(session.opened.isEmpty)
-
-        _ = try await tools.call("open_session", .object(["app": .string("Maps")]))
-        #expect(session.opened == ["Maps"], "no web page can open here, so Maps opens as asked")
-        await session.close()
-
-        _ = try await tools.call("open_session", .object(["app": .string("Calendar"), "named": .bool(true)]))
-        #expect(session.opened == ["Maps", "Calendar"], "the named app, not the adapter")
-    }
-
-    @Test("R02: each composition offers only its own routes: none, the web, the adapters, both; what it serves and advertises names no channel it lacks")
-    func routesFollowTheComposition() async throws {
-        func openSession(_ tools: AutomationTools) throws -> JSONValue {
-            try #require(tools.toolDefinitions.first { $0["name"].string == "open_session" })
+        for named in [false, true] {
+            await #expect(throws: AutomationFailure.self) {
+                try await tools.call("open_session", .object(["app": .string("Maps"), "named": .bool(named)]))
+            }
         }
-        let cases: [(AutomationChannels, maps: String?, calendar: String?)] = [
-            ([], nil, nil),
-            (.web, "web:google.com/maps", nil),
-            (.adapters, nil, "app_call(calendar)"),
-            ([.web, .adapters], "web:google.com/maps", "app_call(calendar)"),
-        ]
-        for (channels, maps, calendar) in cases {
+        #expect(session.opened.isEmpty && session.id == nil)
+        for app in ["Maps", "Mail"] {
+            let opened = try answer(await tools.call("open_session", .object(["app": .string(app)])))
+            #expect(opened["opened"] != .bool(false))
+            #expect(session.opened.last == app && session.id != nil)
+        }
+        _ = try await tools.call("open_session", .object(["app": .string("Maps")]))
+        #expect(session.opened == ["Maps", "Mail", "Maps"])
+    }
+
+    @Test("every composition opens the requested app, including a ready adapter's app")
+    func routesFollowTheComposition() async throws {
+        for channels: AutomationChannels in [[], .web, .adapters, [.web, .adapters]] {
             let session = SessionStub(handoff: nil)
-            session.id = nil
             let tools = AutomationTools(session: session, channels: channels,
-                                        adapters: channels.contains(.adapters) ? AppAdapters([ReadyAdapter()]) : nil)
-            let routed = !channels.isDisjoint(with: [.web, .adapters])
-            #expect((tools.router != nil) == routed, "\(channels)")
-            #expect(tools.instructions == AutomationTools.instructions(for: channels), "served = composed: \(channels)")
-            #expect(tools.toolDefinitions == AutomationTools.definitions(for: channels), "\(channels)")
-            let schema = try openSession(tools)
-            #expect((schema["inputSchema"]["properties"]["named"] != .null) == routed, "\(channels)")
+                adapters: channels.contains(.adapters) ? AppAdapters([ReadyAdapter()]) : nil)
+            #expect(tools.instructions == AutomationTools.instructions(for: channels))
+            #expect(tools.toolDefinitions == AutomationTools.definitions(for: channels))
+            let schema = try #require(tools.toolDefinitions.first { $0["name"].string == "open_session" })
             #expect(schema["inputSchema"]["properties"]["session"] == .null)
             #expect(schema["inputSchema"]["required"].array?.contains(.string("app")) == true)
-
-            for (app, route) in [("Maps", maps), ("Calendar", calendar)] {
-                let answered = try answer(await tools.call("open_session", .object(["app": .string(app)])))
-                if let route {
-                    #expect(answered["opened"] == .bool(false) && answered["route"].string == route,
-                            "\(channels) \(app): \(answered)")
-                } else {
-                    #expect(session.opened.last == app, "\(channels) \(app) opens as asked: \(answered)")
-                    await session.close()
-                }
+            #expect(schema["inputSchema"]["properties"]["named"] == .null)
+            for app in ["Maps", "Calendar"] {
+                let opened = try answer(await tools.call("open_session", .object(["app": .string(app)])))
+                #expect(opened["route"] == .null && opened["opened"] != .bool(false))
+                #expect(session.opened.last == app)
+                await session.close()
             }
         }
     }
 
-    @Test("an available adapter route points to discovery and call; otherwise the app opens with a note")
+    @Test("adapter readiness does not block an explicit native application opening")
     func adapterRoute() async throws {
         let session = SessionStub(handoff: nil)
-        session.id = nil
         let tools = AutomationTools(session: session, channels: .web, adapters: AppAdapters([ReadyAdapter()]))
-        let calendar = try answer(await tools.call("open_session", .object(["app": .string("Calendar")])))
-        #expect(calendar["opened"] == .bool(false))
-        #expect(calendar["message"].string?.contains("find") == true && calendar["message"].string?.contains("then call") == true)
-        #expect(calendar["message"].string?.contains("app_call") == false)
-
-        let finder = try answer(await tools.call("open_session", .object(["app": .string("Finder")])))
-        #expect(session.opened == ["Finder"])
-        #expect(finder["routeNote"].string?.contains("no files adapter") == true)
+        for app in ["Calendar", "Finder"] {
+            _ = try await tools.call("open_session", .object(["app": .string(app)]))
+        }
+        #expect(session.opened == ["Calendar", "Finder"])
     }
+
 }
 
 // MARK: Doubles
@@ -746,6 +705,7 @@ struct MacSessionTests {
 /// front; `restores` false keeps it there whatever is activated.
 final class WorkspaceStub: MacWorkspace {
     let apps: [MacApp]
+    let processIDs: [String: pid_t]
     let selfActivates: Bool
     let restores: Bool
     /// A self-activating launch comes forward with a dialog, which `revert` leaves in front.
@@ -754,8 +714,9 @@ final class WorkspaceStub: MacWorkspace {
     let running = Mutex<[String: MacRunningApp]>([:])
 
     init(apps: [MacApp] = [MacSessionTests.notes], selfActivates: Bool = false, restores: Bool = true,
-         dialog: Bool = false) {
+         dialog: Bool = false, processIDs: [String: pid_t] = [:]) {
         self.apps = apps
+        self.processIDs = processIDs
         self.selfActivates = selfActivates
         self.restores = restores
         self.dialog = dialog
@@ -768,7 +729,7 @@ final class WorkspaceStub: MacWorkspace {
     func running(bundleID: String) -> MacRunningApp? { running.withLock { $0[bundleID] } }
     func frontmost() async -> MacRunningApp? { front.withLock { $0 } }
     func launch(_ app: MacApp) async throws -> MacRunningApp {
-        let process = MacRunningApp(processID: MacSessionTests.pid, bundleID: app.bundleID, name: app.displayName)
+        let process = MacRunningApp(processID: processIDs[app.bundleID] ?? MacSessionTests.pid, bundleID: app.bundleID, name: app.displayName)
         running.withLock { $0[app.bundleID] = process }
         if selfActivates { front.withLock { $0 = process } }
         return process
@@ -790,12 +751,16 @@ final class TreeStub: MacTreeReading, MacAccessibilityActing {
     let current: Mutex<MacTreeNode>
     let pressed: [String: MacTreeNode]
     let steps = Mutex<[String]>([])
+    let performedProcessIDs = Mutex<[pid_t]>([])
+    let failedReadPIDs = Mutex<Set<pid_t>>([])
+    let trees: [pid_t: MacTreeNode]
     let isTrusted = true
     /// What a press does besides its effect on the tree, such as the app activating itself.
     let onPerform: (@Sendable () -> Void)?
 
-    init(_ tree: MacTreeNode, pressed: [String: MacTreeNode] = [:], onPerform: (@Sendable () -> Void)? = nil) {
+    init(_ tree: MacTreeNode, pressed: [String: MacTreeNode] = [:], trees: [pid_t: MacTreeNode] = [:], onPerform: (@Sendable () -> Void)? = nil) {
         current        = Mutex(tree.addressed())
+        self.trees = trees.mapValues { $0.addressed() }
         self.pressed   = pressed.mapValues { $0.addressed() }
         self.onPerform = onPerform
     }
@@ -803,13 +768,16 @@ final class TreeStub: MacTreeReading, MacAccessibilityActing {
     var tree: MacTreeNode { current.withLock { $0 } }
 
     func windows(of processID: pid_t) throws -> [MacWindowSummary] {
-        [MacWindowSummary(index: 0, role: "AXWindow", title: tree.title, frame: tree.frame, isMain: true, isFocused: true)]
+        let tree = trees[processID] ?? tree
+        return [MacWindowSummary(index: 0, role: "AXWindow", title: tree.title, frame: tree.frame, isMain: true, isFocused: true)]
     }
     func read(windowAt index: Int, of processID: pid_t, limits: MacTreeLimits) throws -> MacTreeRead {
-        let tree = tree
+        if failedReadPIDs.withLock({ $0.contains(processID) }) { throw MacTreeFailure.applicationUnreachable(processID) }
+        let tree = trees[processID] ?? tree
         return MacTreeRead(window: tree, nodesVisited: tree.flattened.count)
     }
     func perform(_ action: String, on element: MacElementAddress) throws {
+        performedProcessIDs.withLock { $0.append(element.processID) }
         steps.withLock { $0.append("perform \(action) \(element.path)") }
         let title = tree.flattened.first { $0.path == element.path }?.title
         if let title, let effect = pressed[title] { current.withLock { $0 = effect } }
@@ -926,6 +894,8 @@ struct ReadyAdapter: AppAdapting {
 final class SessionStub: AutomationSessionOperating {
     let handoff: MacHandoff?
     var id: UUID? = nil
+    var openingError: (any Error)?
+    var adoptsBeforeError = false
     var opened: [String] = []
     var observed = 0
 
@@ -940,6 +910,11 @@ final class SessionStub: AutomationSessionOperating {
     }
 
     func open(application: String, window: String?) async throws -> SceneSnapshot {
+        if let openingError {
+            if adoptsBeforeError { id = UUID(); opened.append(application) }
+            AutomationCallInterruption.current?.interruptForHumanControl()
+            throw openingError
+        }
         if let handoff { throw handoff }
         opened.append(application)
         id = UUID()

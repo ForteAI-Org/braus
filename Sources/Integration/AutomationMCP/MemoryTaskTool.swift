@@ -5,6 +5,7 @@
 //  Created by Tommaso Mazzarini on 09/10/2026.
 //
 
+import Capabilities
 import EngineCore
 import Foundation
 import LocalMCP
@@ -166,18 +167,7 @@ nonisolated enum MemoryTaskTool {
             "required": .array([.string("from"), .string("to"), .string("label")]),
             "additionalProperties": .bool(false),
         ])
-        let check: JSONValue = .object([
-            "type": .string("object"),
-            "properties": .object([
-                "file": text, "file_written": text, "file_changed": text, "file_unchanged": text, "file_absent": text,
-                "file_moved": text, "file_copied": text, "to": text, "contains": text, "window": text, "open": .object(["type": .string("boolean")]), "element": text,
-                "app": text, "value": .object(["type": .string("string")]),
-                "state": .object(["type": .string("string"), "enum": .array(["on", "off", "mixed"].map(JSONValue.string))]),
-                "present": .object(["type": .string("boolean")]), "none": text,
-            ]),
-            "additionalProperties": .bool(false),
-        ])
-        let resultCheck: JSONValue = .object(["anyOf": .array([check, .object(["type": .string("array"), "items": check])])])
+        let resultCheck = TaskCheckSchema.result
         let parameter: JSONValue = .object([
             "type": .string("object"),
             "properties": .object([
@@ -735,6 +725,9 @@ nonisolated enum MemoryTaskTool {
     /// written, with `contains` a text file holding it.
     static func resultChecks(_ value: JSONValue, minimization: ValueMinimization) throws -> [ResultCheck] {
         guard value != .null else { return [] }
+        guard SchemaValidation.firstProblem(value, schema: TaskCheckSchema.result) == nil else {
+            throw invalid(ModelText.text(.init(rawValue: "task_cycle.predicate_shape")))
+        }
         let items = value.array ?? [value]
         guard items.count <= 8 else { throw invalid(ModelText.text(.init(rawValue: "memory_task_tool.items.v1.5"))) }
         func path(_ text: String) throws -> String {
@@ -815,6 +808,9 @@ nonisolated enum MemoryTaskTool {
     private static func values(_ list: JSONValue, minimization: ValueMinimization, secrets: inout [String],
                                outputs: Bool) throws -> [TaskValue] {
         guard list != .null else { return [] }
+        guard SchemaValidation.firstProblem(list, schema: definition["inputSchema"]["properties"][outputs ? "outputs" : "inputs"]) == nil else {
+            throw invalid(ModelText.text(.init(rawValue: "task_cycle.value_types")))
+        }
         guard let items = list.array else { throw invalid(("\(outputs ? "outputs" : "inputs")"
             + ModelText.text(.init(rawValue: "memory_task_tool.items.v1.6")))) }
         return try items.map { item in

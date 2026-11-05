@@ -95,7 +95,7 @@ struct SystemPromptTests {
         #expect(try rule("persist").text == "Continue until the task is checked")
         #expect(try rule("task").text == "Before acting, open the task with `plan`")
         #expect(try rule("task-end").text == "After checking, close with `end` and a result check")
-        #expect(try rule("step").text == "Use `step` to name the row served")
+        #expect(try rule("step").text == "Pass step:\"r1\" on gestures or batches; step is an argument, not a tool")
         #expect(try rule("targets").reason != "targets must exist")
         #expect(try rule("success").reason != "results need proof")
     }

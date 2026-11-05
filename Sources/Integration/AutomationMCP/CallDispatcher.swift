@@ -222,7 +222,7 @@ final class CallDispatcher {
         if let problem = SchemaValidation.firstProblem(arguments, schema: schema) {
             throw AutomationFailure(
                 ModelText.schemaProblem(problem, minimizing: producerSecrets.recordMinimization),
-                cause: "invalid_arguments"
+                cause: "invalid_arguments", beforeDispatch: true
             )
         }
     }
@@ -400,26 +400,26 @@ final class CallDispatcher {
             && registry.effectClass(of: name, arguments: arguments) != .read
         var transition: StepTransition?
         if gesture {
-            if let refusal = taskCycle.planFirstRefusal(for: name) { throw AutomationFailure(refusal, cause: "plan_required") }
+            if let refusal = taskCycle.planFirstRefusal(for: name) { throw AutomationFailure(refusal, cause: "plan_required", beforeDispatch: true) }
             if let tool = AgentTool(rawValue: name) {
                 let definition = callDefinitions(surface: surface).first { $0["name"].string == name }
                 let properties = Set(definition?["inputSchema"]["properties"].object?.keys.map { $0 } ?? [])
                 guard let fields = arguments.object, Set(fields.keys).isSubset(of: properties) else {
-                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.allowed.v1")), cause: "invalid_arguments")
+                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.allowed.v1")), cause: "invalid_arguments", beforeDispatch: true)
                 }
                 if tool.takesSession {
-                    guard let id = session.id else { throw Self.noSession }
+                    guard let id = session.id else { throw AutomationFailure(Self.noSession.description, cause: "no_session", beforeDispatch: true) }
                 }
                 _ = try ToolArguments.callRequest(name, arguments)
                 if name == "batch" {
                     guard let rows = arguments["steps"].array, (1...20).contains(rows.count) else {
-                        throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.rows.v1")), cause: "invalid_arguments")
+                        throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.rows.v1")), cause: "invalid_arguments", beforeDispatch: true)
                     }
                     for row in rows {
                         _ = try Step(ToolArguments.requiredString(row, "operation"), row, inBatch: true)
                         if let id = try ToolArguments.step(in: row),
                            taskCycle.todo?.rows.contains(where: { $0.id == id && $0.status != .abandoned }) != true {
-                            throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle.step_open.v2")), cause: "unknown_step")
+                            throw AutomationFailure(ModelText.text(.init(rawValue: "task_cycle.step_open.v2")), cause: "unknown_step", beforeDispatch: true)
                         }
                     }
                 }
@@ -462,13 +462,21 @@ final class CallDispatcher {
             // The error reaches the model and its log: the producer's secrets and what the call withholds are
             // withheld from it too.
             let shown = ValueMinimization(secrets: producerSecrets.secrets, classified: scope.withheld, scrubsCredentials: false)
-            guard !(error is CancellationError) else { throw error }
-            let (kept, reason) = shown.minimize(text: String(describing: error))
-            let failure: any Error = !shown.knowsNoText && reason != nil ? AutomationFailure(kept) : error
+            let rendered: any Error
+            if let opening = error as? ApplicationOpeningFailure {
+                rendered = AutomationFailure(ModelText.openingFailure(opening, minimization: shown),
+                    cause: opening.causeCode, beforeDispatch: opening.isBeforeApplicationLaunch)
+            } else { rendered = error }
+            guard !(rendered is CancellationError) else { throw rendered }
+            let (kept, reason) = shown.minimize(text: String(describing: rendered))
+            let failure: any Error = !shown.knowsNoText && reason != nil ? AutomationFailure(kept) : rendered
             if AgentTool(rawValue: name)?.requiresConfirmedStart == true {
                 Self.taskStateCall?.facts.append(.callFailed(tool: name,
-                    reason: (error as? AutomationFailure)?.cause ?? String(reflecting: type(of: error))))
-                return formatter.thrown(error, tool: name, mayHaveActed: output.mayHaveActed, minimized: kept, surface: surface)
+                    reason: (rendered as? AutomationFailure)?.cause ?? String(reflecting: type(of: rendered))))
+                return formatter.thrown(rendered, tool: name,
+                    mayHaveActed: output.mayHaveActed && (error as? ApplicationOpeningFailure)?.isBeforeApplicationLaunch != true,
+                    minimized: kept,
+                    openingFailure: error as? ApplicationOpeningFailure, surface: surface)
             }
             throw failure
         }
@@ -584,11 +592,16 @@ final class CallDispatcher {
         } catch {
             // A failed call reaches the model without its scenes, so the baseline stays the one it read.
             sceneText.restore(before)
+            let originalError = error
+            let error: any Error
+            if let opening = originalError as? ApplicationOpeningFailure {
+                error = AutomationFailure(ModelText.openingFailure(opening, minimization: producerSecrets.recordMinimization))
+            } else { error = originalError }
             let guidance = session.id == nil
                 ? ModelText.text(.init(rawValue: "call_dispatcher.guidance.v1"))
                 : ModelText.text(.init(rawValue: "call_dispatcher.guidance.v1.2"))
             try formatter.transcribe("← \(name) error: \(error). \(guidance)")
-            throw error
+            throw originalError
         }
     }
 
@@ -804,7 +817,7 @@ final class CallDispatcher {
     /// The refusal of a call that needs a session when none is open: the call's own contract, never the memory's failure
     /// (live run R01, Workspace event 113, where the agent read it as a memory that was not available).
     static let noSession = AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1"))
-                                             + ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1.2")), cause: "no_session")
+                                             + ModelText.text(.init(rawValue: "call_dispatcher.noSession.v1.2")), cause: "no_session", beforeDispatch: true)
 
     /// The refusal of a call whose start the memory did not confirm: nothing was done.
     private static func unconfirmed(_ error: any Error) -> AutomationFailure {
@@ -1221,42 +1234,27 @@ final class CallDispatcher {
             value = outcome.json.adding("evidence", ResultFormatter.evidence(output.lastCheck, kind: outcome.kind, surface: surface))
             output.lastResult = .outcome(outcome.kind, message: outcome.message)
         case "open_session":
-            if values["named"] != nil, arguments["named"].bool == nil {
-                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.content.v1")))
-            }
             let app = try string(arguments, "app")
-            let decision = await route(opening: app, named: arguments["named"].bool == true)
-            switch decision {
-                case .use(let route, let message):
-                    value = .object(["opened": .bool(false), "route": .string(route.address), "message": .string(message)])
-                    // Nothing opened, so no scene: the record keeps the call as completed with no observation, and
-                    // the decision as the call's advice, written with its end (M05).
-                    await recorder?.advised(CallRouteAdvice(decision: .use, route: route.address, message: message))
-                    output.lastResult = nil
-                case .ask(let question):
-                    value = .object(["opened": .bool(false), "ask": .string(question)])
-                    await recorder?.advised(CallRouteAdvice(decision: .ask, route: nil, message: question))
-                    output.lastResult = nil
-                case .open(let note):
-                    // The router's note is its decision's words (why the interface and not an adapter, or the advice
-                    // on a contact's channel): handed to the call's recorder before anything opens, so it stays the
-                    // call's fact whether the opening then succeeds or fails (M05). The route row is the dispatch.
-                    if let note { await recorder?.advised(CallRouteAdvice(decision: .open, route: nil, message: note)) }
-                    await noteDispatch()
-                    do {
-                        let scene = try await session.open(application: app, window: ToolArguments.windowTitle(arguments))
-                        value = await observation(scene).adding("routeNote", note.map(JSONValue.string))
-                        output.lastResult = await observed(by: recorder)
-                    } catch is CancellationError where AutomationCallInterruption.current?.wasInterrupted == true {
-                        guard let id = session.id else { throw CancellationError() }
-                        sceneText.contextHolds(after: .personHadApp)
-                        value = .object([
-                            "opened": .bool(true), "session": .string(id.uuidString),
-                            "note": .string(ModelText.text(.init(rawValue: "call_dispatcher.id.v1.2"))
-                                + ModelText.text(.init(rawValue: "call_dispatcher.id.v1.3")))
-                        ]).adding("routeNote", note.map(JSONValue.string))
-                        output.lastResult = nil
-                    }
+            let previousID = session.id
+            let note: String?
+            if case .open(let advice) = await route(opening: app) {
+                note = advice
+            } else { note = nil }
+            if let note { await recorder?.advised(CallRouteAdvice(decision: .open, route: nil, message: note)) }
+            await noteDispatch()
+            do {
+                let scene = try await session.open(application: app, window: ToolArguments.windowTitle(arguments))
+                value = await observation(scene).adding("routeNote", note.map(JSONValue.string))
+                output.lastResult = await observed(by: recorder)
+            } catch is CancellationError where AutomationCallInterruption.current?.wasInterrupted == true {
+                guard let id = session.id, id != previousID else { throw CancellationError() }
+                sceneText.contextHolds(after: .personHadApp)
+                value = .object([
+                    "opened": .bool(true), "session": .string(id.uuidString),
+                    "note": .string(ModelText.text(.init(rawValue: "call_dispatcher.id.v1.2"))
+                        + ModelText.text(.init(rawValue: "call_dispatcher.id.v1.3")))
+                ]).adding("routeNote", note.map(JSONValue.string))
+                output.lastResult = nil
             }
             if session.id != nil, let bundle = session.memoryApplication ?? sceneText.seen.last?.scene.bundleID, let guides {
                 let app = resolveGuideApp(bundle)
@@ -1576,11 +1574,11 @@ final class CallDispatcher {
         return .object(answer)
     }
 
-    private func route(opening app: String, named: Bool) async -> RouteDecision {
-        guard let router, !named else { return .open(note: nil) }
+    private func route(opening app: String) async -> RouteDecision {
+        guard let router else { return .open(note: nil) }
         let bundleID = await session.resolvedBundleID(of: app)
         if let bundleID, bundleID == session.memoryApplication { return .open(note: nil) }
-        return router.route(opening: app, bundleID: bundleID, named: named, context: await routeContext())
+        return router.route(opening: app, bundleID: bundleID, named: false, context: await routeContext())
     }
 
     /// What the router knows of this Mac for one decision: the adapters of this build and whether each

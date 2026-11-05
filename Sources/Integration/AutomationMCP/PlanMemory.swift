@@ -7,7 +7,7 @@ import os
 extension TaskCycleHandler {
     final class PlanMemoryState {
         var offers: [TodoRowID: [RecallRendering.OfferedPart]]
-        let composition: [TodoRowID: [String: RecallChoice.CompositionPart]]
+        var composition: [TodoRowID: [String: RecallChoice.CompositionPart]]
         var choices: [PlanChoice] = []
         var notices: [String] = []
         let validate: () throws -> Void
@@ -52,12 +52,12 @@ extension TaskCycleHandler {
     }
 
     /// Translates the row's offered key to its archive identity before the todo's foreign key is written.
-    func planPart(_ key: String?, row: TodoRowID, previous: String?, state: PlanMemoryState) -> String? {
+    func planPart(_ key: String?, row: TodoRowID, previous: String?, state: PlanMemoryState) throws -> String? {
         guard let key else { return previous }
         guard memoryAccess.reads, let parts = state.offers[row],
               let part = parts.first(where: { $0.key == key || $0.partID == key }) else {
-            state.notices.append(Self.planNotice(row, ModelText.text(.init(rawValue: "task_cycle.unknown_part.v2"))))
-            return previous
+            throw MemoryTaskTool.Failure(code: "unknown_part",
+                message: Self.planNotice(row, ModelText.text(.init(rawValue: "task_cycle.unknown_part.v2"))))
         }
         return part.partID
     }
@@ -283,7 +283,7 @@ extension TaskCycleHandler {
         }
     }
 
-    private static func planNotice(_ row: TodoRowID, _ detail: String) -> String {
+    static func planNotice(_ row: TodoRowID, _ detail: String) -> String {
         ModelText.render(.init(rawValue: "recall.rowNotice"), ["row": .rowID(row)]) + detail
     }
 

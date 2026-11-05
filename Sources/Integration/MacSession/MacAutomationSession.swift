@@ -32,7 +32,7 @@ import WindowServerListing
 /// nothing sent and no handoff to the seat. An `open` that fails gives the hold back; one that hands the app to the
 /// seat keeps it until `close`, so the app stays its owner's until the seat holds it too.
 @MainActor
-public final class MacAutomationSession: AutomationSessionOperating {
+public final class MacAutomationSession: AutomationSessionOperating, RouteHandoffHolding {
 
     private let knowledgeDirectory: URL
     private let allowsDestructive : Bool
@@ -41,6 +41,7 @@ public final class MacAutomationSession: AutomationSessionOperating {
     private let workspace         : any MacWorkspace
     private let leases            : MacAppLeases
     private let leaseOwner        : AnyHashable
+    private var pendingHandoffHold: AppClaims.Hold?
     private var hold     : AppClaims.Hold?
     private var runtime  : MacEngineRuntime?
     private var report   : MacLaunchReport?
@@ -73,30 +74,40 @@ public final class MacAutomationSession: AutomationSessionOperating {
     public var dispatchRoute: CallRoute.Route? { .native }
 
     public func open(application word: String, window title: String?) async throws -> SceneSnapshot {
-        guard id == nil else {
-            throw AutomationFailure("A session is already open. Observe it or close_session before opening another app.")
-        }
+        try Task.checkCancellation()
         // Resolving the name touches no app: the lease is taken before the launch can.
         let app: MacApp
         do { app = try launcher.resolve(word) }
-        catch let failure as MacLaunchFailure { throw AutomationFailure(Self.sentence(failure, word)) }
-        try lease(app.bundleID, name: app.displayName)
+        catch MacLaunchFailure.notFound(let requested) {
+            throw ApplicationOpeningFailure(state: id == nil ? .noActiveSession : .previousRetained,
+                reason: .applicationNotFound(requested))
+        } catch MacLaunchFailure.ambiguous(let requested, let identifiers) {
+            throw ApplicationOpeningFailure(state: id == nil ? .noActiveSession : .previousRetained,
+                reason: .applicationAmbiguous(requested, matches: identifiers.count))
+        } catch let failure as MacLaunchFailure { throw AutomationFailure(Self.sentence(failure, word)) }
+        if report?.app.bundleID == app.bundleID,
+           title == nil || report?.window?.title?.caseInsensitiveCompare(title ?? "") == .orderedSame {
+            let scene = try await observe()
+            try Task.checkCancellation()
+            return scene
+        }
+        let nextHold = try lease(app.bundleID, name: app.displayName)
         do {
-            return try await open(app, word, window: title)
+            return try await open(app, word, window: title, holding: nextHold)
         } catch let handoff as MacHandoff {
+            pendingHandoffHold = nextHold
             throw handoff
-        } catch {
-            hold = nil
-            throw error
         }
     }
 
     /// `open` once `app` is claimed: opened as resolved, never by `word` again, so a name that changed meanwhile
     /// cannot open another app.
-    private func open(_ app: MacApp, _ word: String, window title: String?) async throws -> SceneSnapshot {
+    private func open(_ app: MacApp, _ word: String, window title: String?,
+                      holding nextHold: AppClaims.Hold) async throws -> SceneSnapshot {
         let report: MacLaunchReport
         do { report = try await launcher.open(app) }
         catch let failure as MacLaunchFailure { throw AutomationFailure(Self.sentence(failure, word)) }
+        try Task.checkCancellation()
         if !report.wasRunning { MacLaunchLog(directory: knowledgeDirectory).append(report) }
         // A dialog or a sheet the app came forward to show is left in front for the person; the seat takes it.
         if report.dialogInFront { throw MacHandoff.dialogInFront(bundleID: report.app.bundleID) }
@@ -119,17 +130,29 @@ public final class MacAutomationSession: AutomationSessionOperating {
             throw MacHandoff.otherWindow(bundleID: report.app.bundleID)
         }
         let runtime = MacEngineRuntime(knowledgeDirectory: knowledgeDirectory, roles: roles, focus: workspace)
-        let scene = try await runtime.scenes.scene(of: report.processID)
-        openedCoverage = scene.coverage
-        guard scene.coverage.isRich else {
+        do {
+            let scene = try await runtime.scenes.scene(of: report.processID)
+            openedCoverage = scene.coverage
+            guard scene.coverage.isRich else {
+                throw MacHandoff.sparse(bundleID: report.app.bundleID, coverage: scene.coverage)
+            }
+            let nextID = UUID()
+            let observation = await recorder(runtime, sessionID: nextID).observe(scene.perceived)
+            try Task.checkCancellation()
+            let previousRuntime = self.runtime
+            let previousHold = hold
+            self.runtime = runtime
+            self.report = report
+            hold = nextHold
+            id = nextID
+            cameInFront = false
+            await previousRuntime?.finish()
+            withExtendedLifetime(previousHold) {}
+            return observation
+        } catch {
             await runtime.finish()
-            throw MacHandoff.sparse(bundleID: report.app.bundleID, coverage: scene.coverage)
+            throw error
         }
-        self.runtime = runtime
-        self.report  = report
-        id = UUID()
-        // A first-run sheet is part of the window's tree, so the scene shows it with its buttons.
-        return await recorder(runtime).observe(scene.perceived)
     }
 
     public func observe() async throws -> SceneSnapshot {
@@ -184,7 +207,13 @@ public final class MacAutomationSession: AutomationSessionOperating {
         return try await act(target: item, verb: .click, section: nil, desiredState: nil)
     }
 
+    public func releaseHandoff() async {
+        pendingHandoffHold = nil
+        if id == nil { await close() }
+    }
+
     public func close() async {
+        pendingHandoffHold = nil
         await finish()
         // Given back once the runtime has finished: only this session's hold.
         hold = nil
@@ -202,9 +231,9 @@ public final class MacAutomationSession: AutomationSessionOperating {
 
     /// Takes a hold of the app for this session's owner, or refuses: another owner's session drives it now. Nothing
     /// is sent to the app, and the call goes nowhere else.
-    private func lease(_ bundleID: String, name: String) throws {
+    private func lease(_ bundleID: String, name: String) throws -> AppClaims.Hold {
         switch leases.acquire(bundleID, owner: leaseOwner) {
-            case .success(let taken): hold = taken
+            case .success(let taken): return taken
             case .failure(let refusal): throw AutomationFailure(AppClaims.sentence(refusal, name: name))
         }
     }
@@ -218,8 +247,12 @@ public final class MacAutomationSession: AutomationSessionOperating {
     public var memoryApplication: String? { report?.app.bundleID }
 
     private func recorder(_ runtime: MacEngineRuntime) -> CallRecorder {
+        recorder(runtime, sessionID: id)
+    }
+
+    private func recorder(_ runtime: MacEngineRuntime, sessionID: UUID?) -> CallRecorder {
         CallRecorder.current ?? runtime.recorder(ActionContext(
-            source: .system, streamID: "session-\(id?.uuidString ?? "none")", sessionID: id?.uuidString
+            source: .system, streamID: "session-\(sessionID?.uuidString ?? "none")", sessionID: sessionID?.uuidString
         ))
     }
 
