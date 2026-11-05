@@ -13,6 +13,43 @@ import PhaseSignposts
 final class SceneTextPolicy {
     private(set) var revision = 0
     private(set) var latest: SceneAnswer?
+    private(set) var staleScene: UUID?
+
+    /// A private adapter or command changed the held application without answering a scene.
+    func markStale(_ id: UUID?) {
+        guard let id else { return }
+        staleScene = id
+        epoch += 1
+        resetEpoch += 1
+        seen.removeAll { $0.key.session == id }
+        if latest?.window.session == id { latest = nil }
+    }
+
+    /// Retains the private section reader on the T2 committed window baseline.
+    func sectionReading(_ title: String, page: Int, session: any AutomationSessionOperating) async throws -> JSONValue {
+        guard let id = session.id else {
+            throw AutomationFailure(ModelText.text(.init(rawValue: "scene_text_policy.sectionReading.v1")))
+        }
+        guard staleScene != id else {
+            throw AutomationFailure(ModelText.text(.init(rawValue: "scene_text_policy.sectionReading.v1.2")))
+        }
+        guard let baseline = seen.last(where: { $0.key.session == id }) else {
+            throw AutomationFailure(ModelText.text(.init(rawValue: "scene_text_policy.sectionReading.v1")))
+        }
+        let read = try await Self.section(title, page: page, of: baseline.scene)
+        var values: [String: JSONValue] = [
+            "revision": .number(Double(baseline.last.revision)), "session": .string(id.uuidString),
+            "section": .string(read.title), "scene": .string(read.text)
+        ]
+        if read.pages > 1 { values["page"] = .number(Double(page)); values["pages"] = .number(Double(read.pages)) }
+        return .object(values)
+    }
+
+    @concurrent
+    private static func section(_ title: String, page: Int,
+                                of scene: SceneSnapshot) async throws -> (title: String, text: String, pages: Int) {
+        try SceneAnswerBudget.safeSection(title, page: page, of: scene, lines: scene.textLines(cuts: .safe))
+    }
     private(set) var seen: [SceneWindowBaselines] = []
     private var epoch = 0
     private var resetEpoch = 0
@@ -66,7 +103,8 @@ final class SceneTextPolicy {
         changesOnly: Bool = false,
         nested: Bool = false,
         session: any AutomationSessionOperating,
-        shown: ValueMinimization
+        shown: ValueMinimization,
+        aim: (section: String?, target: String?) = (nil, nil)
     ) async -> SceneAnswer {
         #if BRAUS_PHASES
         let rendering = PhaseInterval.begin("render.scene")
@@ -86,10 +124,11 @@ final class SceneTextPolicy {
             let resetReason = baseline == nil
                 && (reason != .personHadApp || !answeredSinceReset.contains(resetWindow)) ? reason : nil
             let (answer, base) = await Self.prepared(scene, lines: lines, baseline: baseline,
-                key: key, revision: revision + 1, changesOnly: changesOnly, reason: resetReason)
+                key: key, revision: revision + 1, changesOnly: changesOnly, reason: resetReason, aim: aim)
             guard capturedEpoch == epoch else { continue }
             if reason == .personHadApp { answeredSinceReset.insert(resetWindow) }
             revision = answer.revision
+            if staleScene == key.session { staleScene = nil }
             epoch += 1
             if let known { seen.remove(at: known) }
             let reading = SceneWindowBaselines.Reading(revision: revision, scene: scene)
@@ -163,10 +202,12 @@ final class SceneTextPolicy {
         key: SceneWindowKey,
         revision: Int,
         changesOnly: Bool,
-        reason: SceneContextReset?
+        reason: SceneContextReset?,
+        aim: (section: String?, target: String?)
     ) async -> (SceneAnswer, SceneAnswer.Base?) {
         var form = SceneAnswer.Form.whole(because: reason)
-        var lines = whole
+        let aimed = SceneAnswerBudget.aimedTitle(in: scene, section: aim.section, target: aim.target)
+        var lines = SceneAnswerBudget.lines(whole, of: scene, aimed: aimed)
         var base: SceneAnswer.Base?
         if changesOnly, let baseline {
             let requestedBase: SceneAnswer.Base = baseline.lastBase != .anchor ? .anchor : .last
@@ -180,7 +221,7 @@ final class SceneTextPolicy {
             let measured = changes.isEmpty ? unchangedHeader : changesHeader + text
             let choice = SceneDifferenceRule.choose(baselines: baseline, wholeCharacters: whole.reduce(0) { $0 + $1.text.count },
                                      changes: { _ in measured.count })
-            if case .changes(let since, let chosenBase) = choice {
+            if case .changes(let since, let chosenBase) = choice, measured.count <= SceneAnswerBudget.characters {
                 base = chosenBase
                 form = changes.isEmpty ? .unchanged(since: since) : choice
                 lines = changes.isEmpty

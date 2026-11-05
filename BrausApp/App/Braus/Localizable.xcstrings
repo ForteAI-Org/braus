@@ -106,6 +106,91 @@
         }
       }
     },
+    "Acknowledge Outcome…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acknowledge Outcome…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conferma la verifica dell’esito…"
+          }
+        }
+      }
+    },
+    "Acknowledge this action?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acknowledge this action?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confermare la verifica di questa azione?"
+          }
+        }
+      }
+    },
+    "Action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azione"
+          }
+        }
+      }
+    },
+    "Actions to Review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions to Review"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azioni da verificare"
+          }
+        }
+      }
+    },
+    "Allow Further Actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Further Actions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti altre azioni"
+          }
+        }
+      }
+    },
     "Applications": {
       "extractionState": "manual",
       "localizations": {
@@ -174,6 +259,40 @@
         }
       }
     },
+    "Cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annulla"
+          }
+        }
+      }
+    },
+    "Check the application's current state before allowing this worker to continue.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the application's current state before allowing this worker to continue."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla lo stato attuale dell’applicazione prima di consentire a questo worker di proseguire."
+          }
+        }
+      }
+    },
     "Click": {
       "extractionState": "manual",
       "localizations": {
@@ -187,6 +306,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Clic"
+          }
+        }
+      }
+    },
+    "Confirm that this action has stopped and you have reviewed its outcome. The worker can send new actions afterward. This does not repeat the action or mark it successful.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm that this action has stopped and you have reviewed its outcome. The worker can send new actions afterward. This does not repeat the action or mark it successful."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conferma che questa azione è terminata e che ne hai verificato l’esito. Il worker potrà quindi inviare nuove azioni. L’azione non viene ripetuta né dichiarata riuscita."
+          }
+        }
+      }
+    },
+    "Done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fine"
           }
         }
       }
@@ -310,6 +463,23 @@
         }
       }
     },
+    "No unresolved actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No unresolved actions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna azione irrisolta"
+          }
+        }
+      }
+    },
     "Pause": {
       "extractionState": "manual",
       "localizations": {
@@ -357,6 +527,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Riproduci la cronologia del Brain"
+          }
+        }
+      }
+    },
+    "Reading actions…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading actions…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lettura delle azioni…"
+          }
+        }
+      }
+    },
+    "Refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna"
+          }
+        }
+      }
+    },
+    "Review Unresolved Actions…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review Unresolved Actions…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifica le azioni irrisolte…"
           }
         }
       }
@@ -446,6 +667,23 @@
         }
       }
     },
+    "Stop the worker's response before acknowledging an action.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop the worker's response before acknowledging an action."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompi la risposta del worker prima di confermare un’azione."
+          }
+        }
+      }
+    },
     "The Brain learns how an app works when a worker first uses it.": {
       "extractionState": "manual",
       "localizations": {
@@ -476,6 +714,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Impossibile leggere la memoria del Brain: %@"
+          }
+        }
+      }
+    },
+    "The action belongs to a different worker.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The action belongs to a different worker."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’azione appartiene a un altro worker."
+          }
+        }
+      }
+    },
+    "This action has no confirmed end yet. Stop the worker and refresh the list.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This action has no confirmed end yet. Stop the worker and refresh the list."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conclusione di questa azione non è ancora confermata. Interrompi il worker e aggiorna l’elenco."
+          }
+        }
+      }
+    },
+    "This action may still be running. Stop the worker and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This action may still be running. Stop the worker and try again."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa azione potrebbe essere ancora in esecuzione. Interrompi il worker e riprova."
           }
         }
       }

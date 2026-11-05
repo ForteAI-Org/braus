@@ -230,7 +230,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | presented | 8d355f4844d
 Sources/Integration/AutomationMCP/CallDispatcher.swift | receipt | 86f0ab3699ec31b180669c834eb30e84c54c374f4c70402de63aebb74d544f98 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | receipt | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | receipt | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | 27cd8d71ef427f37070ba3a6f0c88b7ad3b71be5e29ef70880f41c2ff2af635c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | value | 06496ff7cdba2b6b165c24c3dde5b3bd19224206b28c2cc5334a40cee41bb49c | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | value | 9fd6fd2ffd299ff3691b5e216c4778afe73ff2b7e23fb14e138b032cfc0994e0 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | value | e5dd6911470836de9f2cad863f1b900326dbc66b5c5fef476a55e78a974ac4d0 | Reconciliation capability identifier, schema field, closed ledger code or transcript marker; prose uses ModelText.
@@ -368,16 +367,21 @@ Sources/Turn/TurnRunner.swift | reviewing | 8869ad22943e917a9e5aae887407895ca268
 Sources/AgentLoop/ModelToolLoop.swift | data | 01fd914a955123ca6c1402729198ec4d0ad08d1b488db255350809932d5dc64b | protocol key or enumerated value
 Sources/AgentLoop/ModelToolLoop.swift | data | a2d12f9a1e524791a1a287df1a1d7ca339597327db2a400a5c05b9c0436e894b | protocol key or enumerated value
 Sources/AgentLoop/ModelToolLoop.swift | data | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | protocol key or enumerated value
+Sources/AgentLoop/ModelToolLoop.swift | encoded | 519b3ed503c6a825347f28dfd269c0a422e3b923858410e3abbab2d2a99837f2 | protocol key or enumerated value
+Sources/AgentLoop/ModelToolLoop.swift | images | 1e1d0f251d3a76fa2b1bfc81164078572623403887db02988b504b0492e9f076 | protocol key or enumerated value
+Sources/AgentLoop/ModelToolLoop.swift | images | b09c7d54e7dd3d63683312b9913f78ac3779abcfd921d4a795469bd76017a4d5 | protocol key or enumerated value
+Sources/AgentLoop/ModelToolLoop.swift | images | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | protocol key or enumerated value
+Sources/AgentLoop/ModelToolLoop.swift | mediaType | 87b061c8b6d35e253209abc00dc03fc16514efccd17cd47fc36559a164f0c8e6 | protocol key or enumerated value
 Sources/AgentLoop/ModelToolLoop.swift | seat | 98be486a01834c7bb83b3c7353edc3e046ca30fe710141f939aaec11f15c6407 | protocol key or enumerated value
 Sources/AgentLoop/ModelToolLoop.swift | text | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/AgentLoop/ModelToolLoop.swift | text | 1e1d0f251d3a76fa2b1bfc81164078572623403887db02988b504b0492e9f076 | protocol key or enumerated value
 Sources/AgentLoop/ModelToolLoop.swift | text | a2d12f9a1e524791a1a287df1a1d7ca339597327db2a400a5c05b9c0436e894b | protocol key or enumerated value
-Sources/AgentLoop/ModelToolLoop.swift | text | b09c7d54e7dd3d63683312b9913f78ac3779abcfd921d4a795469bd76017a4d5 | protocol key or enumerated value
+Sources/AgentLoop/ModelToolLoop.swift | text | affa657b3c3e9337bdf3c879c0561b74d54a9197fdc6acd834dcdc02837454fc | protocol key or enumerated value
+Sources/AgentLoop/ModelToolLoop.swift | text | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Typed result field or canonical text-block separator; not prose or a product switch.
 Sources/AgentLoop/ModelToolLoop.swift | toolDefinitions | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/AgentLoop/ModelToolLoop.swift | toolDefinitions | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | protocol key or enumerated value
 Sources/AgentLoop/ModelToolLoop.swift | toolDefinitions | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | protocol key or enumerated value
 Sources/AgentLoop/ModelToolLoop.swift | toolDefinitions | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/CallDispatcher.swift | adapters | 01e6bbb15a243aafbc3ebf63db322f9d9dde75f02ce3356be6ecf9eb956f2b34 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | allowed | 89897fb0a08d4eb1ac8d4a5a59a562b0cc7e42e83ea01e16cdea926df2eeffe7 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | allowed | cf51937bad8b2f6948b8edf1bd3289f3bc332ec610f99df2f5aff0218b3a554b | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | allowed | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | protocol key or enumerated value
@@ -422,6 +426,7 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | guidance | 0367b8ef52e6
 Sources/Integration/AutomationMCP/CallDispatcher.swift | guidance | 0bf987a9c3da7bc4467f50985605bb91639a01255e11dd7f07079647ddb28966 | local diagnostic, not delivered to the model
 Sources/Integration/AutomationMCP/CallDispatcher.swift | guidance | 39deb259fc0c9c25af2a75effb00b85652ae9172b43afa13344ef31d110af7e7 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | historicalValueRefusal | 9144403ccd467ba7cd67c4233beb1bedcdf497e27e98a6b82f9f6dc006fd5f2a | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | history | 3c7b82bb7a53755d9ef607a827f5b4931344b17f3fc4a4d4969f3a379d175e31 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | hold | 41de5b6299b94977a0563dacea1e3da9f1ab6df0c6e00cde5ac15c714fa5a675 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | id | 31d22a48a89ba8835780a4d5655d6e4fca0cc07dcb5460b673470b96b3c643d1 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | id | 35fe5373ba1f14e1307d20599c000d3a0a966f21ff4b13f80d0e98a750345141 | protocol key or enumerated value
@@ -478,6 +483,7 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | repeats | d2d78fa84794e
 Sources/Integration/AutomationMCP/CallDispatcher.swift | repeats | e3d4ec86a4b9176800289c9e8e31bb1a9bce0b3ef2ae6c82d4dec59b9293cff2 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | request | 490d426248946871eaa2e46d4ec13e9eb5b4d5a0e7ecf866e1d4a1ea769da179 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | request | 4a4edaddbf77cfb0a69ce95cb787a0e419397d495db11c555aadb61c62316071 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | request | 704ce6f4dbfd3f0bf5f92135088eb497abae490ecb4bbc54d64fd64890420b7b | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | resolved | 8f8f56bf9d4b554914c506b4248a4da95f8a2484fab8ba7a133775d956902053 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | result | 02e31f51aa8b1b6a622c4f7c30fab328d711cad4c9da74b9965ada8aa15d9df2 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | result | cd65b9e86545b5821579f624bf4aaeace994f700586dc769b37b40897cad4a63 | catalogue key
@@ -540,8 +546,73 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | warning | 252a6ff17f7fa
 Sources/Integration/AutomationMCP/CallDispatcher.swift | warning | b7daf07913f30cc20b5f7ab2638086375921a3d026f118f1328fea9192290d15 | catalogue key
 Sources/Integration/AutomationMCP/CallDispatcher.swift | warning | c94f9df6f3f7bc69e76a374ce4cd3e5d8766f2145a742ccb34d26e1954efd067 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/CallDispatcher.swift | word | 4e5ef144c51cd25230c144c3e1d8e842b9860b7a3cec2699d4e24e6517fc4b20 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | caption | 32f5d1df1e874f378e2903080be4f69e46cfa3f7b9695e1422a111f9f752253c | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | caption | 355728023573c5f20fcb225e4d3c4ee030f059649a32b60a5c36eb40bfcb62c7 | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | content | 01fd914a955123ca6c1402729198ec4d0ad08d1b488db255350809932d5dc64b | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | content | 12d3ce626589189c5c661bb69a14b9ba1d04dcae4d9432bcd486fd5b6a4244d2 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | content | 1e1d0f251d3a76fa2b1bfc81164078572623403887db02988b504b0492e9f076 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | content | 519b3ed503c6a825347f28dfd269c0a422e3b923858410e3abbab2d2a99837f2 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | content | 87b061c8b6d35e253209abc00dc03fc16514efccd17cd47fc36559a164f0c8e6 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | content | affa657b3c3e9337bdf3c879c0561b74d54a9197fdc6acd834dcdc02837454fc | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | content | b09c7d54e7dd3d63683312b9913f78ac3779abcfd921d4a795469bd76017a4d5 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | content | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 1080a60800d9e5bddc69f51489c636a776bacaadb5368f46db4aa0947c67e3ba | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 15de7fef0951cac916edc8982f36199883696dd63088ae8f4502f0d6b7d38aa7 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 257286b768ee01518960b3c485f54d2c2a0256fb0f15e7ccd4c58cf61a2ff6cb | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 2d53b3c21fa5cc786ac46d72b3adf70b60441627a14918f69f8ea164fec2e68b | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 3fe40faae15b6cd0836dce570fae3d61062b3d9cbd73c77fc105daaa68668548 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 4b1545477be6dc17f3a70e659635a34650696be11c051c0c247ea3a09b73d279 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 4d9d1806538c6368997ab0b3fa977b8e0d653b6eac261f1ceaa9044f864554ce | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 626992da9517ee49930ee1340383a0cc334563d9aa429619a17842d0eeecb524 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | 90e58808f987b117c7fc9a641ada88ebaf232269d83f3db7c2c80301165868ab | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | bb894e256c101d183cfd51432eebb3feb183cf155da5994b19a45406a3e24aac | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | cf51937bad8b2f6948b8edf1bd3289f3bc332ec610f99df2f5aff0218b3a554b | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | e49fb5f753e8aa4d47de1997cf344e108a4ccc685d45f43a37b7f49085f585e2 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | e4b90d9db6f8b3420bffca7de3dc97de541b8ac6283071737cbd34f934209db4 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | definition | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | fields | 15de7fef0951cac916edc8982f36199883696dd63088ae8f4502f0d6b7d38aa7 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | fields | 2d53b3c21fa5cc786ac46d72b3adf70b60441627a14918f69f8ea164fec2e68b | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | integer | 64d5a7622bdee7b56dfa40ef2ac72f5cc58686525e8168a4e33dd820f0a15ceb | path, format or parser pattern
+Sources/Integration/AutomationMCP/CanvasTool.swift | invalid | 3e6d5f061cc16a5c583e3b32e4da86cfedb1093c77f2796739b24e3b8e3eb2c6 | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | name | 3597e2db8fcf854e1fb789d68a13676446686e2874cf784ff0c8adc00e67ad44 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | number | 98089e6d36f78e9766c9ea34d5acb3611f3a92cd81c5eb102095d924ffc7d08b | value composition or separator
+Sources/Integration/AutomationMCP/CanvasTool.swift | printed | 2d53b3c21fa5cc786ac46d72b3adf70b60441627a14918f69f8ea164fec2e68b | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | result | 3a56e1d9f42d47a336c2a6877623b0f1835e508d1a0fc19fbd8ab19fb3e024bc | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | result | 9f6a81c1666e96986c521953db572a06c3001e272c8b406ec934807100346685 | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | result | bdb3f6c4de27b8af616c5cc137f045e77072c50efc85309e6ce6b60f074be3ef | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 0d0d7f91a5e150782ec8aa632a1cb859c7d4eb67f17c0a62f2663ee2fe1978f0 | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 0f7924b6df0ac0b8aef2c2ca3d9c1241f9ef5b4e419533c58bd4bb99d1ebdabd | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 1eda17b434fcc0439856f1e833d7cc23b0241f107036bbd9ed92e26f85697fcb | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 205e5505bb8284cb3f1764d06ac5054c35322279ae843dfb808f7b43aa28cb85 | value composition or separator
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 3596ea2638ad963ef71e62437fdd3500a3135bb5f9016e2bc39133bc14fb1d95 | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 3597e2db8fcf854e1fb789d68a13676446686e2874cf784ff0c8adc00e67ad44 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 38112df759dde77d3f7ed190b9b801406b76cbfe597349e12b6dfa11a52ddd46 | value composition or separator
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 389432cbf83f3d1b64029a75864ec96f8fd06451b4c99d7b28385d395d480bfa | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 478a704af63b8b643d74be10e00ff50f90c70a635bf01509487e6cdb5cb52367 | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 7ffa34533d316d480e5b7740cab6f32360d786a7a82d2a82b136db85051685da | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 8139be0f83b1daa43eca20795a47e63aa841dee739990fe71c7b9d9805a81218 | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | 988bf87f0412984f0abe741d122c2ec8039122e0498a93e7d615937162155aec | path, format or parser pattern
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | a8612396810602bf531c97f1b3b99431dc8fc2f80756acede64d93a7cc808295 | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | b5f0cdae9f0cdf8d7cbd844eeb4bbc46423d8b7148ce1e6d90053d826d729f6d | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | c2bc39e3dab53643567cab18cf63337998a16a66160afa9cda89321b785523fc | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | dd0a10724efc6d653562f1bed0fff9d6c1a88e617d3f102009df18de87f1968d | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | e53ec0952b6a80f0e666ab16ad5b115ebea356ac2e8c40e0bcce3b1cb8110455 | catalogue key
+Sources/Integration/AutomationMCP/CanvasTool.swift | text | f0363c5d987a3a9e6aa20180380b977657c57170f0b7464c27fa1018058d4e09 | value composition or separator
+Sources/Integration/AutomationMCP/CanvasTool.swift | value | 15de7fef0951cac916edc8982f36199883696dd63088ae8f4502f0d6b7d38aa7 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/HumanStepTool.swift | attached | 8493426ed9075d16667a08fe9bb21c09363e1e1e40a82c8cfc9ed702081b5b50 | catalogue key
+Sources/Integration/AutomationMCP/HumanStepTool.swift | attached | cc3ec73cd71163b2b0ee5faeb2a908226ac15c35c7207d9a626e63ccc47f0ffa | catalogue key
+Sources/Integration/AutomationMCP/HumanStepTool.swift | attached | f46e5948a379b64d3b2cc8eebb6858cd7879c72184b38ee69b17a0dc3f644126 | catalogue key
 Sources/Integration/AutomationMCP/HumanStepTool.swift | bounds | 0933fb667296882d8c45abca58ac52e01c8db6f19e626b30de88f0f4ed143ec5 | value composition or separator
+Sources/Integration/AutomationMCP/HumanStepTool.swift | content | 01fd914a955123ca6c1402729198ec4d0ad08d1b488db255350809932d5dc64b | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | content | 1e1d0f251d3a76fa2b1bfc81164078572623403887db02988b504b0492e9f076 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/HumanStepTool.swift | content | 519b3ed503c6a825347f28dfd269c0a422e3b923858410e3abbab2d2a99837f2 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/HumanStepTool.swift | content | 87b061c8b6d35e253209abc00dc03fc16514efccd17cd47fc36559a164f0c8e6 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/HumanStepTool.swift | content | affa657b3c3e9337bdf3c879c0561b74d54a9197fdc6acd834dcdc02837454fc | protocol key or enumerated value
+Sources/Integration/AutomationMCP/HumanStepTool.swift | content | b09c7d54e7dd3d63683312b9913f78ac3779abcfd921d4a795469bd76017a4d5 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | content | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | 257286b768ee01518960b3c485f54d2c2a0256fb0f15e7ccd4c58cf61a2ff6cb | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | 27a3a501b7f9ac1da6779f2bbeda50ddae3f75c1166e9726c69af88d5c770325 | catalogue key
@@ -558,6 +629,7 @@ Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | 8bea7e9c783
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | 92fd6b768c6ffafa860ae0ae49b934f58c79c7c2a99720bd779aa5f2221debe1 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | 99f4dcdb293c76207d2ff416bebb48fa06a0028927765ccec433d1dcd1dee195 | catalogue key
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | bb894e256c101d183cfd51432eebb3feb183cf155da5994b19a45406a3e24aac | protocol key or enumerated value
+Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | c9f2c1f1e28fa150c00465f33e2b31d3f4e489d41fbe17e1c7d45441f418d5b0 | catalogue key
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | cf51937bad8b2f6948b8edf1bd3289f3bc332ec610f99df2f5aff0218b3a554b | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | protocol key or enumerated value
@@ -567,18 +639,13 @@ Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | e4b90d9db6f
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | f6f1103961d575a3b4930bb01eae73811e3bdd6ae440fdd51b0ab82ad43eec0f | catalogue key
 Sources/Integration/AutomationMCP/HumanStepTool.swift | definition | ff8411e872d2d466447af71b0a42a2bb44c0d3a743c7ad5a580f980b5281a998 | value composition or separator
-Sources/Integration/AutomationMCP/HumanStepTool.swift | description | 3aea312e50392a08cb223e8f8e39371ff53252d00a4c6f61382dd215daaf54a3 | catalogue key
+Sources/Integration/AutomationMCP/HumanStepTool.swift | description | e44269a656b41851f2f3280359a2d2cb57d94d812c725253f9a9c734110e7d25 | value composition or separator
+Sources/Integration/AutomationMCP/HumanStepTool.swift | description | f240463dada079fc3d64b63fd6c50a01e772da977083807d79b1027d1a31253e | value composition or separator
 Sources/Integration/AutomationMCP/HumanStepTool.swift | invalid | 8b08d07e9895ecf6d5268ac9645f2c334852f2edd4e84eceee4faf180872b044 | catalogue key
 Sources/Integration/AutomationMCP/HumanStepTool.swift | name | d994f883ae1c68f4b89aed84ed97cd5c1590829c2653cd34b0fc896e646a2323 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | number | b11120d6fd167f67f96c7692164e56c5bf04e05eb70ff51aeb2c2eb728e35e33 | value composition or separator
-Sources/Integration/AutomationMCP/HumanStepTool.swift | picture | 01fd914a955123ca6c1402729198ec4d0ad08d1b488db255350809932d5dc64b | protocol key or enumerated value
-Sources/Integration/AutomationMCP/HumanStepTool.swift | picture | 519b3ed503c6a825347f28dfd269c0a422e3b923858410e3abbab2d2a99837f2 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/HumanStepTool.swift | picture | 87b061c8b6d35e253209abc00dc03fc16514efccd17cd47fc36559a164f0c8e6 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/HumanStepTool.swift | picture | affa657b3c3e9337bdf3c879c0561b74d54a9197fdc6acd834dcdc02837454fc | protocol key or enumerated value
-Sources/Integration/AutomationMCP/HumanStepTool.swift | picture | b09c7d54e7dd3d63683312b9913f78ac3779abcfd921d4a795469bd76017a4d5 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/HumanStepTool.swift | picture | d0070d5c40cd1aedd1b8d81061cd99af330999196a4200af47d89c42b4f81274 | protocol key or enumerated value
-Sources/Integration/AutomationMCP/HumanStepTool.swift | picture | f16882dcb0b1a889194df3b2c052d6a74571a8298a19ff16152d942bd16900f9 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | positiveInteger | 98089e6d36f78e9766c9ea34d5acb3611f3a92cd81c5eb102095d924ffc7d08b | value composition or separator
+Sources/Integration/AutomationMCP/HumanStepTool.swift | types | df7e940f72aa93cbcb6d70cc35124b0767c7a0e353043c7c24b660ea9be7b952 | value composition or separator
 Sources/Integration/AutomationMCP/HumanStepTool.swift | value | 65566987a3a0d3f38a91fc803796e4658513c0f03dec8dca50169e12727b521a | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | value | 8bea7e9c7834644aa94f23efa9e4c3bbb90570de5dffa3f547f6ba37e611fe53 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/HumanStepTool.swift | value | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | protocol key or enumerated value
@@ -1550,7 +1617,6 @@ Sources/Integration/AutomationMCP/ToolCatalogue.swift | choice | d0070d5c40cd1ae
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | choice | e49fb5f753e8aa4d47de1997cf344e108a4ccc685d45f43a37b7f49085f585e2 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | choice | e9e5c1c9e4f6277339d1bcde0733a59bd42f8731f449da6dc13010a916930d48 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | files | 0c104c86218d8624ed35a70a035fd5f642cd149dd31cbddfc83105e818e67c5f | catalogue key
-Sources/Integration/AutomationMCP/ToolCatalogue.swift | files | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | files | 7d83cbed81afafcaed2368173b6dcb6c4fa923c94e2345b22cc268c22a1fa152 | catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | files | bbebf2c55780e251b10d50c9582d303e29e9f36bd6704042039b322061e9d6e0 | catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | input | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | protocol key or enumerated value
@@ -1588,6 +1654,7 @@ Sources/Integration/AutomationMCP/ToolCatalogue.swift | inputs | e37ddc25411cac1
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | inputs | e5403d474c2a98cc5ce06a6d2ce74bdfc68bbae4bc39a037d0f974d3a302c55b | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | instructions | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | mcpClientInstructions | d6bfe7d8928903c560efc3f4ec702c35c2cf9bab39654d92a2a57191427988a6 | catalogue key
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | names | 3597e2db8fcf854e1fb789d68a13676446686e2874cf784ff0c8adc00e67ad44 | capability contract metadata or composition diagnostic, not model instructions
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | native | 037ebf4b6f4d6afd5785ac67f9c8a1ce17aeaecdacaefde0c10c78cc34e61b7c | catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | native | 532bf0678a96406c2ceda89bfd4b1bf64235beab5fd3182c2a6670b237079c01 | catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | native | 93574f201ac8338e5a8a18ecc4c1e689072ffc5129181711dd0ce67471123a0c | catalogue key
@@ -1759,6 +1826,7 @@ Sources/Integration/AutomationMCP/ToolCatalogue.swift | tool | 27a3a501b7f9ac1da
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | tool | 4b1545477be6dc17f3a70e659635a34650696be11c051c0c247ea3a09b73d279 | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | tool | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | protocol key or enumerated value
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | tool | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | verification | 3597e2db8fcf854e1fb789d68a13676446686e2874cf784ff0c8adc00e67ad44 | capability contract metadata or composition diagnostic, not model instructions
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | webOpening | 12f877ef8e74736ee88886d31edfb9c0536e9c6f214a3c80aa04cf98adf068e8 | catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | webOpening | 7a576273ebf22f3ebe5ed6af571f57becf79ad4372a75c0c3bff002d678348f6 | catalogue key
 Sources/Integration/AutomationMCP/ToolCatalogue.swift | webOpening | b8c6ef89fa1b6b66bc67e0e34afd38875596af05b74bb4cf54b4720fd4a9e8bb | catalogue key
@@ -1885,6 +1953,8 @@ Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | compactDetails | 
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | compactDetails | 38b45abfba1051db24212ad57f65c56bfb09bbf102c095d167149cc2205588c5 | protocol key or enumerated value
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | details | 38b45abfba1051db24212ad57f65c56bfb09bbf102c095d167149cc2205588c5 | protocol key or enumerated value
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | does | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | extent | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | extent | 52109349dabf69106e04ec2f493fb8b6ade94ea100227cccce6559ab8b96553f | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | field | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | head | 52109349dabf69106e04ec2f493fb8b6ade94ea100227cccce6559ab8b96553f | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | header | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
@@ -1906,6 +1976,7 @@ Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | out | 12ae32cb1ec
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | outOfViewText | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | outOfViewText | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | protocol key or enumerated value
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | owner | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | pixelsNote | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | position | e8a4571295696223d6e49f642c7283f0cf78f4bd4a85003f1ecd137c11c79f3c | path, format or parser pattern
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | range | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | recalled | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
@@ -2116,6 +2187,7 @@ Sources/Integration/AutomationMCP/ResultFormatter.swift | text | 8cf14017030734a
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | outcome protocol key or value composition
 Sources/Integration/AutomationMCP/ResultFormatter.swift | text | d9fd9a3d81d750e6edc61aec66e7c4112f7af7c34ebe0a0d20189464ec9df135 | outcome protocol key or value composition
+BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | compact | 1c4d5415f97c4f4a3755f6b33cacc4479a5e1b0ef6cd8cdfc5c024adb561b9bd | person-facing host error, local file identity or turn composition
 BrausApp/App/Braus/Core/WorkerAgents/WorkerAgentHost.swift | request | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | protocol key, catalogue key or value composition
 Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 1306dd73de75ca00b5ffa99ca2f6ea514fa91102073c2596cfc39a6d857550f2 | closed remote refusal cause code
 Sources/Driver/SeatSession/Seat/RemoteContentActuation.swift | code | 1c037e2c8eca44b7e068daaf4bbf0bb11c9f3d2f33901bf63287373486cc964b | closed remote refusal cause code
@@ -2374,7 +2446,6 @@ Sources/Turn/SeatLine.swift | encoded | c696ef26880139c483a6ec9572e68b5b7fe2da82
 Sources/Turn/SeatLine.swift | encoded | 415d26fb82d5b02c6c3f252010e5de96dd37908bc46b23d7e51b9cbf446606ee | JSON escaping delimiter
 Sources/Turn/SeatLine.swift | encoded | 1e9087d6f3393f46df66312c620528683d3e7c7dca5a3a6bd907c5866b0ef56f | JSON escaping delimiter
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | group | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
-Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | does | f74f79ff3f087bb2d057415d89b561f06e407c417d13f72b353fde11c1dc3ac3 | scene value composition or structural delimiter
 Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | group | a85f7cc63f88bf1ddfb9707c94c3e69bd34f0c998f68da1e8d09b5d49eca278b | scene value composition or structural delimiter
 Sources/Integration/AutomationMCP/Guides/AppGuide.swift | container | 7299b59de0b5dad3b622afc3bdf57544e505249c77a6d4254bd14b1fc9a4ade8 | guide format delimiter, metadata field, schema value or model-text key
 Sources/Integration/AutomationMCP/Guides/AppGuide.swift | data | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | guide format delimiter, metadata field, schema value or model-text key
@@ -2971,7 +3042,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | row | 2628022c228237e2c
 Sources/Integration/AutomationMCP/CallDispatcher.swift | row | 6618ade9e891215aac429cba986235aeee3f84177222dc5862274d62d1f9c888 | Outcome row composition from typed fields and a catalogued message; punctuation only.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | row | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | Outcome row composition from typed fields and a catalogued message; punctuation only.
 Sources/Integration/AutomationMCP/ResultFormatter.swift | minimization | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | Runtime/authority protocol key, producer metadata, tool identifier or ModelText reference; no prose.
-Sources/AgentLoop/ModelToolLoop.swift | text | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | Typed result field or canonical text-block separator; not prose or a product switch.
 Sources/Integration/AutomationMCP/ResultFormatter.swift | fields | ecd8238b2c4c0f6817a2ed207183b435c438885a8db993e4d32beaf1a7574dec | Typed result field or canonical text-block separator; not prose or a product switch.
 Sources/Integration/AutomationMCP/ResultFormatter.swift | steps | ccb5167cac54f9796d4d7be1ce43146e90a04171970aa4d3bd1f398a511bce03 | Typed result field or canonical text-block separator; not prose or a product switch.
 Sources/Integration/AutomationMCP/AutomationTools.swift | bytes | 5fb182dc58c0a60c0c3bed11c8973739815bd2d65eddd2f46a2e5de0c24c2454 | Fixed hexadecimal byte formatting mask for SHA-256; not model text.
@@ -2982,10 +3052,6 @@ Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 27a3a501b7f
 Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 4b1545477be6dc17f3a70e659635a34650696be11c051c0c247ea3a09b73d279 | Capability JSON schema field or empty lookup sentinel; contract prose is supplied by its provider.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 6b4637314e5ff4420f66541cf34aeabea2b35293f322d8e50e010baa4194f02e | Capability JSON schema field or empty lookup sentinel; contract prose is supplied by its provider.
 Sources/Integration/AutomationMCP/CallDispatcher.swift | contracts | 6ffe58b85cad95f1e86f1afebc4ffba738ef6c5520811cb5f393f6c0234ffcb0 | Capability JSON schema field or empty lookup sentinel; contract prose is supplied by its provider.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | 24105546e4824327e6c3769d53a0fae8af4113743646de5b07b86d7aef3af0e0 | Tool identifier, ModelText catalogue reference or typed refusal cause; not inline prose.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | bd1518fee1b9f61cf83d11f04f5f22ebc638e6ac915e1175997134aa8afa8d6b | Tool identifier, ModelText catalogue reference or typed refusal cause; not inline prose.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | d17fe6f84e395dcb606c4845719406782f5ab2259a316df6165f79f27f333bfb | Tool identifier, ModelText catalogue reference or typed refusal cause; not inline prose.
-Sources/Integration/AutomationMCP/CallDispatcher.swift | toolCall | dbf9868785714c2519824d5a01bea297a3ef16fa141bec86a4caff8320cdbc4c | Tool identifier, ModelText catalogue reference or typed refusal cause; not inline prose.
 Sources/Integration/AutomationMCP/TaskCycleHandler.swift | diagnostic | 495b5b8a6953b1db2659454ce3af93f2763c007212ef3f0d751ce4e4991652b7 | OSLog subsystem or category identifier; not model text.
 Sources/Integration/AutomationMCP/TaskCycleHandler.swift | diagnostic | e06e4815a2cfaac2c7a0fb56c99f282168cdb0b79dcbcf882f3d65b5b7f26fb3 | Private OSLog diagnostic with private interpolated text, not delivered to the model.
 Sources/Integration/AutomationMCP/TaskCycleHandler.swift | diagnostic | e499cf3a39e9d63cb93cc95ab9df763c9383ac0308d145354cf28b01dd69e474 | OSLog subsystem or category identifier; not model text.
@@ -3165,6 +3231,104 @@ Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | closed | 
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | closed | cfc31bcc34ed7f4cc7895026ae8a54f0494f73757e9f914d0f6ed90f9bc34f51 | End response protocol key for already committed row facts, not model-facing prose.
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | closed | e2a6e4afb7d248a4b480e4790e36f957d4cc21c2cf0e74740c2bdb711a524fe7 | End response protocol key for already committed row facts, not model-facing prose.
 Sources/Integration/AutomationMCP/TaskCycleHandler+Transitions.swift | closed | 09f2b0c96d5b407f0ff6beacc738e1d12a85433df37e5deccdbea578ea4c8970 | End response protocol key for already committed row facts, not model-facing prose.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | holds | 34fb56e708c5499b8b98b4e045dff4e0ac75c0e712a96cbf3086ba1db7b601a6 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | holds | bd1a33f50630266fae4debed19aa31ef4c724a05ae180cb3b0348d68a2d17a80 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | holds | 1c07ce69f8418f31fdf0400e8f3b6f3813b5c7660f08d1e69fdb5b5ba1ec6419 | value composition or separator
+Sources/Integration/AutomationMCP/CallDispatcher.swift | holds | 35c1cd00b8ab1a0722a164e78e90bd2e852e9b7bbc23bee6db2d3c42a10091d7 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | holds | 55a344116f8e93382589f8aed6f1063290f62c4fcdf0bb58d4174f0b5f7b63f8 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | holds | af8468fd302efb3d3625e23088c228677c451b23cfe17cd98cbbb8c837bf44c3 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | holds | 972400584f6cdd0af968eac683517870f7f8e96dba274e4fcb55e22187445de9 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | content | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Integration/AutomationMCP/CallDispatcher.swift | content | 8fd95888dac8950bc68339c75e0d594e90a2d86bf766a830bcec7cd47cee9910 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | content | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | title | 49870c64726fe16c88abb75ac8bdce868a3cd7d6390a52a930340278bc04c7c5 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | title | f8762590778e240250d2da62022c700f9ce7057c529bfe229cde93f8046488a4 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | title | 861424bc7e8c804146c9e7eb0b516385deb10194de8c499a610211cee07832d8 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | titles | 0f417264b86960638a04c3266fa1ce65777a227c577056f39a25c59f9c4b91b2 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | titles | f240463dada079fc3d64b63fd6c50a01e772da977083807d79b1027d1a31253e | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | titles | ecf6903fe10d166c95bba7f8200c540f04dce3e896f50647d4fc805ef215ce2b | Exact key of an existing ModelText catalogue entry.
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | titles | 2f953942b9b28ac07cc8554b26f7529ef880bca2b520ae3a2fdc9e7b44b17dd0 | Exact key of an existing ModelText catalogue entry.
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | titles | 6d6fa85713191d1af97154384ebe469d278a0d5caa4c21e6e801137634f4d61d | Exact key of an existing ModelText catalogue entry.
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | pages | e55066b4e1d48fb6d7e03d1b582a1793b83f78d4aa0bf7e9b906c9de3a03ea3d | catalogue key
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | pages | befcf33cc3101550e5193e49dda15c21b719b6b521291d00c3f5f5dd01e665ba | catalogue key
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | pages | cc3ec73cd71163b2b0ee5faeb2a908226ac15c35c7207d9a626e63ccc47f0ffa | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | heading | 710be5ce9107c4d7b887d8edd4d266be400c32dbd4559c0258179a5cbe1b4b31 | scene value composition, escaping or structural delimiter
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | more | 861424bc7e8c804146c9e7eb0b516385deb10194de8c499a610211cee07832d8 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | more | 41a6094ea30288762607873aafd122a33dae7d29e6101b030abb18884ea2b1ef | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | more | ca1733b5cdea2efcd28cb357b253498f97440592edd06d89895c4abcb5cfaae5 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | more | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | lines | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | lines | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | page | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | rest | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | size | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | words | 1d1bef08560a29d7eaf309aab0a693472174e4d5e5c6359bcece588020be8451 | input vocabulary used to recognize controls
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | words | e341a98cb79f7beb72ba3605d28eeb414a29f52b238fe46384a70c393dca6aeb | input vocabulary used to recognize controls
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | words | fe1b035d212a433d38c3298a43f3b396b1987ea12bd2d42cc14ff9ba952936f3 | input vocabulary used to recognize controls
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | words | ced3653404c495ca5866a4e5ba978e7bfda5f561f4e6756c0cc1f31d87206c5d | input vocabulary used to recognize controls
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | words | cf170110abc5849f756d7abf9a6131f853d2f68ba1ca7a10497850f973dc7ef0 | input vocabulary used to recognize controls
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | bars | 1bc03a6bff0daed759eb14e8294cf434ecda4c526b2809479586e0737d9cf38f | input vocabulary used to recognize controls
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | bars | fe4b1023c9a182633a7ebe61eacf99d1b4131008328af87bd64d7d294bf4a974 | input vocabulary used to recognize controls
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | bars | 22972f58d4655f8f28c02701fea777f46a46725a5bdde95f87daea06a688df2d | input vocabulary used to recognize controls
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | bars | 86f71147d20c6146284f7831f070377459a39393fa60ee8d42131e51d6c14538 | input vocabulary used to recognize controls
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | bars | 52109349dabf69106e04ec2f493fb8b6ade94ea100227cccce6559ab8b96553f | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | intro | 530ed57771e434f058e363ac0a372200af4530e7361fc585d609195ad0951d31 | catalogue key
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | intro | 6928fdbe200b3de54e47692184a9081b0808ac629f32e121665690dd0e0a0a53 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | intro | f4db9ab03a219f9ef1cecf98c7ccfdc83419274753acb76e2f464116514bd341 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | intro | cc3ec73cd71163b2b0ee5faeb2a908226ac15c35c7207d9a626e63ccc47f0ffa | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | state | cc3ec73cd71163b2b0ee5faeb2a908226ac15c35c7207d9a626e63ccc47f0ffa | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | state | a9f43df6ca9805dcccd34ec34fd5d2cad8bf2a3f887fbd22397b621b3cf16f85 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | state | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | leftOutNote | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | leftOutNote | 3684b81181fe15a3a30e198bf357784af19f68b5f81c024ba25d37ab7dd508f3 | catalogue key
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | leftOutNote | a06776d44b4a92b081080fd0aa17357175518b7b316a41eb6be7348cd0987446 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | leftOutNote | f240463dada079fc3d64b63fd6c50a01e772da977083807d79b1027d1a31253e | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | leftOutNote | 393d3cb1aeeecfb55afb812551a7bef9d0d33a7b4130e67b1d1bde5790fba15e | catalogue key
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | values | 49870c64726fe16c88abb75ac8bdce868a3cd7d6390a52a930340278bc04c7c5 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | values | e8f625c40b0e710f847d6eb25a05c7e10e6291793baf29fdd0adfba55e1e2579 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | values | 861424bc7e8c804146c9e7eb0b516385deb10194de8c499a610211cee07832d8 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | values | 41a6094ea30288762607873aafd122a33dae7d29e6101b030abb18884ea2b1ef | protocol key or enumerated value
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | budgetLegend | 5f871aa8d7ad1a3656c5492fbe5ff294bbcffd312502b31dfb49c058feffc049 | catalogue key
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | 52109349dabf69106e04ec2f493fb8b6ade94ea100227cccce6559ab8b96553f | value composition or separator
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | 49870c64726fe16c88abb75ac8bdce868a3cd7d6390a52a930340278bc04c7c5 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | 861424bc7e8c804146c9e7eb0b516385deb10194de8c499a610211cee07832d8 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | bb894e256c101d183cfd51432eebb3feb183cf155da5994b19a45406a3e24aac | protocol key or enumerated value
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | 92fd6b768c6ffafa860ae0ae49b934f58c79c7c2a99720bd779aa5f2221debe1 | protocol key or enumerated value
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | parts | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | loose | 12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126 | value composition or separator
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | outOfViewPart | d7a5e915306d21dc1937ad5616f1dc9682e759e75ef51dd05fd9ddc98a078ea1 | value composition or separator
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | ec1b12afc110d42744ef255fc638d503cfaeb038f79b9a76a57e20a31dd13083 | catalogue key
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | step | af69ceb16e987619ff1943a8c715cc083b16bb58a9ae4caf3ddc85d408edc3d7 | catalogue key
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | baseInstructions | 4b855bf171cbd32f4157bb84726cd980d003ed8baccd2cc082da7e5ffb63bbb9 | catalogue key
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | baseInstructions | 425bdfd36009871d22a9bd53ca8e8604dff270b4617f00d5c79f31d9a40ad391 | catalogue key
+Sources/Integration/AutomationMCP/AutomationTools.swift | instructions | 1cc07c3f8426985de12a1bb158b9cee5ed02eb0503a66c7edb9d9964539d1783 | Exact key of an existing ModelText catalogue entry.
+Sources/Integration/AutomationMCP/CallDispatcher.swift | app | 49870c64726fe16c88abb75ac8bdce868a3cd7d6390a52a930340278bc04c7c5 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | app | 861424bc7e8c804146c9e7eb0b516385deb10194de8c499a610211cee07832d8 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | app | 8d5e08496905ca4784423c594ccd7c32b98c365483c4bb966733a5e7f28355a7 | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | history | 24105546e4824327e6c3769d53a0fae8af4113743646de5b07b86d7aef3af0e0 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | history | 27cd8d71ef427f37070ba3a6f0c88b7ad3b71be5e29ef70880f41c2ff2af635c | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | history | bd1518fee1b9f61cf83d11f04f5f22ebc638e6ac915e1175997134aa8afa8d6b | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | history | d17fe6f84e395dcb606c4845719406782f5ab2259a316df6165f79f27f333bfb | catalogue key
+Sources/Integration/AutomationMCP/CallDispatcher.swift | history | dbf9868785714c2519824d5a01bea297a3ef16fa141bec86a4caff8320cdbc4c | protocol key or enumerated value
+Sources/Integration/AutomationMCP/CallDispatcher.swift | reason | 57305e29466ad13421cab9612b310aca37e7ca2a45972ef18c6e8441198446e5 | catalogue key for adapter refusal before invocation
+Sources/Integration/AutomationMCP/CallDispatcher.swift | resolved | 7e53afce348bedd7fad047d7c18c38223307dfd1d939b166b2141f52bf92d463 | catalogue key for adapter argument rejection
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | more | fd815823ebf2017917c783d3c724005bf80f3ea1e3d08b879a6ab854d9fade1a | catalogue key
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | partLines | 24505c68ba38391d31554e72027906eef160acc38716f4526176af76832f56fe | value composition or section identifier
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | partLines | bd775e2b54266389c8a55fa9b238bab8f4f9199271908c58bb2980224d351e4d | Exact existing scene heading matched to retained out-of-view lines; this comparison emits no prose.
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | state | 20cc7f1ab976e58b436bad92fbb166a6a67862299bc67f0029b2d7d24c6036af | catalogue key
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | state | 3ab51ebdcf3782e23091cd2ace6b6bf491e913fbaf5d487abc8ce5e14a3124fc | catalogue key
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | state | 6a86154696ca4475af1b75d81fca690bde4366042f9d5cb0e3b21ec09674b5e6 | value composition or separator
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | state | 7253633c8191a5a21c0c4bf71b0d00c90d390b9f06d9b67898a59ecf19eb1fae | catalogue key
+Sources/Integration/AutomationMCP/SceneAnswerBudget.swift | state | 9278cf4c3c1518e7527ff7ea46bf664ba197a0404b1d4e5369d443242f7ec5a7 | catalogue key
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | baseline | d362fb12465a090285c51e32b6ba1d414e53ecc7f87ecb6cd1fc0e30972dd86d | catalogue key
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | id | d362fb12465a090285c51e32b6ba1d414e53ecc7f87ecb6cd1fc0e30972dd86d | catalogue key
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | id | fb98c813e6c767c7167a09191558918d4d4f9a9f2b1dbd51d8fea2915c53ee98 | catalogue key
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | values | d4a057bb0019067f3ffab88f1b835c949df570e7f75e717c784bc3f1d4766895 | protocol key or enumerated value
+Sources/Integration/AutomationMCP/SceneTextPolicy.swift | values | d4cd9053a12d5c8ed47e7b71a96e426a7ba4be9cf2deb5ae0b514f1c6749ed1d | protocol key or enumerated value
+Sources/Integration/AutomationMCP/ToolCatalogue.swift | description | 4d9d1806538c6368997ab0b3fa977b8e0d653b6eac261f1ceaa9044f864554ce | Exact key of an existing ModelText catalogue entry.
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | extent | 9cac5d132765d9c3ee70cfad23166689b4f0323e117d2058963b74b72899a60f | scene value composition preserving canvas pixels and safe text cuts
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | oldRange | 432f15693771749f940d634c1229c5604d24687b52643d287e564968764ee18a | typed scene change annotation or read-only section identity; verified by canvas and scene byte tests
+Sources/Perception/PerceptionCore/Scene/SceneRendering.swift | outOfViewPart | f2d35a6e6233baeaad9f5dd84a7140eb306dceb2fc751218fe622199099b2f36 | typed scene change annotation or read-only section identity; verified by canvas and scene byte tests
 """
 
 

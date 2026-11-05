@@ -69,6 +69,21 @@ public enum AccessibilityAugmentation {
     private static let maxOutOfViewFields = 16
     private static let placeholder = "missing value"
 
+    /// Roles an application draws custom content in: a canvas is only ever one of these.
+    private static let canvasRoles: Set<String> = [
+        "AXGroup", "AXImage", "AXScrollArea", "AXLayoutArea", "AXUnknown", "",
+    ]
+    /// Roles whose subtree is structured content a reader can address, so no ancestor is a canvas.
+    private static let readableRoles = interactiveRoles
+        .union(tableRoles)
+        .union(["AXStaticText", "AXWebArea", "AXLink"])
+    /// The smallest visible canvas, in points: below it a drawn area is an icon or a glyph.
+    static let minimumCanvasSize = CGSize(width: 64, height: 48)
+    /// The largest share of the window a canvas covers: a node over nearly all of it is a wrapper
+    /// around the window's content (an Electron window before its tree is filled), not an area in it.
+    static let maximumCanvasShare = 0.9
+    private static let maxCanvases = 16
+
     // MARK: Harvest
 
     /// Walks one window's tree and returns the harvested elements, normalized to `windowFrame`.
@@ -103,6 +118,22 @@ public enum AccessibilityAugmentation {
     /// A label read from an attribute carries that attribute as its origin. The placeholder name an
     /// unnamed native editor receives ("Text area", "Text field") was read from nowhere, so it
     /// carries none.
+    ///
+    /// A canvas is an area the application draws that accessibility does not describe: a node outside
+    /// any control and collection whose role can hold drawn content (`canvasRoles`), whose visible
+    /// frame is at least `minimumCanvasSize` and under `maximumCanvasShare` of the window, which has
+    /// no title, description or value, and whose subtree holds nothing readable: no node with a title
+    /// or description, no text, control, link, web area or collection, and no list of children that
+    /// failed to answer. The outermost such node
+    /// is the canvas; candidates inside it do not count again. Canvases are labeled `canvas 1`,
+    /// `canvas 2`, ... in tree order, at most `maxCanvases`, so a canvas keeps its id while it keeps
+    /// its place among the window's canvases. Whether its pixels are empty is decided where pixels
+    /// are (`ScenePipeline`), after the ordinals: drawing into an empty view renames no other canvas.
+    ///
+    /// An application can also draw where no element is at all. A walk no limit cut short answers the
+    /// holes of its window, the areas no visible node frame covers (`UncoveredAreas`), as
+    /// `uncoveredCanvases`: labeled after the element canvases, in the order of their position, and
+    /// canvases only once their pixels show structure.
     public static func harvest<Reader: AccessibilityTreeReading>(
         under window: Reader.Node,
         windowFrame : CGRect,
@@ -126,15 +157,23 @@ public enum AccessibilityAugmentation {
         var staticText: [SceneElement] = []
         var tables       = 0
         var nodesVisited = 0
+        // Accepted canvases with the walk order of their node, so ordinals follow the tree.
+        var canvases: [(order: Int, frame: CGRect, role: String, container: String?)] = []
+        // The visible part of every node below the window, for the holes no element covers.
+        var covered: [CGRect] = []
         var stoppedBy: CaptureQuality.StopReason?
         // A list of children that did not answer (M2): the walk goes on with the siblings it can read, but
         // the capture is not whole. No limit stopped it, so none is named.
         var unlisted = false
 
         func listed(_ node: Reader.Node) -> [Reader.Node] {
+            listedIfRead(node) ?? []
+        }
+
+        func listedIfRead(_ node: Reader.Node) -> [Reader.Node]? {
             guard let children = reader.readChildren(node) else {
                 unlisted = true
-                return []
+                return nil
             }
             return children
         }
@@ -207,19 +246,29 @@ public enum AccessibilityAugmentation {
             return text
         }
 
+        // Answers whether the subtree holds anything readable, which a canvas candidate above it needs
+        // to know; only a walk under a candidate (`tracksReadability`) reads names for that answer.
+        @discardableResult
         func walk(_ node: Reader.Node, _ depth: Int, _ clip: CGRect, _ container: String?,
                   collectionPath: String?, column: String? = nil, rowName: String? = nil,
                   insideControl: Bool = false, insideWebContent: Bool = false,
-                  insideScrollingContent: Bool = false, preceding: Reader.Node? = nil) {
-            guard depth < limits.maxDepth else { return stop(.depthLimit) }
-            guard out.count < limits.maxElements else { return stop(.elementLimit) }
-            guard !limits.isPastDeadline() else { return stop(.deadline) }
+                  insideScrollingContent: Bool = false, preceding: Reader.Node? = nil,
+                  tracksReadability: Bool = false) -> Bool {
+            // A subtree a limit cut short may hold anything: it is readable, so no candidate above is a canvas.
+            guard depth < limits.maxDepth else { stop(.depthLimit); return true }
+            guard out.count < limits.maxElements else { stop(.elementLimit); return true }
+            guard !limits.isPastDeadline() else { stop(.deadline); return true }
             nodesVisited += 1
+            let order = nodesVisited
+            if depth > 0, let frame = reader.frame(node) {
+                let visible = frame.intersection(clip)
+                if !visible.isNull, !visible.isEmpty { covered.append(visible) }
+            }
             let role = (depth == 0 ? windowRole : reader.role(node)) ?? ""
             let subrole: String?
             if depth == 0 {
                 subrole = windowSubrole
-            } else if reader.requiresValueClassification && textEntryRoles.contains(role) {
+            } else if textEntryRoles.contains(role) {
                 subrole = reader.subrole(node)
             } else {
                 subrole = nil
@@ -243,14 +292,14 @@ public enum AccessibilityAugmentation {
             var childClip = clip
             if clippingRoles.contains(role), let frame = reader.frame(node), frame.width >= 8, frame.height >= 8 {
                 let inner = clip.intersection(frame)
-                guard !inner.isNull, inner.width >= 8, inner.height >= 8 else { return }
+                guard !inner.isNull, inner.width >= 8, inner.height >= 8 else { return false }
                 childClip = inner
             } else if role == "AXGroup", let frame = reader.frame(node), frame.width >= 8, frame.height >= 8 {
                 let inner = clip.intersection(frame)
                 if !inner.isNull, inner.width >= 8, inner.height >= 8 { childClip = inner }
             }
             if tableRoles.contains(role) {
-                guard tables < limits.maxTables else { return stop(.tableLimit) }
+                guard tables < limits.maxTables else { stop(.tableLimit); return true }
                 tables += 1
                 // The collection's structural path: the table's own title when it has one, else its
                 // role. A collection inside a row keeps the outer collection: a row's name is content.
@@ -288,7 +337,7 @@ public enum AccessibilityAugmentation {
                              insideScrollingContent: scrollingContent)
                     }
                 }
-                return
+                return true
             }
             if role == "AXStaticText", !insideControl, let frame = reader.frame(node) {
                 let value = reader.value(node, role: role, subrole: subrole)
@@ -376,19 +425,77 @@ public enum AccessibilityAugmentation {
                          nativeIdentity: role == "AXComboBox" ? reader.physicalIdentity(node) : nil)
                 }
             }
+            // The visible part of a node that may be a canvas, decided once its subtree has been walked.
+            var candidate: CGRect?
+            if depth > 0, !insideControl, collectionPath == nil, canvasRoles.contains(role),
+               let frame = reader.frame(node) {
+                let visible = frame.intersection(clip).intersection(windowFrame)
+                if !visible.isNull, visible.width >= minimumCanvasSize.width,
+                   visible.height >= minimumCanvasSize.height,
+                   visible.width * visible.height < maximumCanvasShare * windowFrame.width * windowFrame.height {
+                    candidate = visible
+                }
+            }
+            let tracks = tracksReadability || candidate != nil
+            var holdsReadable = tracks && (readableRoles.contains(role)
+                || firstText([reader.title(node), reader.descriptionText(node)]) != nil)
+            let nestedCanvases = canvases.count
+            let children = listedIfRead(node)
+            if children == nil { holdsReadable = true }
             var previous: Reader.Node?
-            for child in listed(node) {
-                walk(child, depth + 1, childClip, childContainer, collectionPath: collectionPath,
-                     column: column, rowName: rowName,
-                     insideControl: insideControl || interactiveRoles.contains(role) || role == "AXTextArea",
-                     insideWebContent: webContent, insideScrollingContent: scrollingContent, preceding: previous)
+            for child in children ?? [] {
+                let readable = walk(child, depth + 1, childClip, childContainer, collectionPath: collectionPath,
+                                    column: column, rowName: rowName,
+                                    insideControl: insideControl || interactiveRoles.contains(role)
+                                        || role == "AXTextArea",
+                                    insideWebContent: webContent, insideScrollingContent: scrollingContent,
+                                    preceding: previous, tracksReadability: tracks)
+                holdsReadable = holdsReadable || readable
                 previous = child
             }
+            // The outermost unreadable candidate is the canvas; the ones inside it do not count twice.
+            if let candidate, !holdsReadable, firstText([reader.value(node, role: role, subrole: subrole)]) == nil {
+                canvases.removeSubrange(nestedCanvases...)
+                canvases.append((order, candidate, role, container))
+            }
+            return holdsReadable
         }
         walk(window, 0, windowFrame, nil, collectionPath: nil)
+        // A walk a limit cut short left nodes unread, whose areas would read as holes.
+        let isCoverageWhole = stoppedBy == nil
         let room = max(0, limits.maxElements - out.count)
         if staticText.count > room { stop(.elementLimit) }
         out.append(contentsOf: staticText.prefix(room))
+        if canvases.count > maxCanvases { stop(.elementLimit) }
+        for (index, canvas) in canvases.sorted(by: { $0.order < $1.order }).prefix(maxCanvases).enumerated() {
+            guard let bounds = AccessibilityFrameTrust.normalized(canvas.frame, in: windowFrame) else { continue }
+            let label = "canvas \(index + 1)"
+            out.append(SceneElement(
+                id       : SceneIdentity.key(kind: .canvas, label: label, bounds: bounds, isUnlabeled: false),
+                kind     : .canvas,
+                label    : label,
+                bounds   : bounds,
+                role     : canvas.role.isEmpty ? nil : canvas.role,
+                container: canvas.container
+            ))
+        }
+        let elementCanvases = min(canvases.count, maxCanvases)
+        let holes = isCoverageWhole ? UncoveredAreas.areas(
+            in          : windowFrame,
+            covered     : covered,
+            limit       : maxCanvases - elementCanvases,
+            maximumShare: maximumCanvasShare
+        ) : []
+        let uncovered = holes.enumerated().compactMap { index, hole -> SceneElement? in
+            guard let bounds = AccessibilityFrameTrust.normalized(hole, in: windowFrame) else { return nil }
+            let label = "canvas \(elementCanvases + index + 1)"
+            return SceneElement(
+                id    : SceneIdentity.key(kind: .canvas, label: label, bounds: bounds, isUnlabeled: false),
+                kind  : .canvas,
+                label : label,
+                bounds: bounds
+            )
+        }
 
         var seen: [String: Int] = [:]
         for index in out.indices {
@@ -405,7 +512,7 @@ public enum AccessibilityAugmentation {
             windowSubrole  : windowSubrole,
             nodesVisited   : nodesVisited,
             elementsEmitted: out.count
-        ), outOfViewFields: outOfViewFields)
+        ), outOfViewFields: outOfViewFields, uncoveredCanvases: uncovered)
     }
 
     // MARK: Merge
@@ -442,7 +549,9 @@ public enum AccessibilityAugmentation {
 
         // Pixel elements over the same widget as `element`, other than the one it matched.
         func absorb(_ element: SceneElement, matched: Int?) {
-            guard element.role != "AXRow", !textEntryRoles.contains(element.role ?? "") else { return }
+            // A canvas covers drawn content; what pixels read inside it stays.
+            guard element.role != "AXRow", !textEntryRoles.contains(element.role ?? ""), element.kind != .canvas
+            else { return }
             let box = element.bounds
             let label = strippingOrdinal(element.label)
             var captions: [Int] = []
@@ -503,7 +612,7 @@ public enum AccessibilityAugmentation {
             let isInteractive = interactiveRoles.contains(element.role ?? "")
             // Duplicate evidence must overlap the same widget. Window-relative distance thresholds
             // collapse neighboring mixer buttons and bind dense list rows to the preceding row.
-            var match = core.isEmpty ? nil : result.indices
+            var match = core.isEmpty || element.kind == .canvas ? nil : result.indices
                 .filter { coreKeys[$0] == core }
                 .map { ($0, overlap(result[$0].bounds, element.bounds)) }
                 .filter { $0.1 > 0.6 }

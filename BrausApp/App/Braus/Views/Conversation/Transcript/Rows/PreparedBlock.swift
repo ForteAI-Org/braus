@@ -39,6 +39,10 @@ nonisolated struct PreparedBlock: Sendable, Hashable {
         /// An opened hand-back row's report, drawn as a tool line's steps are, with every line
         /// wrapped rather than cut, so all of it can be read.
         case report
+
+        /// The pictures one step of a tool line showed the model, small under the line, with
+        /// their label as the block's text on one line under them.
+        case pictures(ToolPictures)
     }
 
     /// The source offset, in UTF-16 units, of the chunk the block came from,
@@ -144,7 +148,8 @@ nonisolated struct PreparedBlock: Sendable, Hashable {
         switch kind {
         case .table(let table): Self.applyTable(table, to: result)
         case .code:             Self.applyHangingIndents(to: result, style: style)
-        case .toolSummary:      Self.applySingleLine(to: result)
+        case .toolSummary, .pictures:
+                                Self.applySingleLine(to: result)
         case .toolSteps:        Self.applyStepSpacing(to: result)
         case .report:           Self.applyStepSpacing(to: result, wraps: true)
         default:                break

@@ -18,7 +18,7 @@ struct CapabilityContractTests {
         let definitions = ToolCatalogue.availableDefinitions(for: [.native, .web, .adapters])
         let contracts = ToolCatalogue.contracts(for: [.native, .web, .adapters])
         let core = contracts.filter { $0.origin == .core }
-        #expect(core.count == 26)
+        #expect(core.count == 27)
         #expect(AutomationTools.definitions(for: [.native, .web, .adapters]).count == 11)
         #expect(core.map(\.id.rawValue) == definitions.compactMap { $0["name"].string } + ["find", "call", "triple_click", "reconcile_call"])
         for definition in definitions {
@@ -39,16 +39,16 @@ struct CoreEffectClassTests {
     @Test func coreEffectClassesAndSessions() throws {
         let contracts = ToolCatalogue.contracts(for: [.native, .web, .adapters])
         let registry = try CapabilityRegistry(core: contracts, registered: [])
-        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "find", "plan", "end"]
+        let reads: Set<String> = ["status", "windows", "apps", "observe", "app_capabilities", "find", "plan", "end", "canvas"]
         let noSession: Set<String> = ["status", "windows", "apps", "open_session", "app_capabilities",
-                                      "app_call", "plan", "end", "find", "call", "reconcile_call"]
+                                      "app_call", "plan", "end", "find", "call", "reconcile_call", "canvas"]
         for contract in contracts where contract.origin == .core {
             let name = contract.id.rawValue
             let channel: Channel = ["status", "windows", "apps", "plan", "end", "find", "close_session", "reconcile_call"].contains(name)
                 ? .braus : (["app_call", "app_capabilities"].contains(name) ? .adapter
                     : (name == "collect_posts" ? .web : .seat))
             #expect(contract.channel == channel)
-            if ["plan", "end", "find", "call", "reconcile_call"].contains(name) {
+            if ["plan", "end", "find", "call", "reconcile_call", "canvas"].contains(name) {
                 guard case .notRecorded = contract.memory else {
                     Issue.record("The interaction cycle owns its own record")
                     continue

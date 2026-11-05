@@ -45,6 +45,14 @@ extension ModelText {
             legacy: false
         ),
         Entry(
+            key: .init(rawValue: "seat_line.lifetime.v2"),
+            owner: "AutomationMCP",
+            delivery: .systemPrompt(order: 34),
+            budgetCharacters: 140,
+            text: "After 30 s idle Braus releases the app, even mid-turn. Reopen with open_session; a delegated adapter verb re-holds its app.",
+            legacy: false
+        ),
+        Entry(
             key: .init(rawValue: "seat_line.session.open.v2"),
             owner: "Turn",
             delivery: .seatLine,

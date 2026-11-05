@@ -199,6 +199,7 @@ struct BrainListView: View {
         case .icon: plural ? String(localized: "icons") : String(localized: "icon")
         case .control: plural ? String(localized: "controls") : String(localized: "control")
         case .image: plural ? String(localized: "images") : String(localized: "image")
+        case .canvas: plural ? String(localized: "canvases") : String(localized: "canvas")
         case .overlayCandidate:
             plural ? String(localized: "overlay-candidates") : String(localized: "overlay-candidate")
         }

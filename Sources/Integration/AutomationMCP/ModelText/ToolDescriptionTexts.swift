@@ -13,7 +13,7 @@ extension ModelText {
               text: "Each step uses operation (a gesture name) and that gesture's arguments. Optional expect declares an element or window result. No nested then.", legacy: false),
         Entry(key: .init(rawValue: "batch.description.v2"), owner: "AutomationMCP", delivery: .toolDescription(tool: "batch"),
               budgetCharacters: 500,
-              text: "Run up to 20 gestures in one app within 15s. Each item requires operation and its arguments. expect checks an element/window. Committing steps must be last, after confirmed steps, with expect. Human control stops the batch. Returns step outcomes and one scene.", legacy: false),
+              text: "Run up to 20 gestures in one app within 15s. Each item requires operation and arguments. expect checks an element/window. Commit only last, after confirmed steps, with expect. Stop for human control. Returns step outcomes and one scene.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.named_files.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
               budgetCharacters: 160, text: "named must be a list of file names.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.step_order.v2"), owner: "AutomationMCP", delivery: .refusal(tool: "plan"),
@@ -72,7 +72,7 @@ extension ModelText {
               budgetCharacters: 160, text: "step must name a row returned by plan.", legacy: false),
 
         Entry(key: .init(rawValue: "task_cycle.plan.v2"), owner: "AutomationMCP", delivery: .toolDescription(tool: "plan"),
-              budgetCharacters: 1800, text: "Open request, inputs and rows; revise an open task. End before another task. Rows (usually 3-10) are subprocedures, never gestures. Keep retained ids; omit id for new rows. Structural changes need reason. Select offered parts in revisions. expect: one predicate, 160 Unicode codepoints across texts except app, e.g. {\"element\":\"Result\",\"value\":\"89\"}. At 10 rows, summarize completed rows or end and start a new task.", legacy: false),
+              budgetCharacters: 1800, text: "Open/revise request, inputs and 3-10 subprocedure rows, never gestures. End before another task. Keep retained ids; omit id for new rows. Structural changes need reason. Select offered parts in revisions. expect: one predicate, 160 Unicode codepoints across texts except app, e.g. {\"element\":\"Result\",\"value\":\"89\"}. At 10 rows, summarize completed rows or end and start a new task.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.end.v2"), owner: "AutomationMCP", delivery: .toolDescription(tool: "end"),
               budgetCharacters: 500, text: "Close with an honest outcome and up to eight result predicates: {\"element\":\"Result\",\"value\":\"89\"} or {\"none\":\"reason\"}. Completion evidence covers declared checks; an open window does not prove the goal.", legacy: false),
         Entry(key: .init(rawValue: "task_cycle.ask_person.v2"), owner: "AutomationMCP", delivery: .toolDescription(tool: "ask_person"),
@@ -302,6 +302,22 @@ extension ModelText {
             budgetCharacters: 18,
             text: "the conversation. ",
             legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "tool_catalogue.observeSection.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolDescription(tool: "observe"),
+            budgetCharacters: 184,
+            text: "Page a ## section of the latest scene; no reread. Not with full.",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "tool_catalogue.observePage.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolDescription(tool: "observe"),
+            budgetCharacters: 54,
+            text: "From 1.",
+            legacy: false
         ),
         Entry(
             key: .init(rawValue: "tool_catalogue.step.v1.22"),
@@ -611,16 +627,16 @@ extension ModelText {
             key: .init(rawValue: "tool_catalogue.step.v1.60"),
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "app_capabilities"),
-            budgetCharacters: 81,
-            text: "List what Braus can do in an app through its API, with the app in the background ",
+            budgetCharacters: 50,
+            text: "List what Braus can do in an app through its API: ",
             legacy: true
         ),
         Entry(
             key: .init(rawValue: "tool_catalogue.step.v1.61"),
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "app_capabilities"),
-            budgetCharacters: 93,
-            text: "or closed and no session: the adapter's availability and its verbs, each with its arguments, ",
+            budgetCharacters: 67,
+            text: "the adapter's availability and its verbs, each with its arguments, ",
             legacy: true
         ),
         Entry(
@@ -651,8 +667,8 @@ extension ModelText {
             key: .init(rawValue: "tool_catalogue.step.v1.65"),
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "app_call"),
-            budgetCharacters: 87,
-            text: "no session needed. The outcome is found_acted when the read-back confirmed the effect, ",
+            budgetCharacters: 228,
+            text: "a verb that scripts its app holds it on the Seat when available, switching apps if needed. A session: line names the session it opened, which observe can read. The outcome is found_acted when the read-back confirmed the effect, ",
             legacy: true
         ),
         Entry(
@@ -699,8 +715,8 @@ extension ModelText {
             key: .init(rawValue: "tool_catalogue.step.v1.71"),
             owner: "AutomationMCP",
             delivery: .toolDescription(tool: "close_session"),
-            budgetCharacters: 93,
-            text: "asks, or before calling open_session again; never to finish a task, since Braus releases the ",
+            budgetCharacters: 107,
+            text: "asks, or before calling open_session for a different app; never to finish a task, since Braus releases the ",
             legacy: true
         ),
         Entry(
@@ -798,6 +814,30 @@ extension ModelText {
             budgetCharacters: 50,
             text: "Window § ID from the digest, or its window number.",
             legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "human_step_tool.definition.v1.4"),
+            owner: "AutomationMCP",
+            delivery: .toolDescription(tool: "human_step"),
+            budgetCharacters: 78,
+            text: "A step number; a step that changed a canvas answers its crop before and after.",
+            legacy: false
+        ),
+        Entry(
+            key: .init(rawValue: "tool.canvas.v1.description"),
+            owner: "AutomationMCP",
+            delivery: .toolDescription(tool: "canvas"),
+            budgetCharacters: 201,
+            text: "Read a [canvas] from the held Seat window's last observation. Returns small PNGs: before and after the changed area, or the current whole canvas. Observe after an action before requesting its pictures.",
+            legacy: true
+        ),
+        Entry(
+            key: .init(rawValue: "canvas_tool.definition.v1"),
+            owner: "AutomationMCP",
+            delivery: .toolDescription(tool: "canvas"),
+            budgetCharacters: 60,
+            text: "Canvas id printed in the scene, such as canvas 2 or canvas2.",
+            legacy: false
         ),
         Entry(
             key: .init(rawValue: "memory_task_tool.report.v1"),

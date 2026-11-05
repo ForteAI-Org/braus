@@ -15,6 +15,7 @@ import PhaseSignposts
 #endif
 import PrivateSymbols
 import SeatCore
+import Synchronization
 import TaskRouting
 
 /// CallDispatcher runs a call in its scope and recorder, borrowing state kept alive by the facade.
@@ -43,6 +44,17 @@ final class CallDispatcher {
     private(set) var entries: [CatalogueEntry] = []
     private let channels: AutomationChannels
     let adapters: AppAdapters?
+    private let files: FilesAdapter
+
+    private var reachable: AppAdapters {
+        Self.reachable(adapters, files: files)
+    }
+
+    private static func reachable(_ adapters: AppAdapters?, files: FilesAdapter) -> AppAdapters {
+        guard let adapters else { return AppAdapters([files]) }
+        guard !adapters.adapters.contains(where: { $0.name == files.name }) else { return adapters }
+        return AppAdapters(adapters.adapters + [files], approver: adapters.approver)
+    }
     let router: TaskRouter?
     private unowned let producerSecrets: ProducerSecrets
     private unowned let sceneText: SceneTextPolicy
@@ -73,6 +85,7 @@ final class CallDispatcher {
         session: any AutomationSessionOperating,
         channels: AutomationChannels,
         adapters: AppAdapters?,
+        files: FilesAdapter = FilesAdapter(),
         router: TaskRouter?,
         secrets: ProducerSecrets,
         sceneText: SceneTextPolicy,
@@ -105,7 +118,7 @@ final class CallDispatcher {
         }
         do {
             self.registry = try CapabilityRegistry(
-                core: ToolCatalogue.contracts(for: channels, adapters: adapters),
+                core: ToolCatalogue.contracts(for: channels, adapters: Self.reachable(adapters, files: files)),
                 registered: registered
             )
         } catch {
@@ -115,6 +128,7 @@ final class CallDispatcher {
         self.recording = recording
         self.session = session
         self.channels = channels
+        self.files = files
         self.adapters = adapters
         self.router = router
         self.producerSecrets = secrets
@@ -257,13 +271,14 @@ final class CallDispatcher {
     private func outcome(
         surface: ToolSurface,
         _ value: ActOutcome,
-        refusal: ResultFormatter.RefusalContext?
+        refusal: ResultFormatter.RefusalContext?,
+        aim: (section: String?, target: String?) = (nil, nil)
     ) async -> JSONValue {
         let stable = refusal.flatMap {
             $0.sessionID == session.id && $0.windowNumber == session.observedWindowNumber ? $0 : nil
         }
         noteOutcome(value, tool: refusal?.tool)
-        return await formatter.outcome(value, refusal: stable, surface: surface)
+        return await formatter.outcome(value, refusal: stable, surface: surface, aim: aim)
     }
 
     private func noteOutcome(_ value: ActOutcome, tool: String? = nil, personInControl: Bool = false) {
@@ -278,6 +293,54 @@ final class CallDispatcher {
                     outcome: value.outcome))
             }
         }
+    }
+
+    /// Holds `bundleID` on the session's Seat for the length of `body`, as `AutomationTools.holding(_:mayChange:_:)`
+    /// documents: the call is the session's activity until `body` returns, and unless `mayChange` is false the
+    /// session's next scene is answered whole.
+    func holding<Value>(
+        _ bundleID: String,
+        mayChange : Bool,
+        _ body    : (AutomationTools.SeatHold) async throws -> Value
+    ) async throws -> Value {
+        let activity = session.beginActivity()
+        defer { session.endActivity(activity) }
+        let hold = try await seat(bundleID)
+        defer { if mayChange { sceneText.markStale(session.id) } }
+        return try await body(hold)
+    }
+
+    /// Makes the session hold `bundleID` on its Seat as `open_session` opens an application, on the Seat route
+    /// whatever a native route would take, closing what it holds first; `.noSeat` without touching anything when
+    /// the session has none. The first scene is read and not answered: the model reads the application with
+    /// observe. Throws `HoldRefused` with nothing sent to the application, or a cancellation (the person taking
+    /// control during that first read).
+    private func seat(_ bundleID: String) async throws -> AutomationTools.SeatHold {
+        guard session.hasSeat else { return .noSeat }
+        let holds = {
+            self.session.holdsOnSeat
+                && self.session.memoryApplication?.caseInsensitiveCompare(bundleID) == .orderedSame
+        }
+        if holds() { return .held }
+        if session.id != nil || session.memoryApplication != nil { await session.close() }
+        do {
+            _ = try await session.openOnSeat(application: bundleID)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw AutomationTools.HoldRefused(reason: ModelText.text(.init(rawValue: "call_dispatcher.seat.v1"))
+                + bundleID
+                + ModelText.text(.init(rawValue: "call_dispatcher.seat.v1.2"))
+                + "\(error)")
+        }
+        guard holds() else {
+            throw AutomationTools.HoldRefused(reason: ModelText.text(.init(rawValue: "call_dispatcher.seat.v1.3"))
+                + bundleID
+                + ModelText.text(.init(rawValue: "call_dispatcher.seat.v1.4"))
+                + (session.memoryApplication ?? ModelText.text(.init(rawValue: "call_dispatcher.seat.v1.5")))
+                + ModelText.text(.init(rawValue: "call_dispatcher.seat.v1.6")))
+        }
+        return .held
     }
 
     private func observation(
@@ -579,6 +642,24 @@ final class CallDispatcher {
     }
 
     private func toolCall(_ name: String, _ arguments: JSONValue, surface: ToolSurface) async throws -> JSONValue {
+        if name == CanvasTool.name {
+            let request = try CanvasTool.request(arguments)
+            guard session.id != nil else {
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.canvasSession.v1")))
+            }
+            guard let history = session.canvasHistory else {
+                throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.canvasHistory.v1")))
+            }
+            return try CanvasTool.result(
+                request,
+                history    : history,
+                isWithheld : {
+                    SensitivityClassifier().classify($0, in: .init(labels: [$0])).sensitivity == .secret
+                        || self.producerSecrets.withheld($0) != $0
+                },
+                withholding: producerSecrets.withheld
+            )
+        }
         do {
             if name == "plan" || name == "end" { return try await taskCycle.cycleCall(name, arguments) }
             if name == "reconcile_call" { return try await reconcileCall(arguments) }
@@ -803,7 +884,8 @@ final class CallDispatcher {
                 notice = Self.suspended(failure)
             }
             if request.tool != .batch, registry.effectClass(of: name, arguments: arguments) != .read,
-               !["open_session", "close_session"].contains(name) {
+               !["open_session", "close_session"].contains(name),
+               output.lastCheck?.performed != OperationCheck.Performed.none {
                 taskCycle.noteGesture(eventID: recorder.eventID, outcome: "unknown", uncertain: true)
             }
             guard let notice else { throw error }
@@ -840,7 +922,7 @@ final class CallDispatcher {
     private func gatesUncertainty(_ request: AgentCallRequest) -> Bool {
         if case .appCall(let app, let verb, let arguments) = request,
            let value = try? JSONDecoder().decode(JSONValue.self, from: Data(arguments.utf8)),
-           (try? adapters?.resolve(app: app, verb: verb, arguments: value).verb.safety) == .read {
+           (try? reachable.resolve(app: app, verb: verb, arguments: value).verb.safety) == .read {
             return false
         }
         return request.tool == .appCall
@@ -980,7 +1062,7 @@ final class CallDispatcher {
     private func application(of request: AgentCallRequest) -> AppContextIdentity? {
         switch request {
             case .appCapabilities(let app, _), .appCall(let app, _, _):
-                return adapters?.adapter(for: app)?.bundleIDs.sorted().first.map { AppContextIdentity(bundleID: $0) }
+                return reachable.adapter(for: app)?.bundleIDs.sorted().first.map { AppContextIdentity(bundleID: $0) }
             default:
                 return memoryApplication
         }
@@ -1187,7 +1269,14 @@ final class CallDispatcher {
         case "app_call":
             let adapters = try enabledAdapters()
             let app = try string(arguments, "app"), verb = try string(arguments, "verb")
-            let resolved = try? adapters.resolve(app: app, verb: verb, arguments: arguments["arguments"])
+            let resolved: (adapter: any AppAdapting, verb: AdapterVerb)?
+            do {
+                resolved = try adapters.resolve(app: app, verb: verb, arguments: arguments["arguments"])
+            } catch {
+                await recorder?.notAttempted(ModelText.text(.init(rawValue: "adapter.argumentsRejected")))
+                output.mayHaveActed = false
+                throw error
+            }
             output.transcriptOmits = resolved?.verb.contentResults ?? []
             // P2-02: the argument object's leaves, minimized at the end; the archive decides which name an earlier result.
             await recorder?.noted(arguments: StructuredLeaves.fields(of: arguments["arguments"]))
@@ -1199,20 +1288,50 @@ final class CallDispatcher {
                 await recorder?.noted(context: ResultFormatter.dataContext(of: resolved, arguments: arguments["arguments"], result: nil))
             }
             // The adapter verb is noted right before the adapter runs, never for a call its guards refused (M05).
+            // An adapter that scripts its app runs while the session holds that app, as an activity of the session.
             let outcome: AdapterOutcome
+            let activity = session.beginActivity()
+            defer { session.endActivity(activity) }
+            let opened    = session.id
+            let mayChange = resolved.map { $0.verb.safety != .read } ?? false
+            let invoked = Mutex(false)
             do {
-                if let refusal = adapters.seatConflict(app: app, held: session.memoryApplication, elsewhere: SeatHolds.bundleIDs) {
+                let others = SeatHolds.bundleIDs.subtracting(session.memoryApplication.map { [$0] } ?? [])
+                if let refusal = adapters.seatConflict(app: app, elsewhere: others) {
                     outcome = .refused(refusal)
                 } else {
-                    outcome = try await adapters.call(app: app, verb: verb, arguments: arguments["arguments"]) { dispatch in
+                    outcome = try await adapters.call(
+                        app      : app,
+                        verb     : verb,
+                        arguments: arguments["arguments"],
+                        holding  : { bundleID in
+                            // Without a Seat the verb runs unheld, as it always did; only a Seat that fails refuses.
+                            do {
+                                _ = try await self.seat(bundleID)
+                                return nil
+                            } catch let refused as AutomationTools.HoldRefused {
+                                return refused.reason
+                            }
+                        }
+                    ) { dispatch in
+                        invoked.withLock { $0 = true }
                         await recorder?.dispatched(adapter: dispatch)
                     }
                 }
             } catch {
+                if !invoked.withLock({ $0 }) {
+                    let reason = ModelText.text(.init(rawValue: "adapter.notInvoked"))
+                    await recorder?.notAttempted(reason)
+                    output.lastCheck = resolved.map { AdapterOutcome.refused(reason).check(for: $0.verb) }
+                    output.mayHaveActed = false
+                }
+                if mayChange { sceneText.markStale(session.id) }
                 guard let verb = resolved?.verb, verb.resultConfidentiality != .ordinary,
                       !(error is CancellationError) else { throw error }
                 throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.verb.v1")))
             }
+            // A session the hold opened is named, so the model can observe it by its ID.
+            let held = session.id.flatMap { $0 == opened ? nil : $0.uuidString }
             // A confidential verb's result (P1-06) is the model's: its fields are withheld from the record and the
             // transcript, each value whole and the long ones wherever they appear (the outcome's message among them).
             if let verb = resolved?.verb, verb.resultConfidentiality != .ordinary {
@@ -1229,9 +1348,14 @@ final class CallDispatcher {
                 await recorder?.noted(context: ResultFormatter.dataContext(of: resolved, arguments: arguments["arguments"],
                                                                 result: outcome.result))
             }
+            if mayChange, outcome.kind != .refused { sceneText.markStale(session.id) }
             output.modelText = AdapterText.outcome(outcome)
             output.contentTexts = ResultFormatter.content(of: resolved?.verb, arguments: arguments["arguments"], outcome: outcome)
+            output.modelText = held.map {
+                (output.modelText ?? "") + ModelText.text(.init(rawValue: "call_dispatcher.held.v1")) + $0
+            } ?? output.modelText
             value = outcome.json.adding("evidence", ResultFormatter.evidence(output.lastCheck, kind: outcome.kind, surface: surface))
+                .adding("session", held.map(JSONValue.string))
             output.lastResult = .outcome(outcome.kind, message: outcome.message)
         case "open_session":
             let app = try string(arguments, "app")
@@ -1269,10 +1393,25 @@ final class CallDispatcher {
             if values["full"] != nil, arguments["full"].bool == nil {
                 throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.id.v1.4")))
             }
-            await noteDispatch()
-            let scene = try await session.observe()
-            value = await observation(scene, changesOnly: arguments["full"].bool != true)
-            output.lastResult = await observed(by: recorder)
+            if values["section"] != nil || values["page"] != nil {
+                guard values["full"] == nil else {
+                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.section.v1")))
+                }
+                guard let title = arguments["section"].string, !title.isEmpty else {
+                    throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.section.v1.2")))
+                }
+                // Read from the scene the model was answered, so nothing is dispatched and no observation is recorded.
+                value = try await sceneText.sectionReading(
+                    title,
+                    page   : ToolArguments.whole(arguments, "page", 1...1_000, default: 1),
+                    session: session
+                )
+            } else {
+                await noteDispatch()
+                let scene = try await session.observe()
+                value = await observation(scene, changesOnly: arguments["full"].bool != true)
+                output.lastResult = await observed(by: recorder)
+            }
         case "menu":
             await noteDispatch()
             let refusal = refusalContext(tool: name, arguments: arguments)
@@ -1301,7 +1440,7 @@ final class CallDispatcher {
             let refusal = refusalContext(tool: name, arguments: arguments)
             try ToolArguments.rejectGestureExpectation(in: arguments)
             let done = try await perform(step, dispatch: CallScope.current.dispatch(of: step.texts, at: 0))
-            value = await outcome(surface: surface, done, refusal: refusal)
+            value = await outcome(surface: surface, done, refusal: refusal, aim: step.aim)
             output.lastResult = .outcome(done.kind, message: done.message)
             output.lastCheck  = done.withStatedCheck.check
         case "batch":
@@ -1598,13 +1737,8 @@ final class CallDispatcher {
         return RouteContext(adapters: available, webAvailable: channels.contains(.web))
     }
 
-    /// The adapters, or the refusal of an adapter tool in a composition without them.
-    private func enabledAdapters() throws -> AppAdapters {
-        guard let adapters else {
-            throw AutomationFailure(ModelText.text(.init(rawValue: "call_dispatcher.adapters.v1")))
-        }
-        return adapters
-    }
+    /// The application adapters plus the base file capabilities, subject to the same authority checks.
+    private func enabledAdapters() throws -> AppAdapters { reachable }
 
     /// The typed answer of an observation the recorder wrote as a sample: nil when it wrote none, which
     /// the record keeps as an explicit gap.

@@ -30,5 +30,13 @@ extension ModelText {
             text: "Changes: \"+ added\", \"- removed\", \"~ changed (was ...)\" under ## section; window: or viewport: when changed. All else is unchanged.",
             legacy: false
         ),
+        Entry(
+            key: .init(rawValue: "tool_catalogue.budgetLegend.v1"),
+            owner: "AutomationMCP",
+            delivery: .legend,
+            budgetCharacters: 220,
+            text: "A scene too long for one answer keeps its first line, lists every section with its place, element count and whether it is shown, then the sections shown whole, and names those left out: read one with observe and section.",
+            legacy: false
+        ),
     ]
 }

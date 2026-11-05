@@ -21,7 +21,9 @@ import Foundation
 /// read or a call rejected before it ran, is a step of its own. An outcome
 /// whose status is not a success (`honest_miss`, `ambiguous`, `refused`,
 /// `acted_unverified`) failed, with its message as the reason. A record this
-/// build cannot read keeps its tool's name.
+/// build cannot read keeps its tool's name. The pictures a result showed the
+/// model (`ToolPictures`) go on the latest step of their tool, or on a step of
+/// their own when no call of it was recorded, as `human_step` has none.
 nonisolated struct ToolStep: Sendable, Hashable {
 
     enum Action: Sendable, Hashable {
@@ -69,6 +71,12 @@ nonisolated struct ToolStep: Sendable, Hashable {
         /// Read a web page on `site`, its address's host without `www.`.
         case webRead(site: String?)
 
+        /// Asked for a picture of the canvas `id`, as the scene names it.
+        case canvas(id: String?)
+
+        /// Read back what the person did while they held the app.
+        case humanStep
+
         /// What the worker said it was about to do, in its own words.
         case note(String)
 
@@ -86,11 +94,14 @@ nonisolated struct ToolStep: Sendable, Hashable {
     let action: Action
     var state: State
 
+    /// What the step's result showed the model as pictures, nil when it showed none.
+    var pictures: ToolPictures? = nil
+
     /// True for a step that changes the app, rather than one that only looks.
     var isEffectful: Bool {
         switch action {
-        case .status, .windows, .apps, .observe, .webSearch, .webRead, .note: false
-        default:                                                              true
+        case .status, .windows, .apps, .observe, .webSearch, .webRead, .note, .canvas, .humanStep: false
+        default:                                                                                 true
         }
     }
 
@@ -128,8 +139,24 @@ nonisolated struct ToolStep: Sendable, Hashable {
         var batch  : [Int] = []
         var dropped: Set<Int> = []
         var lastApp: String?
+        var latest : [String: Int] = [:]
 
         for line in lines {
+            if line.hasPrefix(ToolPictures.mark) {
+                // A record this build cannot read shows nothing, never its encoded pictures.
+                guard let read = ToolPictures.read(line) else { continue }
+                if let index = latest[read.tool] {
+                    steps[index].pictures = read.pictures
+                } else {
+                    latest[read.tool] = steps.count
+                    steps.append(ToolStep(
+                        action  : action(read.tool, [:], lastApp: lastApp),
+                        state   : .done,
+                        pictures: read.pictures
+                    ))
+                }
+                continue
+            }
             if line.hasPrefix(noteMark) {
                 steps.append(ToolStep(action: .note(String(line.dropFirst(noteMark.count))), state: .done))
                 continue
@@ -157,6 +184,7 @@ nonisolated struct ToolStep: Sendable, Hashable {
                 let made = action(name, arguments, lastApp: lastApp)
                 if case .open(let app) = made { lastApp = app }
                 waiting[name, default: []].append(steps.count)
+                latest[name] = steps.count
                 steps.append(ToolStep(action: made, state: .pending))
                 continue
             }
@@ -192,6 +220,7 @@ nonisolated struct ToolStep: Sendable, Hashable {
                 waiting[name]?.removeFirst()
                 steps[index].state = answer
             } else {
+                latest[name] = steps.count
                 steps.append(ToolStep(action: action(name, [:], lastApp: lastApp), state: answer))
             }
         }
@@ -226,7 +255,11 @@ nonisolated struct ToolStep: Sendable, Hashable {
     /// their own lines. A note, an error or a record that is not JSON stays as
     /// it is, and every record is cut at `copiedRecordLimit` characters.
     private static func compacted(_ line: String) -> String {
-        shortened(compactedJSON(line) ?? line, limit: copiedRecordLimit)
+        if line.hasPrefix(ToolPictures.mark) {
+            let count = ToolPictures.read(line)?.pictures.pictures.count ?? 0
+            return line.prefix { $0 != "{" }.trimmingCharacters(in: .whitespaces) + " \(count) pictures"
+        }
+        return shortened(compactedJSON(line) ?? line, limit: copiedRecordLimit)
     }
 
     /// The record with its JSON compacted, or nil when it carries none.
@@ -341,6 +374,10 @@ nonisolated struct ToolStep: Sendable, Hashable {
             return .webSearch(query: text("query"))
         case "web_fetch":
             return .webRead(site: (arguments["url"] as? String).map(site))
+        case "canvas":
+            return .canvas(id: text("id"))
+        case "human_step":
+            return .humanStep
         default:
             return .other(name: name)
         }

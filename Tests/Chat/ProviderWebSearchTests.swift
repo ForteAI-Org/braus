@@ -48,7 +48,8 @@ struct ProviderWebSearchTests {
         "-c", #"web_search="disabled""#, "-c", #"developer_instructions="i""#,
         "-c", #"mcp_servers.braus={command="/b",args=["mcp-bridge","--connection","/c"],required=true,"#
             + #"tool_timeout_sec=120,default_tools_approval_mode="approve"}"#,
-        "--model", "m", "-c", #"model_reasoning_effort="high""#, "resume", "s", "-",
+        "--model", "m", "-c", #"model_reasoning_effort="high""#,
+        "-c", "tool_output_token_limit=100000", "resume", "s", "-",
     ]
 
     @Test

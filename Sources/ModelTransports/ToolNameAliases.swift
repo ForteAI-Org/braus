@@ -46,7 +46,7 @@ struct ToolNameAliases: Sendable {
             ToolCall(id: call.id, name: Self.wireName(call.name), arguments: call.arguments)
         }
         if let call = message.call {
-            return TurnMessage(result: message.text, of: sending(call), isError: message.isError)
+            return TurnMessage(result: message.text, of: sending(call), isError: message.isError, images: message.images)
         }
         return TurnMessage(role: message.role, text: message.text,
                            toolCalls: message.toolCalls.map(sending), record: message.record)

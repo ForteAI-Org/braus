@@ -59,6 +59,8 @@ struct OllamaClient: ModelTransport {
     func requestBody(messages: [TurnMessage], tools: [ToolDefinition], stream: Bool,
                      show: [String: Any]) throws -> [String: Any] {
         let names = try ToolNameAliases(tools: tools, messages: messages)
+        let capabilities = Self.capabilities(show: show)
+        let prepared = messages.map { names.sending($0.forModel(with: capabilities)) }
         var body: [String: Any] = [
             "model": model,
             "stream": stream,
@@ -71,7 +73,7 @@ struct OllamaClient: ModelTransport {
                 "num_ctx": settings.ollamaContextTokens,
                 "num_predict": settings.ollamaMaxOutputTokens,
             ],
-            "messages": try messages.map { try Self.message(names.sending($0)) },
+            "messages": try prepared.map(Self.message),
         ]
         if let think = Self.think(effort, show: show) { body["think"] = think }
         if !tools.isEmpty {
@@ -96,6 +98,7 @@ struct OllamaClient: ModelTransport {
             }
         }
         if let call = message.call { mapped["tool_name"] = call.name }
+        if !message.images.isEmpty { mapped["images"] = message.images.map { $0.data.base64EncodedString() } }
         return mapped
     }
 

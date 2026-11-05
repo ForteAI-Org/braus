@@ -200,6 +200,28 @@ struct DialogButtonPressTests {
         #expect(found.isDialog)
         #expect(askedElsewhere == 1)
     }
+
+    // MARK: The window sharing indicator
+
+    func isDialog(
+        role    : String? = "AXWindow",
+        subrole : String?,
+        isModal : Bool?,
+        children: [(role: String?, title: String?)]
+    ) -> Bool {
+        DialogButtonPress.isDialog(role: role, subrole: subrole, isModal: isModal) { children }
+    }
+
+    @Test("the system's window sharing indicator is no dialog; a titled or modal dialog still is")
+    func theIndicatorIsNoDialog() {
+        let indicator: [(role: String?, title: String?)] = [("AXButton", "WindowSharingSessionButton")]
+        #expect(!isDialog(subrole: "AXDialog", isModal: false, children: indicator))
+        #expect(isDialog(subrole: "AXDialog", isModal: false, children: [("AXStaticText", "Save?"), ("AXButton", "OK")]))
+        #expect(isDialog(subrole: "AXDialog", isModal: true, children: indicator))
+        #expect(isDialog(role: "AXLayoutArea", subrole: "AXDialog", isModal: true, children: []))
+        #expect(isDialog(role: "AXSheet", subrole: nil, isModal: nil, children: []))
+        #expect(!isDialog(subrole: "AXStandardWindow", isModal: false, children: []))
+    }
 }
 
 extension DialogButtonPressTests {

@@ -1,8 +1,12 @@
 import Dispatch
 
-/// SQLiteConnectionExecutor runs SQLite jobs on a dedicated serial queue at a fixed QoS.
-/// Queue blocks enforce that QoS even when the submitting task has a different priority.
-final class SQLiteConnectionExecutor: SerialExecutor {
+/// SQLiteConnectionExecutor gives a connection's actor a dedicated serial queue at a fixed QoS.
+/// The queue, not this type, is the actor's `SerialExecutor`: that conformance lives in libdispatch,
+/// in the system, so the app refers to nothing the runtime of an older macOS lacks. A conformance
+/// written here would carry the protocol's whole witness table, and the swift.org toolchain that
+/// builds the release links its macOS 26 requirements strongly, which stopped the app at launch on
+/// macOS 15.
+final class SQLiteConnectionExecutor: Sendable {
     private static let roleKey = DispatchSpecificKey<ConnectionRole>()
     private let queue: DispatchSerialQueue
 
@@ -13,11 +17,5 @@ final class SQLiteConnectionExecutor: SerialExecutor {
 
     static var currentRole: ConnectionRole? { DispatchQueue.getSpecific(key: roleKey) }
 
-    func enqueue(_ job: consuming ExecutorJob) {
-        let job = UnownedJob(job)
-        let executor = asUnownedSerialExecutor()
-        queue.async(execute: DispatchWorkItem(qos: queue.qos, flags: .enforceQoS) {
-            job.runSynchronously(on: executor)
-        })
-    }
+    func asUnownedSerialExecutor() -> UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
 }

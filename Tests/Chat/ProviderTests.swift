@@ -55,6 +55,25 @@ struct ProviderTests {
     }
 
     @Test
+    func claudeChildKeepsLongToolAnswersUnlessThePersonSetsTheLimit() {
+        let own = ProviderInvocation.environment(for: turn(.claude), inherited: ["MAX_MCP_OUTPUT_TOKENS": "7"])
+        #expect(own["MAX_MCP_OUTPUT_TOKENS"] == "7")
+        let set = ProviderInvocation.environment(for: turn(.claude), inherited: ["CLAUDECODE": "1", "PATH": "/bin"])
+        #expect(set["MAX_MCP_OUTPUT_TOKENS"] == String(ProviderInvocation.toolOutputTokenLimit))
+        #expect(set["CLAUDECODE"] == nil)
+        #expect(set["PATH"] == "/bin")
+        #expect(ProviderInvocation.environment(for: turn(.codex), inherited: [:])["MAX_MCP_OUTPUT_TOKENS"] == nil)
+    }
+
+    @Test
+    func codexRaisesItsToolOutputLimitWithAKeyItAccepts() throws {
+        let arguments = try ProviderInvocation(turn(.codex)).arguments
+        let key = try #require(arguments.firstIndex(of: "tool_output_token_limit=\(ProviderInvocation.toolOutputTokenLimit)"))
+        #expect(arguments[key - 1] == "-c")
+        #expect(!(try ProviderInvocation(turn(.claude)).arguments.contains(where: { $0.contains("tool_output_token_limit") })))
+    }
+
+    @Test
     func effortReachesEachProviderInItsOwnFlag() throws {
         func turn(_ provider: ChatProvider, model: String?, effort: String?) -> ProviderTurn {
             ProviderTurn(provider: provider, model: model, sessionID: nil, prompt: "p", instructions: "i",

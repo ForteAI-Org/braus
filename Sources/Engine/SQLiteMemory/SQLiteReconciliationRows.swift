@@ -12,6 +12,14 @@ import Memory
 /// that identity with its start. A reconciliation uses the call's next sequence without changing earlier facts.
 enum SQLiteReconciliationRows {
 
+    static func executor(_ handle: some SQLiteQuerying, of callEventID: String) throws -> String? {
+        try handle.query("""
+            SELECT x.executor_id FROM memory_events e
+            JOIN memory_call_executors x ON x.event_id = coalesce(e.parent_event_id, e.event_id)
+            WHERE e.event_id = ?
+            """, [try SQLiteRowIdentity(handle).key(.event, callEventID)]) { try $0.text(0) }.first ?? nil
+    }
+
     static func link(_ transaction: SQLiteTransaction, call eventID: String, to executor: ExecutorRecord) throws -> MemoryReceipt {
         if try SQLiteRowIdentity(transaction).usesIntegerKeys {
             let key = try DB2BKeys.local(transaction, executor.executorID)

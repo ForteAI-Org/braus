@@ -39,7 +39,9 @@ final class SeatReleasingDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Braus is dark only, every window of it.
         NSApp.appearance = NSAppearance(named: .darkAqua)
-        if WindowSnapshots.isRequested {
+        if ScriptedWorkerCheck.isRequested {
+            Task { await ScriptedWorkerCheck.run(delegate: self) }
+        } else if WindowSnapshots.isRequested {
             Task { await WindowSnapshots.writeAndQuit() }
         } else if WindowResizeCheck.isRequested {
             Task { await WindowResizeCheck.runAndQuit() }

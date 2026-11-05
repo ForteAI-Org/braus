@@ -169,9 +169,10 @@ public final class TurnRunner {
             let loop = ModelToolLoop(
                 call: { [unowned self] in try await call($0, $1) },
                 reminder: takeReminder,
-                definitions: AutomationTools.definitions,
+                definitions: tools.toolDefinitions,
                 instructions: TurnLoopInstructions(toolNames: promptToolNames,
                     groupIndex: tools.groupIndex, guidesEnabled: tools.guidesEnabled),
+                recordResult: { [weak self] in try self?.hosting?.recordResult($0, $1, startedAt: $2) },
                 parallelSafe: { [tools] in tools.isParallelSafe($0, arguments: $1) },
                 rejectedToolAttempt: { [tools] in tools.recordToolAttempt($0) }
             )
@@ -366,7 +367,9 @@ public final class TurnRunner {
         calls[id] = TurnCall(tool: name, policy: tools.interruptionClass(of: name, arguments: arguments),
             task: task, interruption: interruption)
         defer { calls[id] = nil; updateTaskState() }
-        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        try hosting.answered(tool: name, result: result)
+        return result
     }
 
     private func interruptReads() {
@@ -651,7 +654,7 @@ extension TurnRunner {
         case .modelLoop(let transport, let window):
             let loop = ModelToolLoop(
                 call: { _, _ in throw AutomationFailure("A summary calls no tool.") },
-                definitions: AutomationTools.definitions,
+                definitions: tools.toolDefinitions,
                 instructions: TurnLoopInstructions(toolNames: promptToolNames,
                     groupIndex: tools.groupIndex, guidesEnabled: tools.guidesEnabled)
             )

@@ -8,6 +8,28 @@ public struct ProviderInvocation: Sendable {
     public let arguments: [String]
     public let standardInput: String
 
+    /// The most tokens of one MCP tool answer a command line keeps whole.
+    ///
+    /// Claude moves a result over `MAX_MCP_OUTPUT_TOKENS` (25,000 by default) to a file, and Braus
+    /// runs it without a tool that could read the file; Codex cuts a tool output over
+    /// `tool_output_token_limit` (10,000 by default) from its history. A scene answer is at most
+    /// 36,000 characters, about 15,000 tokens at the 2.5 characters per token a dense scene measured;
+    /// 100,000 carries a batch of several of them, with the adapters' longer results, whole.
+    public static let toolOutputTokenLimit = 100_000
+
+    /// The child's environment for `turn`: `inherited` without the variables that make a nested
+    /// Claude command line believe it runs inside another one, and for Claude with
+    /// `MAX_MCP_OUTPUT_TOKENS` set to `toolOutputTokenLimit` unless `inherited` already sets it.
+    public static func environment(for turn: ProviderTurn, inherited: [String: String]) -> [String: String] {
+        var environment = inherited
+        environment.removeValue(forKey: "CLAUDECODE")
+        environment.removeValue(forKey: "CLAUDE_CODE_ENTRYPOINT")
+        if turn.provider == .claude, environment["MAX_MCP_OUTPUT_TOKENS"] == nil {
+            environment["MAX_MCP_OUTPUT_TOKENS"] = String(toolOutputTokenLimit)
+        }
+        return environment
+    }
+
     public init(_ turn: ProviderTurn) throws {
         // No text of the person's reaches the one Claude turn that runs slash commands.
         standardInput = turn.isCompaction && turn.provider == .claude ? "/compact" : turn.prompt
@@ -48,6 +70,7 @@ public struct ProviderInvocation: Sendable {
             if let effort = turn.effort { arguments += ["-c", "model_reasoning_effort=\(try Self.quote(effort))"] }
             // Codex exec has no /compact: a limit below any session's size makes it compact before answering.
             if turn.isCompaction { arguments += ["-c", "model_auto_compact_token_limit=1000"] }
+            arguments += ["-c", "tool_output_token_limit=\(Self.toolOutputTokenLimit)"]
             if let session = turn.sessionID { arguments += ["resume", session] }
             arguments += ["-"]
         }

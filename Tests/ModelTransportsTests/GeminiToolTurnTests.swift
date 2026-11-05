@@ -189,10 +189,13 @@ struct GeminiToolTurnTests {
     }
 
     @Test func textModelsTakeToolsAndTheSpeechAndImageModelsDoNot() async throws {
-        #expect(try await client.capabilities() == ModelCapabilities(supportsTools: true))
+        #expect(try await client.capabilities() == ModelCapabilities(
+            supportsTools : true,
+            supportsVision: true
+        ))
         for model in ["gemini-2.5-flash-preview-tts", "gemini-2.5-flash-image"] {
             let generator = GeminiClient(model: model, effort: .low, apiKey: "test-key")
-            #expect(try await generator.capabilities() == ModelCapabilities())
+            #expect(try await generator.capabilities() == ModelCapabilities(supportsVision: model.contains("-image")))
         }
     }
 

@@ -169,11 +169,13 @@ struct MemoryClosingTests {
         #expect(try await C.stored(in: service, "retirement-later", count: 5) == 5)
     }
 
-    @Test("ordinary close: every offered write is saved and none is left unaccounted")
+    @Test("ordinary close preserves every completed write without imposing a disk-throughput deadline")
     func nominal() async throws {
         let service = try C.service()
         await service.setBeforeBackup { throw SkipBackup() }
         await C.offer(service, "nominal", count: 200)
+        // Durability is checked after draining; the tests below exercise a close with pending writes.
+        try #require(await service.flush(within: .seconds(10)))
         let took = await C.elapsed(C.budget + C.tolerance) { await service.close() }
         #expect(took != nil)
         let status = await service.status()
@@ -199,6 +201,25 @@ struct MemoryClosingTests {
         #expect(try C.files(service, ".partial").isEmpty)
         #expect(try await C.stored(in: service, "within", count: 20) == 20, "the writes did not wait for the copy")
         #expect(await service.status().lastClose?.contains("stopped with nothing published") == true)
+    }
+
+    @Test("a close with a blocked writer accounts for the entire queued backlog at its deadline")
+    func queuedBacklogIsAccounted() async throws {
+        let service = try C.service()
+        await service.setBeforeBackup { throw SkipBackup() }
+        _ = try await service.ready()
+        let gate = Gate()
+        defer { gate.open() }
+        await service.enqueue("held backlog writer") { _ in try await gate.pass() }
+        try #require(await gate.reached())
+        await C.offer(service, "backlog", count: 200)
+        let took = await C.elapsed(C.budget + C.tolerance) { await service.close() }
+        #expect(took != nil)
+        let status = await service.status()
+        #expect(C.accounted(status) == 201)
+        #expect(status.written == 0 && status.failed == 1 && status.dropped == 200)
+        #expect(status.pending == 0 && status.inFlight == 0 && status.unsettled == 0)
+        #expect(try await C.stored(in: service, "backlog", count: 200) == 0)
     }
 
     @Test("a copy held between two of its steps, its partial file on disk: the close cancels it there, retires the partial family and publishes nothing")
@@ -373,7 +394,7 @@ struct MemoryClosingTests {
         #expect(copies.arrivals == 0, "no copy starts once the close began")
     }
 
-    @Test("a process can tell, without waiting, whether a shared memory still has writes or a copy to finish")
+    @Test("a service reports its own unfinished work independently of other shared archives")
     func unfinishedWorkIsVisible() async throws {
         let directory = try W.directory()
         let service = MemoryService.shared(for: directory)
@@ -381,10 +402,28 @@ struct MemoryClosingTests {
         let gate = Gate()
         await service.enqueue("held write") { _ in try await gate.pass() }
         #expect(await gate.reached())
-        #expect(MemoryService.hasUnfinishedWork, "a write in flight is unfinished work")
+        #expect(service.hasUnfinishedWork, "a write in flight is unfinished work")
         gate.open()
         #expect(await service.flush(within: .seconds(5)))
         await service.close()
-        #expect(!MemoryService.hasUnfinishedWork, "a closed memory has nothing left")
+        #expect(!service.hasUnfinishedWork, "this closed memory has nothing left")
+    }
+
+    @Test("closing one service leaves another service's outstanding work visible to the process")
+    func unfinishedWorkIsScoped() async throws {
+        let busy = MemoryService.shared(for: try W.directory())
+        let closed = MemoryService.shared(for: try W.directory())
+        await busy.setBeforeBackup { throw SkipBackup() }
+        let gate = Gate()
+        await busy.enqueue("held write") { _ in try await gate.pass() }
+        defer { gate.open() }
+        try #require(await gate.reached())
+        await closed.close()
+        #expect(!closed.hasUnfinishedWork)
+        #expect(busy.hasUnfinishedWork)
+        #expect(MemoryService.hasUnfinishedWork)
+        gate.open()
+        #expect(await busy.flush(within: .seconds(5)))
+        await busy.close()
     }
 }

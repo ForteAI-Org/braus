@@ -20,7 +20,8 @@ import SeatCore
 /// a window the target already had, or one first seen after the margin is not
 /// explained by it.
 ///
-/// It is per Command and per brief activation. It is not the per-assignment
+/// It is per Command and per brief activation; a front lease records its whole
+/// body the same way, as one Command. It is not the per-assignment
 /// `SurfaceOrigin.bornDuringAssignment`, which says a window was born while the
 /// application was assigned and nothing about which Command caused it.
 ///

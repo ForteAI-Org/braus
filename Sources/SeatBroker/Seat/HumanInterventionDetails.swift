@@ -146,6 +146,23 @@ final class HumanInterventionDetails {
                 return HumanStepResult(text: "Step unavailable.", isError: true)
             }
             let step = evidence.steps[number - 1]
+            // A canvas crop is attested by the scene it was cut with, so its pixels may leave.
+            let canvases = review.findings.filter { step.sequences.contains($0.sequence) }.flatMap { $0.canvases ?? [] }
+                .filter { !$0.before.isEmpty && !$0.after.isEmpty }
+            if !canvases.isEmpty {
+                lines = ["\(number): \(step.text)"]
+                for canvas in canvases {
+                    lines.append("Canvas \(canvas.name) in window #\(canvas.windowNumber), before and after (PNG):")
+                    lines += canvas.caption.components(separatedBy: .newlines)
+                }
+                return HumanStepResult(
+                    text  : compact(lines, strings: digest.strings),
+                    images: canvases.flatMap { [
+                        HumanStepResult.Image(data: $0.before, mimeType: "image/png"),
+                        HumanStepResult.Image(data: $0.after, mimeType: "image/png")
+                    ] }
+                )
+            }
             let indexes = review.findings.indices.filter { step.sequences.contains(review.findings[$0].sequence) }
             for index in indexes.reversed() where review.payloads.indices.contains(index) {
                 let payload = review.payloads[index]

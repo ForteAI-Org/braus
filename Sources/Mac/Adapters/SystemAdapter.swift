@@ -59,6 +59,8 @@ public struct SystemAdapter: AppAdapting {
     public let name       = "system"
     public let appNames   = ["System", "System Settings", "Mac settings"]
     public let bundleIDs: Set<String> = ["com.apple.systempreferences"]
+    // No `scriptedApplication`: its one script goes to System Events, a background helper with no window, and never
+    // to System Settings, the app it stands for.
 
     private let transport: any SystemTransporting
     /// Whether reading the availability starts System Events first, so its grant reads as the Mac has it instead of

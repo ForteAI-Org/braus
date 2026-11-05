@@ -25,7 +25,7 @@ enum BrainPalette {
         case .control         : .blue
         case .icon            : .purple
         case .text            : .gray
-        case .image           : .teal
+        case .image, .canvas  : .teal
         case .overlayCandidate: .pink
         }
     }

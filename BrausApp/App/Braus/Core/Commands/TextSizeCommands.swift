@@ -18,7 +18,10 @@ struct TextSizeCommands: Commands {
 
     static let storageKey = "transcript.bodyPointSize"
 
-    @AppStorage(storageKey)
+    @AppStorage(
+        storageKey,
+        store: AppDefaults.current
+    )
     private var bodyPointSize = Double(TranscriptStyle.actualSize.bodyPointSize)
 
     private var style: TranscriptStyle { TranscriptStyle(bodyPointSize: CGFloat(bodyPointSize)) }

@@ -591,8 +591,13 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// what a quitting process asks before it decides it can end at once. It does not wait.
     nonisolated public static var hasUnfinishedWork: Bool {
         services.withLock { services in
-            services.values.contains { $0.activity.withLock { $0.outstanding > 0 || $0.copying } }
+            services.values.contains { $0.hasUnfinishedWork }
         }
+    }
+
+    /// Whether this service alone holds writes or a copy, without waiting for its actor.
+    nonisolated public var hasUnfinishedWork: Bool {
+        activity.withLock { $0.outstanding > 0 || $0.copying }
     }
 
     /// Whether the archive's file is there now, without opening it.

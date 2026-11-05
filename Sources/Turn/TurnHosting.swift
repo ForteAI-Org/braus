@@ -1,4 +1,5 @@
 import AutomationRuntime
+import ModelTransports
 import LocalMCP
 
 /// TurnHosting supplies admission, approval scope and the host's current seat facts.
@@ -9,4 +10,11 @@ public protocol TurnHosting: AnyObject {
     func turnBegan()
     func turnStopping()
     func seatFacts() -> SeatFacts?
+    func answered(tool: String, result: JSONValue) throws
+    func recordResult(_ call: ToolCall, _ result: JSONValue, startedAt: ContinuousClock.Instant) throws
+}
+
+extension TurnHosting {
+    public func answered(tool: String, result: JSONValue) throws {}
+    public func recordResult(_ call: ToolCall, _ result: JSONValue, startedAt: ContinuousClock.Instant) throws {}
 }

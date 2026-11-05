@@ -14,6 +14,7 @@ import InteractionObservation
 import Memory
 import OSLog
 import PerceptionCore
+import Synchronization
 
 /// HumanInterventionConsumer owns one background task and a latest-pending state request.
 /// Started reads keep their capture-time action even when input arrives during perception.
@@ -50,6 +51,18 @@ actor HumanInterventionConsumer {
     /// Structural reads taken when the person paused after a read, and the one pending.
     private var settled: [HumanReadProvenance.Settled] = []
     private var settling: Task<Void, Never>?
+    /// Each window's canvases across the reads, the one read as control passes, and the window last read.
+    private var canvases = HumanInterventionCanvases()
+    private var initialCanvases: Task<Void, Never>?
+    private var lastSurface: InteractionWindow?
+    /// When the person's last input ended and when their first began, in uptime nanoseconds, as the recorder
+    /// receives them: a gesture reaches it whole, once it has ended.
+    private nonisolated let lastInput  = Mutex<UInt64?>(nil)
+    private nonisolated let firstInput = Mutex<UInt64?>(nil)
+
+    /// Frames taken while the person stays still, to learn a canvas's noise, and the time between them.
+    static let idleFrames = 4
+    static let idleInterval: Duration = .milliseconds(200)
 
     /// How long the person must pause after a read before the window is read again: a pane still appearing at the
     /// read after its button (System Settings' Displays pane) is drawn by then.
@@ -87,6 +100,61 @@ actor HumanInterventionConsumer {
                                               seconds: NativeHumanSceneReader.longStructureSeconds)
             keepInitial(read)
         }
+        initialCanvases = Task { await readInitialCanvases() }
+    }
+
+    /// Records an input of the person, from `startedAt` to `endedAt` seconds of uptime; called for every event the
+    /// recorder admits.
+    nonisolated func noteInput(
+        startedAt: Double,
+        endedAt  : Double
+    ) {
+        let started = UInt64(max(0, startedAt) * 1_000_000_000)
+        let ended   = UInt64(max(0, endedAt) * 1_000_000_000)
+        lastInput.withLock { $0 = max($0 ?? 0, ended) }
+        firstInput.withLock { $0 = min($0 ?? .max, started) }
+    }
+
+    private var lastInputAt: UInt64? { lastInput.withLock { $0 } }
+
+    /// The lent window's canvases as control passes, the "before" of the first action on them, then its idle frames.
+    /// The pixels are kept when their capture ended before the person's first input began, however long the scene
+    /// after them took: that scene only places the canvases, which input on them does not move. An action's read
+    /// waits for this one (`consume`), so it is never followed by an earlier picture. Noise is learned only while
+    /// the person has given no input.
+    private func readInitialCanvases() async {
+        let surface = InteractionWindow(processID: window.processID, number: window.windowNumber,
+                                        title: nil, layer: 0, frame: window.frame)
+        let read: (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame)?
+        do { read = try await reader.canvasRead(window: surface) }
+        catch {
+            Self.log.notice("human initial canvases: not read")
+            return
+        }
+        guard let read, !inputEnded, !Task.isCancelled else { return }
+        let first = firstInput.withLock { $0 }
+        guard let captured = read.frame.completedAt, first.map({ $0 > captured }) ?? true else {
+            Self.log.notice("human initial canvases: not kept (input began before the capture ended)")
+            return
+        }
+        _ = canvases.observe(Self.minimized(read.scene), frame: read.frame, of: surface, lastInputAt: nil)
+        guard first == nil else { return }
+        await learnNoise(of: surface)
+    }
+
+    /// Takes up to `idleFrames` frames of `surface`, `idleInterval` apart, while the person gives no input, and teaches
+    /// its canvases' noise with them. Stops at the first input, pressed button, failed capture or cancellation.
+    private func learnNoise(of surface: InteractionWindow) async {
+        let input = lastInputAt
+        for _ in 0..<Self.idleFrames {
+            guard canvases.hasCanvases(in: surface.number) else { return }
+            do { try await Task.sleep(for: Self.idleInterval) } catch { return }
+            let frame: HumanInterventionCanvases.Frame?
+            do { frame = try await reader.frame(of: surface) } catch { return }
+            guard let frame, !Task.isCancelled, !inputEnded, lastInputAt == input,
+                  buttons.snapshot().processID != window.processID else { return }
+            canvases.learnIdle(frame, of: surface.number, lastInputAt: input)
+        }
     }
 
     private func keepInitial(_ read: InteractionStructuralRead) {
@@ -108,6 +176,7 @@ actor HumanInterventionConsumer {
             let read = await reader.structure(processID: window.processID,
                                               seconds: NativeHumanSceneReader.settledStructureSeconds)
             keepSettled(read, after: sequence)
+            if let lastSurface, isQuiet(since: sequence) { await learnNoise(of: lastSurface) }
         }
     }
 
@@ -145,6 +214,7 @@ actor HumanInterventionConsumer {
         latest = nil
         leased = nil
         textBaselines.removeAll()
+        canvases.removeAll()
         initialScenes.removeAll()
         initialStructure = nil
         settled.removeAll()
@@ -153,6 +223,7 @@ actor HumanInterventionConsumer {
     func cancel() async {
         task?.cancel()
         initialRead?.cancel()
+        initialCanvases?.cancel()
         settling?.cancel()
         inputEnded = true
         wake.continuation.finish()
@@ -171,6 +242,7 @@ actor HumanInterventionConsumer {
     private func run() async throws -> Intervention.Review {
         defer {
             textBaselines.removeAll()
+            canvases.removeAll()
             latest = nil
             wake.continuation.finish()
         }
@@ -235,10 +307,10 @@ actor HumanInterventionConsumer {
                 }
                 surface = selected
                 if buttons.snapshot() != stamp || (latest?.sequence ?? 0) > target.sequence { continue }
-                let observed: SceneSnapshot
+                let observed: (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame?)
                 do {
                     reads += 1
-                    observed = try await reader.scene(window: surface, mode: .textOnly, timing: timing)
+                    observed = try await reader.read(window: surface, mode: .textOnly, timing: timing)
                 } catch is CancellationError { throw CancellationError() }
                 catch {
                     timing.failedSurface(processID: window.processID, windowNumber: surface.number,
@@ -254,11 +326,17 @@ actor HumanInterventionConsumer {
                     surface = fallback
                     menuClosed = true
                     reads += 1
-                    observed = try await reader.scene(window: surface, mode: .textOnly, timing: timing)
+                    observed = try await reader.read(window: surface, mode: .textOnly, timing: timing)
                 }
                 try Task.checkCancellation()
-                let kept = timing.measure(.sceneMinimization) { Self.minimized(observed) }
+                let kept = timing.measure(.sceneMinimization) { Self.minimized(observed.scene) }
                 scene = kept
+                // The canvases as control passed come first, however slowly their scene was read.
+                await initialCanvases?.value
+                let pictured = observed.frame.map {
+                    canvases.observe(kept, frame: $0, of: surface, lastInputAt: lastInputAt)
+                } ?? []
+                lastSurface = surface
                 let text: String
                 let kind: HumanSceneFinding.Kind
                 if let before = textBaselines[surface.number] {
@@ -275,7 +353,6 @@ actor HumanInterventionConsumer {
                     kind = .keyframe
                 }
                 let context = menuClosed ? "read of window #\(surface.number) (menu closed)\n" : ""
-                // Canvas crops for surfaces without text belong to issue #16; keep the recorded picture.
                 do {
                     let minimized = timing.measure(.textMinimization) {
                         ValueMinimization().minimize(text: context + text).0
@@ -288,6 +365,7 @@ actor HumanInterventionConsumer {
                                                    baselineSequence: textBaselines[surface.number]?.sequence,
                                                    scenes: [surface.number: kept])
                     }
+                    if !pictured.isEmpty { finding.canvases = pictured }
                 } catch {
                     scene = nil
                     finding = .init(sequence: target.sequence, kind: .failed, reason: .compression,
@@ -369,6 +447,7 @@ actor HumanInterventionConsumer {
         let revision = try await intervention.endInput()
         Self.log.notice("human handoff: endInput, elapsed \(ContinuousClock.now - started, privacy: .public)")
         settling?.cancel()
+        initialCanvases?.cancel()
         // A session shorter than the initial read waits for it: it ends within its own box.
         await initialRead?.value
         let timing = NativeHumanSceneReader.Timing()

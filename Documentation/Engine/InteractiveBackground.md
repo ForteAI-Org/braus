@@ -76,6 +76,13 @@ recording. These requested diagnostic lines expose metadata publicly; they never
 or typing content. The adapter writes no screenshot or input-content files and does not promote
 anything into persistent Memory.
 
+## Canvas changes in the report
+
+A safe canvas change adds `Canvas changed: <name> (human_step picture N).` to the digest.
+`human_step` with `{"picture":N}` returns the caption and PNG pair before and after. Idle
+frames teach noise, and the person's input prevents learning an action as noise. See
+[canvas perception](../Perception/Canvases.md) for retention, privacy and the fixture live check.
+
 ## Temporary Perception reconstruction
 
 `HumanInterventionConsumer` runs one task on its actor, off the main actor. Its first queue is
@@ -97,8 +104,8 @@ The first successful retained scene for a window is a full compact keyframe. Lat
 `SceneChanges.text`, relative to the last retained scene of that window, including an explicit
 unchanged result. Failed and superseded readings never replace that baseline. The consumer keeps
 one transient baseline per observed window until it finishes; these scenes and native work in flight
-are separate from the retained-findings byte budget. No canvas crops are produced; issue #16 owns
-that extension, and the existing per-click picture remains available.
+are separate from the retained-findings byte budget. Canvas histories also retain bounded pixels
+for safe changed-area crops; the existing per-click picture remains available.
 
 Findings retain UTF-8 text as LZFSE bytes, with raw and compressed sizes and read duration.
 `complete` and `beginReview` charge compressed bytes to the same intervention budget as payloads.

@@ -9,6 +9,7 @@ import AppKit
 import ApplicationServices
 import EngineCore
 import PerceptionCore
+import SeatCore
 import WindowPlacement
 
 /// DialogButtonPress presses one button of the application's current dialog or alert by its
@@ -257,14 +258,39 @@ public enum DialogButtonPress {
     }
 
     /// A sheet, a window whose subrole says dialog, or a modal one, as Photoshop's New Document
-    /// (`AXLayoutArea`, `AXDialog`, modal) reads.
+    /// (`AXLayoutArea`, `AXDialog`, modal) reads. The system's window sharing indicator, which
+    /// reads `AXDialog` too, is none: its children are read for a non-modal `AXDialog` alone.
+    package static func isDialog(
+        role    : String?,
+        subrole : String?,
+        isModal : Bool?,
+        children: () -> [(role: String?, title: String?)]
+    ) -> Bool {
+        if WindowSharingIndicator.matches(
+            subrole : subrole,
+            isModal : isModal,
+            children: children
+        ) { return false }
+        return role == (kAXSheetRole as String)
+            || subrole == (kAXDialogSubrole as String) || subrole == (kAXSystemDialogSubrole as String)
+            || isModal == true
+    }
+
     private static func isDialog(_ window: AXUIElement) -> Bool {
         var modal: CFTypeRef?
         AXUIElementCopyAttributeValue(window, kAXModalAttribute as CFString, &modal)
-        let subrole = string(window, kAXSubroleAttribute)
-        return string(window, kAXRoleAttribute) == (kAXSheetRole as String)
-            || subrole == (kAXDialogSubrole as String) || subrole == (kAXSystemDialogSubrole as String)
-            || (modal as? Bool) == true
+        return isDialog(
+            role    : string(window, kAXRoleAttribute),
+            subrole : string(window, kAXSubroleAttribute),
+            isModal : modal as? Bool,
+            children: {
+                var children: CFTypeRef?
+                AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+                // Only a window with one child can be the indicator, so no other child is read.
+                guard let only = children as? [AXUIElement], only.count == 1 else { return [] }
+                return [(string(only[0], kAXRoleAttribute), string(only[0], kAXTitleAttribute))]
+            }
+        )
     }
 
     /// Every `AXButton` under `window`, bounded: a dialog holds a handful, and a window that

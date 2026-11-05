@@ -65,6 +65,9 @@ public struct MailAdapter: AppAdapting {
     public let appNames   = ["Mail", "Apple Mail", "Posta"]
     public let bundleIDs: Set<String> = ["com.apple.mail"]
 
+    /// Only the Mac's own transport scripts Mail; another (a test's) reaches no application.
+    public var scriptedApplication: String? { transport is MacMailTransport ? MacMailTransport.bundleID : nil }
+
     /// The most messages one find answers.
     static let maximumMessages = 50
     /// The longest text `read_message` answers, in characters.

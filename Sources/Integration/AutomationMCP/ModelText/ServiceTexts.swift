@@ -3,6 +3,10 @@ import AutomationRuntime
 
 extension ModelText {
     nonisolated static let serviceTexts: [Entry] = [
+        Entry(key: .init(rawValue: "adapter.argumentsRejected"), owner: "AutomationMCP", delivery: .summary,
+              budgetCharacters: 80, text: "The adapter rejected the arguments before invocation.", legacy: false),
+        Entry(key: .init(rawValue: "adapter.notInvoked"), owner: "AutomationMCP", delivery: .summary,
+              budgetCharacters: 80, text: "The adapter was not invoked.", legacy: false),
         Entry(
             key: .init(rawValue: "adapter.protectedPath"),
             owner: "AppAdapters",

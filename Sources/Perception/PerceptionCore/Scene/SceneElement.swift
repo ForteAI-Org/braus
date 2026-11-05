@@ -19,6 +19,10 @@ import Foundation
 /// token, and the brain reads an element through `BrainDetection`, which never looks at them. So
 /// the wire format, a stored scene's round trip, a ghost verdict and the brain's identities are what
 /// they were before the facts existed.
+///
+/// A canvas carries one fact about its pixels, `hasChangedPixels`: a yes or no, never the pixels. It
+/// is encoded, since the model reads it, but takes no part in equality, hashing or the token, which
+/// describe what the scene shows and not how it compares with the observation before.
 public struct SceneElement: Sendable, Equatable, Hashable {
 
     /// Digit-sensitive identity that survives a window resize: never a coordinate for a labeled
@@ -59,6 +63,9 @@ public struct SceneElement: Sendable, Equatable, Hashable {
     /// stops here, so a row's name, which is content, never enters one; `container` keeps the full
     /// path a model addresses the element by.
     public var collectionPath: String?
+    /// For a canvas: whether its pixels changed since the previous observation of the same window.
+    /// Nil on a canvas's first observation and on every other kind.
+    public var hasChangedPixels: Bool?
     /// Ephemeral native identity, excluded from encoding, equality, hashing and scene tokens.
     public var nativeIdentity: String?
 
@@ -80,6 +87,7 @@ public struct SceneElement: Sendable, Equatable, Hashable {
         section    : String? = nil,
         labelOrigin   : LabelOrigin? = nil,
         collectionPath: String? = nil,
+        hasChangedPixels: Bool? = nil,
         nativeIdentity: String? = nil
     ) {
         self.id             = id
@@ -99,6 +107,7 @@ public struct SceneElement: Sendable, Equatable, Hashable {
         self.section        = section
         self.labelOrigin    = labelOrigin
         self.collectionPath = collectionPath
+        self.hasChangedPixels = hasChangedPixels
         self.nativeIdentity = nativeIdentity
     }
 }
@@ -147,12 +156,14 @@ extension SceneElement {
 extension SceneElement: Codable {
 
     /// The wire keys are the ones scenes have always used, so a stored scene still decodes. The
-    /// memory-only facts (`labelOrigin`, `collectionPath`) have no key: they are never encoded.
+    /// memory-only facts (`labelOrigin`, `collectionPath`) have no key: they are never encoded. A
+    /// canvas's `changed` key is written only when known, so no other element's encoding moves.
     private enum CodingKeys: String, CodingKey {
         case id, kind, label, role, state, value, selectedRange, isEnabled, container, group, does, section
-        case bounds      = "pos"
-        case isUnlabeled = "unlabeled"
-        case isRecalled  = "recalled"
+        case bounds           = "pos"
+        case isUnlabeled      = "unlabeled"
+        case isRecalled       = "recalled"
+        case hasChangedPixels = "changed"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -172,7 +183,8 @@ extension SceneElement: Codable {
             group      : try c.decodeIfPresent(String.self, forKey: .group),
             isRecalled : try c.decodeIfPresent(Bool.self, forKey: .isRecalled) ?? false,
             does       : try c.decodeIfPresent(String.self, forKey: .does),
-            section    : try c.decodeIfPresent(String.self, forKey: .section)
+            section    : try c.decodeIfPresent(String.self, forKey: .section),
+            hasChangedPixels: try c.decodeIfPresent(Bool.self, forKey: .hasChangedPixels)
         )
     }
 
@@ -193,5 +205,6 @@ extension SceneElement: Codable {
         if isRecalled { try c.encode(true, forKey: .isRecalled) }
         try c.encodeIfPresent(does, forKey: .does)
         try c.encodeIfPresent(section, forKey: .section)
+        try c.encodeIfPresent(hasChangedPixels, forKey: .hasChangedPixels)
     }
 }

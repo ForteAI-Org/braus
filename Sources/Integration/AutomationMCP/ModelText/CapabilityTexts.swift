@@ -11,6 +11,10 @@ extension ModelText {
     }
 
     nonisolated static let capabilityTexts: [Entry] = [
+        Entry(key: .init(rawValue: "catalogue.canvas.en"), owner: "AutomationMCP", delivery: .summary,
+            budgetCharacters: 80, text: "Show the drawn content of the observed panel.", legacy: false),
+        Entry(key: .init(rawValue: "catalogue.canvas.it"), owner: "AutomationMCP", delivery: .summary,
+            budgetCharacters: 80, text: "Come leggo l'immagine del pannello osservato?", legacy: false),
         Entry(key: .init(rawValue: "catalogue.reconcile_call"), owner: "AutomationMCP", delivery: .summary,
             budgetCharacters: 264, text: "Reconcile an uncertain adapter write with a later recorded read. Supply the blocked identifier, finding, and the read response recorded_call as evidence. Updates the ledger without sending an app action.", legacy: false),
         Entry(key: .init(rawValue: "catalogue.reconcile_call.en"), owner: "AutomationMCP", delivery: .summary,

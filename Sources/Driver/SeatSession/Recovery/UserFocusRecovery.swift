@@ -631,6 +631,33 @@ final class UserFocusRecovery {
             ?? "in front for \(Self.milliseconds(inFront)), "
                 + (readyAfter.map { "ready after \(Self.milliseconds($0))" } ?? "not ready")
 
+        switch await handFrontBack(from: target, to: person, summary: &summary) {
+            case .leftElsewhere:
+                if readyAfter != nil { return (.handbackNotVerified, summary) }
+                // A front still with the person's own process is a target that never came forward: not ready.
+                guard frontRefusal == nil, let holder = sensing.frontmostProcessID, holder != person.processID
+                else { return (outcome, summary) }
+                return (.frontElsewhere(afterMilliseconds: Int(inFront / 1_000_000)), summary)
+            case .notVerified:
+                return (.handbackNotVerified, summary)
+            case .verified:
+                return (outcome, summary)
+        }
+    }
+
+    /// How the front ended up at the end of a moment or a lease in front.
+    private enum Handback { case leftElsewhere, notVerified, verified }
+
+    /// Ends a moment or a lease in front. A front the target no longer holds is
+    /// left where it is; otherwise it goes back to `person` and is verified,
+    /// and an unverified handback the target still holds goes to the ordinary
+    /// recovery as an activation of the target. It ends the expectation and the
+    /// Command's part of its record, and appends its part of the log line.
+    private func handFrontBack(
+        from target: WindowReference,
+        to person  : WindowReference,
+        summary    : inout String
+    ) async -> Handback {
         // A request that failed may still have moved the front, so this asks
         // the window server rather than the request's answer.
         guard isFrontmost(target.processID) else {
@@ -638,11 +665,7 @@ final class UserFocusRecovery {
             let front = sensing.frontmostProcessID.map { "process \($0)" } ?? "no process"
             summary += ", and the front is with \(front), where it was left"
             await refreshPreparation()
-            if readyAfter != nil { return (.handbackNotVerified, summary) }
-            // A front still with the person's own process is a target that never came forward: not ready.
-            guard frontRefusal == nil, let holder = sensing.frontmostProcessID, holder != person.processID
-            else { return (outcome, summary) }
-            return (.frontElsewhere(afterMilliseconds: Int(inFront / 1_000_000)), summary)
+            return .leftElsewhere
         }
         let handbackStart = now()
         let handback = await giveFrontBack(to: person, targets: adopted())
@@ -660,11 +683,150 @@ final class UserFocusRecovery {
                 summary += ", where the person's front was left"
                 await refreshPreparation()
             }
-            return (.handbackNotVerified, summary)
+            return .notVerified
         }
         summary += ", gave the front back to window \(person.windowNumber) in \(Self.milliseconds(handbackDuration))"
         await refreshPreparation()
-        return (outcome, summary)
+        return .verified
+    }
+
+    // MARK: The front lent for a Command
+
+    /// How the body's part of a lease ended, as the log line says it.
+    private enum LeaseEnding: String {
+        case neverInFront = "the target was not seen in front, so the body never ran"
+        case bodyReturned = "the body returned"
+        case boundReached = "the bound passed and the body was cancelled"
+        case frontTaken   = "another process took the front and the body was cancelled"
+        case cancelled    = "the caller was cancelled, and so was the body"
+    }
+
+    /// Lends the front to `target` for the length of `body`, a Command that
+    /// needs its application frontmost, and gives it back to the person's
+    /// window, all under an expectation of its own activation. The summary is
+    /// one log line's worth of what happened, with its timings.
+    ///
+    /// It is the brief activation's machinery held for longer: the same
+    /// refusals, restorer, expectation and verified handback. The body is the
+    /// Command of a `CommandProvenance` record, so a window it opens is
+    /// explained to the follow pass and through the margin like a pressed
+    /// Command's. Nothing here watches the target's windows: a dialog it opens
+    /// or closes meanwhile is the body's doing, and its activations are expected.
+    ///
+    /// The body starts only once the target has been seen in front, within the
+    /// brief activation's two seconds and within `bound`, with its identity and
+    /// adoption intact; otherwise it never runs. While it runs the front is read
+    /// every 20 ms. It is cancelled when `bound` passes, counted from the
+    /// request, or when another process holds the front, which is the person's
+    /// choice and is left with them. A cancelled body is waited for, so the
+    /// handback never runs under it: a body that ignores cancellation holds the
+    /// lease until it returns. A cancelled caller cancels the body and still
+    /// asks for the front back, unverified.
+    func lendFront(
+        _ target    : WindowReference,
+        atMost bound: UInt64,
+        body        : @escaping @MainActor () async -> Void
+    ) async -> (outcome: FrontLeaseOutcome, summary: String) {
+        guard !isPaused else { return (.refused(.seatNotReady), "the focus recovery is paused") }
+        defer { closeCommandProvenance() }
+        rememberUserWindow()
+        guard let person = destination, sensing.frontmostProcessID == person.processID else {
+            return (.refused(.noUserWindow), "no window of the person's own is in front to come back to")
+        }
+        let targets = adopted()
+        invalidatePreparation()
+        do { try prepareDestination(target, targets) }
+        catch {
+            return (.refused(.targetNotPrepared),
+                    "window \(target.windowNumber) could not be prepared: \(String(describing: error))")
+        }
+
+        let start    = now()
+        let deadline = start &+ bound
+        expectActivation(of: target.processID, until: deadline &+ Self.briefHandbackLimitNanoseconds)
+        var frontRefusal: String?
+        do {
+            let code = try restoreForBriefActivation(target)
+            if code != 0 { frontRefusal = "request code \(code)" }
+        } catch { frontRefusal = String(describing: error) }
+        var ending = LeaseEnding.neverInFront
+        if frontRefusal == nil,
+           await pollInFront(
+               target,
+               until: { true },
+               from : start,
+               bound: min(bound, Self.briefActivationLimitNanoseconds)
+           ) != nil,
+           now() < deadline, !Task.isCancelled, !isPaused,
+           sensing.windowGeometry(of: target.windowNumber)?.hasSameIdentity(as: target) == true,
+           adopted().contains(where: { $0.hasSameIdentity(as: target) }) {
+            openCommandProvenance(for: target, person: person)
+            ending = await runLease(target, until: deadline, body: body)
+            noteCommandWindows(sensing.windowSurfaces(ownedBy: [target.processID]))
+            // A body that outlived its bound still owns the target's activation until the handback.
+            expectActivation(of: target.processID, until: now() &+ Self.briefHandbackLimitNanoseconds)
+        }
+
+        let lentFor = now() &- start
+        let lent    = Int(lentFor / 1_000_000)
+        var summary = frontRefusal.map { "the request for the front was refused: \($0)" }
+            ?? "in front for \(Self.milliseconds(lentFor)), \(ending.rawValue)"
+        let handback = await handFrontBack(from: target, to: person, summary: &summary)
+        if frontRefusal != nil, handback != .notVerified { return (.refused(.frontRequestRefused), summary) }
+        switch (handback, ending) {
+            case (.notVerified, _):
+                return (.handbackNotVerified, summary)
+            case (_, .neverInFront):
+                return (.neverInFront(afterMilliseconds: lent), summary)
+            case (.leftElsewhere, _), (_, .frontTaken):
+                return (.frontTaken(afterMilliseconds: lent), summary)
+            case (.verified, .boundReached):
+                return (.boundReached(afterMilliseconds: lent), summary)
+            case (.verified, .bodyReturned), (.verified, .cancelled):
+                return (.completed(afterMilliseconds: lent), summary)
+        }
+    }
+
+    /// Runs `body` beside a watch of the front and answers which ended it. A
+    /// watch that trips cancels the body; the body returning cancels the watch.
+    /// It returns only once the body has returned.
+    ///
+    /// Both are main-actor tasks rather than a task group. `@MainActor in` on a
+    /// group's child trips the Swift 6.4 region checker, and nonisolated children
+    /// ended two of five serial test runs early with exit 0 and no report, the
+    /// symptom `EventLoopWait` describes; these tasks ended none of six.
+    private func runLease(
+        _ target      : WindowReference,
+        until deadline: UInt64,
+        body          : @escaping @MainActor () async -> Void
+    ) async -> LeaseEnding {
+        let bodyTask = Task { @MainActor in await body() }
+        let watch = Task { @MainActor [self] in
+            let ending = await watchLease(target, until: deadline)
+            if ending != .cancelled { bodyTask.cancel() }
+            return ending
+        }
+        await withTaskCancellationHandler { await bodyTask.value } onCancel: { bodyTask.cancel() }
+        let callerWasCancelled = Task.isCancelled
+        watch.cancel()
+        let watched = await watch.value
+        if callerWasCancelled { return .cancelled }
+        return watched == .cancelled ? .bodyReturned : watched
+    }
+
+    /// Reads the front every 20 ms until `deadline`, cancellation, or a process
+    /// other than `target` holding it. A count bounds it as well as the clock,
+    /// so an injected clock that stands still cannot hold the front for ever.
+    private func watchLease(_ target: WindowReference, until deadline: UInt64) async -> LeaseEnding {
+        let remaining = deadline > now() ? deadline &- now() : 0
+        for _ in 0 ... remaining / Self.briefActivationPollNanoseconds {
+            await EventLoopWait.sleep(.nanoseconds(Self.briefActivationPollNanoseconds))
+            guard !Task.isCancelled else { return .cancelled }
+            guard now() < deadline else { return .boundReached }
+            guard isFrontmost(target.processID), sensing.frontmostProcessID == target.processID
+            else { return .frontTaken }
+        }
+        return .boundReached
     }
 
     /// Reads `isReady` every 20 ms while `target` is in front, and answers how

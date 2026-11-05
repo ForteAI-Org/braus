@@ -238,12 +238,12 @@ final class TeamModel {
 
     /// The conversations that show Braus's Chrome as a window instead of headless, kept across launches.
     private(set) var browserWindows = Set(
-        (UserDefaults.standard.stringArray(forKey: AppPreferences.showsBrowserWindow) ?? []).compactMap(UUID.init)
+        (AppDefaults.current.stringArray(forKey: AppPreferences.showsBrowserWindow) ?? []).compactMap(UUID.init)
     )
 
     /// The conversations that open their pages in the person's own Chrome instead of Braus's, kept across launches.
     private(set) var personalChromes = Set(
-        (UserDefaults.standard.stringArray(forKey: AppPreferences.usesPersonalChrome) ?? []).compactMap(UUID.init)
+        (AppDefaults.current.stringArray(forKey: AppPreferences.usesPersonalChrome) ?? []).compactMap(UUID.init)
     )
 
     /// The person's Chrome profiles paired with the Braus extension, the app's one hub; nil offers none.
@@ -291,7 +291,7 @@ final class TeamModel {
         broker          : SeatBroker,
         agents          : @escaping (ModelProvider) throws -> (ChatProvider, URL) = WorkerAgentHost.agent(for:),
         bridgeExecutable: URL = Bundle.main.bundleURL.appending(path: "Contents/Helpers/braus-bridge"),
-        preferences     : UserDefaults = .standard,
+        preferences     : UserDefaults = AppDefaults.current,
         channels        : AutomationChannels = [],
         chromeProfiles  : ChromeProfileHub? = nil,
         approvals       : AdapterApprovals? = nil
@@ -835,6 +835,9 @@ final class TeamModel {
         withholding: (String) -> String
     ) {
         switch event {
+        case .tool(let record) where record.hasPrefix(ToolPictures.mark):
+            // Pictures change no step the mascot says, and their encoding is no text to withhold from.
+            break
         case .tool(let record):
             turnReports[workerID]?.add(tool: withholding(record))
         case .provider(.assistant(let text)):
@@ -1004,6 +1007,7 @@ final class TeamModel {
     /// reading Connected, so the alert says how and the light turns to Access Rejected; the next
     /// turn that completes checks the connection again.
     private func settle(_ provider: ModelProvider, after ending: WorkerTurnRecorder.Ending) {
+        guard !LaunchIsolation.current.isIsolated else { return }
         switch ending {
         case .failed(let reason):
             guard let expired = Self.signInExpired(provider: provider, reason: reason) else { return }
@@ -1560,8 +1564,10 @@ final class TeamModel {
                 await self?.humanHosts[workerID]?.host.waitForHumanInterventionCleanup()
                 await self?.answerTasks[workerID]?.value
             },
+            // The episode's host still withholds once the resumed turn has taken it off `humanHosts`: that turn is
+            // when the worker reads the details.
             withholding: { [weak self] text in
-                self?.humanHosts[workerID]?.host.withheld(text) ?? "Human intervention evidence unavailable."
+                (self?.humanHosts[workerID]?.host ?? interventionHost)?.withheld(text) ?? "Human intervention evidence unavailable."
             },
             resumeAgent: { [weak self] summary, beginTurn in
                 guard let self else { throw CancellationError() }
@@ -1826,6 +1832,21 @@ final class TeamModel {
     /// Removes the enlarged screen at once, for a worker or a seat that went away.
     func dismissEnlargedScreen() { enlargedScreen = nil }
 
+    /// A tool line's pictures enlarged over the window, nil while none is.
+    var enlargedPictures: PicturesEnlargement?
+
+    /// Enlarges a tool line's pictures; nothing while some already are.
+    func enlargePictures(_ enlargement: PicturesEnlargement) {
+        guard enlargedPictures == nil else { return }
+        enlargedPictures = enlargement
+    }
+
+    /// Asks the enlarged pictures to shrink back; the overlay finishes it when it has landed.
+    func closeEnlargedPictures() { enlargedPictures?.close() }
+
+    /// Removes the enlarged pictures at once.
+    func dismissEnlargedPictures() { enlargedPictures = nil }
+
     /// Whether the conversation shows Braus's Chrome as a window.
     func showsBrowserWindow(in conversationID: UUID) -> Bool { browserWindows.contains(conversationID) }
 
@@ -1882,7 +1903,7 @@ final class TeamModel {
 
     /// The choices `AppPreferences.chromeProfiles` holds: by conversation, the instance's ID and the name.
     private static func storedChromeProfiles() -> [UUID: ChromeProfileChoice] {
-        let stored = UserDefaults.standard.dictionary(forKey: AppPreferences.chromeProfiles) as? [String: [String]]
+        let stored = AppDefaults.current.dictionary(forKey: AppPreferences.chromeProfiles) as? [String: [String]]
         return (stored ?? [:]).reduce(into: [:]) { choices, entry in
             guard let conversation = UUID(uuidString: entry.key), entry.value.count == 2 else { return }
             choices[conversation] = ChromeProfileChoice(instanceID: entry.value[0], label: entry.value[1])
@@ -2106,6 +2127,7 @@ final class TeamModel {
     /// Asks the worker's provider whether its model is still in the catalogue.
     /// A worker whose model is gone keeps it; only the person replaces it.
     func checkModel(of id: UUID) async {
+        guard !LaunchIsolation.current.isIsolated else { return }
         guard let selection = worker(id)?.configuration else {
             modelStates[id] = nil
             return

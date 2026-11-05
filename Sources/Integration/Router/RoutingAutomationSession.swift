@@ -6,6 +6,7 @@
 import AutomationRuntime
 import EngineCore
 import Foundation
+import IncrementalText
 import PerceptionCore
 import WindowServerListing
 
@@ -201,6 +202,8 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
         await desktop.humanStep(request)
     }
 
+    public var canvasHistory: CanvasHistory? { current.canvasHistory }
+
     /// Runs `call` on the current session. When the native session gives the app back instead (it acts on
     /// nothing then), the desktop session opens the app and `call` runs there.
     private func routed<Answer>(_ call: (any AutomationSessionOperating) async throws -> Answer) async throws -> Answer {
@@ -245,6 +248,59 @@ public final class RoutingAutomationSession: AutomationSessionOperating {
     public func windowCandidates(ownedBy processID: pid_t) async throws -> [WindowRow] {
         if processID < 0, let web { return try await web.windowCandidates(ownedBy: processID) }
         return try await desktop.windowCandidates(ownedBy: processID)
+    }
+
+    public var hasSeat: Bool { desktop.hasSeat }
+
+    /// Only the desktop session holds on a Seat, and only while it is the current route.
+    public var holdsOnSeat: Bool { current === desktop && desktop.holdsOnSeat }
+
+    /// Opens on the desktop session, never asking the native route, which would leave the application on the
+    /// person's screen; the route that was current is closed first, as any move to another session does.
+    public func openOnSeat(application: String) async throws -> SceneSnapshot {
+        lastHandoff  = nil
+        openedWindow = nil
+        return try await open(application, window: nil, on: desktop)
+    }
+
+    /// Activity goes to the desktop session, the one route with an inactivity release; a pair never splits
+    /// across two sessions when the route changes during the call.
+    public func beginActivity() -> UUID { desktop.beginActivity() }
+
+    public func endActivity(_ token: UUID) { desktop.endActivity(token) }
+
+    /// The front is lent by the desktop session, the one route that holds on a Seat, and only while it is the
+    /// current route, as `holdsOnSeat` says. Without these two the protocol's default answered every lease
+    /// `.notHeld`, so a command that borrows the front never ran whenever web or native routing was on.
+    public func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost bound       : Duration,
+        _ body             : @escaping @MainActor () async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        guard current === desktop else { return (nil, .notHeld) }
+        return await desktop.withFront(
+            of                 : bundleID,
+            admittingOpenDialog: admittingOpenDialog,
+            atMost             : bound,
+            body
+        )
+    }
+
+    /// The same lease with its clicks routed through the Seat, under the same rule as the variant above.
+    public func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost bound       : Duration,
+        _ body             : @escaping @MainActor (FrontClicks) async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        guard current === desktop else { return (nil, .notHeld) }
+        return await desktop.withFront(
+            of                 : bundleID,
+            admittingOpenDialog: admittingOpenDialog,
+            atMost             : bound,
+            body
+        )
     }
 
     public var memoryDirectory: URL? { current.memoryDirectory }

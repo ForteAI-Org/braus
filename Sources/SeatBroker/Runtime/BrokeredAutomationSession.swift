@@ -10,6 +10,7 @@ import AutomationRuntime
 import Engine
 import EngineCore
 import Foundation
+import IncrementalText
 import Memory
 import Observation
 import os
@@ -35,10 +36,11 @@ import VisionText
 ///
 /// The seat is kept after a turn for `idleWindow` without another turn, then closed, so a quick
 /// follow-up reuses the open session and the window comes back soon after. A new turn cancels
-/// that pending close. An entry that starts waiting while this session holds the seat between
-/// turns makes it close at once; one that arrives during a turn makes it close when `turn` ends,
-/// never inside it. The next turn then finds no live session and opens one again, which waits in
-/// the queue like any other entry.
+/// that pending close. Inside a turn, the same window starts when the last call ends: a call in
+/// flight keeps the seat however long it runs. An entry that starts waiting between turns makes
+/// the session close at once, or when its last call in flight ends; one arriving during a turn waits for
+/// its end or an inactivity release.
+/// A call after release finds no live session and must open one again through the queue.
 ///
 /// Calls are serialized by the owner, as `AutomationSessionOperating` requires. Cancelling an
 /// `open` that waits in the queue takes the worker out of it; one cancelled after the seat was
@@ -70,10 +72,28 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// init reads it through accessibility.
     typealias DialogReading = @MainActor (_ pid: pid_t) -> DialogButtonPress.OpenDialog?
 
+    /// Runs the body only inside the target's front lease, returning after handback.
+    /// The public init uses the Seat; controlled tests replace this platform boundary.
+    typealias FrontLending = @MainActor (
+        _ target: SeatTarget,
+        _ admittingOpenDialog: Bool,
+        _ bound: Duration,
+        _ body: @escaping @MainActor () async -> Void
+    ) async -> FrontLeaseOutcome
+
+    /// Runs the body with the current lease's click route, returning after handback.
+    /// Controlled tests replace the same platform boundary as `FrontLending`.
+    typealias FrontClickLending = @MainActor (
+        _ target: SeatTarget,
+        _ admittingOpenDialog: Bool,
+        _ bound: Duration,
+        _ body: @escaping @MainActor (FrontClicks) async -> Void
+    ) async -> FrontLeaseOutcome
+
     /// Escape quits DaVinci Resolve instead of closing its dialog, so it is never suggested there.
     static let quitsOnEscape: Set<String> = ["com.blackmagic-design.DaVinciResolve"]
 
-    /// How long a worker keeps the seat after its turn ends with no other turn, Eliomar's choice:
+    /// How long a worker keeps the seat without a call in flight, and after its turn ends:
     /// a quick follow-up ("and what is the first one called?") still finds the session and its
     /// context, and the window comes back to the person's screen soon after the worker goes quiet.
     static let idleWindow: Duration = .seconds(30)
@@ -107,6 +127,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private let idleWindow: Duration
     @ObservationIgnored private let waitIdle: IdleWaiting
     @ObservationIgnored private let readDialog: DialogReading
+    @ObservationIgnored private let lending: FrontLending
+    @ObservationIgnored private let clickLending: FrontClickLending
 
     /// Whether the seat a held target borrows stopped for good, which ends this session.
     @ObservationIgnored private let stoppedForGood: @MainActor (SeatTarget) -> Bool
@@ -125,6 +147,7 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     @ObservationIgnored private var isInTurn = false
     @ObservationIgnored private var humanDetails: HumanInterventionDetails?
     @ObservationIgnored private var idleRelease: Task<Void, Never>?
+    @ObservationIgnored private var inFlightCalls: Set<UUID> = []
     /// Pins the current lease across turn endings while the person controls its preview.
     @ObservationIgnored
     private var humanIntervention: UUID?
@@ -215,7 +238,15 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// Selects one exact current title among held windows, retaining the application's lease.
     static func switchWindow(_ target: SeatTarget, processID: pid_t, title: String, application: String) async throws {
         let seat = try target.agentSeat()
-        _ = try await target.observe()
+        // A seat suspended because it cannot choose between windows is what this switch resolves:
+        // the readings are folded without the observation it refuses, and switchTarget decides.
+        do {
+            _ = try await target.observe()
+        } catch ObservationUnavailable.suspended(let causes) where causes.contains(where: {
+            if case .explicitSelectionRequired = $0 { true } else { false }
+        }) {
+            seat.refreshTargetReadings()
+        }
         let windows = TargetEnumerator.windows(of: processID, includingHeld: seat.adoptedWindows.map(\.reference))
         let candidate = try exactHeldWindow(in: windows, title: title, application: application)
         guard let held = seat.adoptedWindows.first(where: {
@@ -273,6 +304,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         waitIdle          : @escaping IdleWaiting = { try await Task.sleep(for: $0) },
         readDialog        : @escaping DialogReading = { DialogButtonPress.openDialog(of: $0) },
         switching         : @escaping @MainActor (SeatTarget, pid_t, String, String) async throws -> Void = switchWindow,
+        lending           : @escaping FrontLending = lentThroughTheSeat,
+        clickLending      : @escaping FrontClickLending = lentWithClicksThroughTheSeat,
         stoppedForGood    : @escaping @MainActor (SeatTarget) -> Bool = {
             SeatAdmission.stoppedForGood(try? $0.agentSeat())
         }
@@ -293,6 +326,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         self.idleWindow         = idleWindow
         self.waitIdle           = waitIdle
         self.readDialog         = readDialog
+        self.lending            = lending
+        self.clickLending       = clickLending
         self.stoppedForGood     = stoppedForGood
         self.switching          = switching
     }
@@ -433,12 +468,195 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The route this session is when no routing session fronts it (M05).
     public var dispatchRoute: CallRoute.Route? { .desktop }
 
+    /// Every application this session opens is on its Seat.
+    public var hasSeat: Bool { true }
+
+    public var holdsOnSeat: Bool { application != nil }
+
+    /// Marks a call in flight and cancels the inactivity release. Pair the returned token with
+    /// `endActivity` in `defer`, including on failure or cancellation. Calls may nest or overlap.
+    /// This tracks activity only; it neither opens a session nor grants input authority.
+    public func beginActivity() -> UUID {
+        let token = UUID()
+        inFlightCalls.insert(token)
+        idleRelease?.cancel()
+        idleRelease = nil
+        return token
+    }
+
+    /// Ends one call and restarts the full idle window once the last call ends. Repeated or foreign
+    /// tokens do nothing. Human intervention and a closing session keep precedence over the timer.
+    /// Between turns with an entry waiting, the last call ends the session at once, as a turn's end would.
+    public func endActivity(_ token: UUID) {
+        guard inFlightCalls.remove(token) != nil, inFlightCalls.isEmpty else { return }
+        releaseWhenIdle()
+        if !isInTurn, isSomeoneWaiting { Task { await releaseIfSomeoneWaits() } }
+    }
+
+    /// Borrows the front only for this session's current application, keeping activity through handback.
+    public func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost bound       : Duration,
+        _ body             : @escaping @MainActor () async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
+        guard id != nil, lease != nil, closing == nil, case .holding = phase,
+              let application, !application.isTerminated,
+              memoryApplication?.caseInsensitiveCompare(bundleID) == .orderedSame,
+              let target else { return (nil, .notHeld) }
+
+        var result: Result<Value, any Error>?
+        let outcome = await lending(
+            target,
+            admittingOpenDialog,
+            bound
+        ) {
+            do { result = .success(try await body()) }
+            catch { result = .failure(error) }
+        }
+        return (result, Self.toolOutcome(outcome))
+    }
+
+    /// Borrows the same held front and activity scope, with clicks routed through its lease input.
+    public func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost bound       : Duration,
+        _ body             : @escaping @MainActor (FrontClicks) async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
+        guard id != nil, lease != nil, closing == nil, case .holding = phase,
+              let application, !application.isTerminated,
+              memoryApplication?.caseInsensitiveCompare(bundleID) == .orderedSame,
+              let target else { return (nil, .notHeld) }
+
+        var result: Result<Value, any Error>?
+        let outcome = await clickLending(
+            target,
+            admittingOpenDialog,
+            bound
+        ) { clicks in
+            do { result = .success(try await body(clicks)) }
+            catch { result = .failure(error) }
+        }
+        return (result, Self.toolOutcome(outcome))
+    }
+
+    /// Uses the input overload so the cursor fence cannot redirect a tool's click.
+    static let lentWithClicksThroughTheSeat: FrontClickLending = { target, admitsDialog, bound, body in
+        let seat: AgentSeat
+        do { seat = try target.agentSeat() }
+        catch { return .refused(.targetNotPrepared) }
+        return await seat.lendFront(
+            admittingOpenDialog: admitsDialog,
+            atMost             : bound
+        ) { (input: FrontLeaseInput) in
+            await body(frontClicks(
+                isActive  : { input.isActive },
+                click     : { point, count, modifiers in
+                    toolReceipt(try await input.click(
+                        at       : point,
+                        count    : count,
+                        modifiers: modifiers
+                    ))
+                },
+                rightClick: { point, modifiers in
+                    toolReceipt(try await input.rightClick(
+                        at       : point,
+                        modifiers: modifiers
+                    ))
+                }
+            ))
+        }.outcome
+    }
+
+    /// Adapts the Driver's click vocabulary without exposing it to tool bodies.
+    /// Closures remain bound to the input's lifetime and preserve every thrown failure.
+    static func frontClicks(
+        isActive  : @escaping @MainActor () -> Bool,
+        click     : @escaping @MainActor (CGPoint, Int, SeatCore.Modifiers) async throws -> FrontClicks.Receipt,
+        rightClick: @escaping @MainActor (CGPoint, SeatCore.Modifiers) async throws -> FrontClicks.Receipt
+    ) -> FrontClicks {
+        FrontClicks(
+            isActive  : isActive,
+            click     : { point, count, modifiers in
+                try await click(
+                    point,
+                    count,
+                    seatModifiers(modifiers)
+                )
+            },
+            rightClick: { point, modifiers in
+                try await rightClick(
+                    point,
+                    seatModifiers(modifiers)
+                )
+            }
+        )
+    }
+
+    private static func toolReceipt(_ receipt: FrontLeaseInput.Receipt) -> FrontClicks.Receipt {
+        FrontClicks.Receipt(
+            processID    : receipt.processID,
+            windowNumber : receipt.windowNumber,
+            location     : receipt.location,
+            eventCount   : receipt.input.eventCount,
+            needsRecovery: receipt.input.hasUnrestoredPreparation
+        )
+    }
+
+    private static func seatModifiers(_ modifiers: FrontClicks.Modifiers) -> SeatCore.Modifiers {
+        var result: SeatCore.Modifiers = []
+        if modifiers.contains(.command) { result.insert(.command) }
+        if modifiers.contains(.shift)   { result.insert(.shift) }
+        if modifiers.contains(.option)  { result.insert(.option) }
+        if modifiers.contains(.control) { result.insert(.control) }
+        return result
+    }
+
+    /// Lends through the current borrowed target; a target whose borrow ended cannot prepare a lease.
+    static let lentThroughTheSeat: FrontLending = { target, admitsDialog, bound, body in
+        let seat: AgentSeat
+        do { seat = try target.agentSeat() }
+        catch { return .refused(.targetNotPrepared) }
+        return await seat.lendFront(
+            admittingOpenDialog: admitsDialog,
+            atMost             : bound,
+            body
+        ).outcome
+    }
+
+    /// Translates the Driver's lease into the tool boundary, preserving every unsuccessful ending.
+    private static func toolOutcome(_ outcome: FrontLeaseOutcome) -> SessionFrontOutcome {
+        switch outcome {
+            case .completed: return .completed
+            case .boundReached: return .boundReached
+            case .handbackNotVerified: return .handbackNotVerified
+            case .frontTaken: return .frontTaken
+            case .neverInFront: return .neverInFront
+            case .refused(let refusal):
+                switch refusal {
+                    case .noFocusRecovery: return .leaseRefused(.noFocusRecovery)
+                    case .seatNotReady: return .leaseRefused(.seatNotReady)
+                    case .dialogOpen: return .leaseRefused(.dialogOpen)
+                    case .noUserWindow: return .leaseRefused(.noUserWindow)
+                    case .targetNotPrepared: return .leaseRefused(.targetNotPrepared)
+                    case .frontRequestRefused: return .leaseRefused(.frontRequestRefused)
+                }
+        }
+    }
+
     /// Checks the grants, waits for a seat, opens the application on it and returns the first
     /// scene, which the Brain observes. A missing grant is asked for through the broker and
     /// refused at once, before the queue. Failures close and return the seat before throwing.
     /// Human takeover during the first scene read preserves the completed adoption and rethrows
     /// CancellationError for the tool to answer with the opened session and no scene.
     public func open(application word: String, window title: String?) async throws -> SceneSnapshot {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let started = ContinuousClock.now
         Self.log.info("open_session: waiting for prior close")
         defer { Self.log.info("open_session: ended after \(started.duration(to: .now).description, privacy: .public)") }
@@ -676,19 +894,25 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// The installed and running applications `query` names, ranked as `open` resolves a name, so
     /// what the worker is offered and what it may open cannot disagree. Needs no seat and no grant.
     public func applications(matching query: String?) async throws -> [ApplicationCandidate] {
-        Self.candidates(await ApplicationOpening.rankedOffMain(query, in: TargetEnumerator.preparedTargets()))
+        let activity = beginActivity()
+        defer { endActivity(activity) }
+        return Self.candidates(await ApplicationOpening.rankedOffMain(query, in: TargetEnumerator.preparedTargets()))
     }
 
     /// The bundle ID `open` resolves `application` to, through the same `ApplicationOpening.resolve`, so a name in
     /// the person's language routes as the app's own does. Nil, by design, for a name `open` would refuse: that
     /// open then says why. Needs no seat and no grant.
     public func resolvedBundleID(of application: String) async -> String? {
-        try? await ApplicationOpening.resolvedOffMain(application, in: TargetEnumerator.preparedTargets()).bundleID
+        let activity = beginActivity()
+        defer { endActivity(activity) }
+        return try? await ApplicationOpening.resolvedOffMain(application, in: TargetEnumerator.preparedTargets()).bundleID
     }
 
     /// The windows of `processID`, the seat's already adopted windows included: a held floating window keeps its
     /// row with its current identity even when the system's list no longer shows it.
     public func windowCandidates(ownedBy processID: pid_t) async throws -> [WindowRow] {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let held = (try? target?.agentSeat().adoptedWindows.map(\.reference)) ?? []
         return TargetEnumerator.windows(of: processID, includingHeld: held).map {
             WindowRow(layer: 0, frame: $0.frame, title: $0.title, number: $0.windowNumber)
@@ -719,6 +943,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func observe() async throws -> SceneSnapshot {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         do {
             return try await perceivedScene()
         } catch {
@@ -750,6 +976,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     /// A fresh scene with the pixels it was read from, for a person who asks to see what the agent sees.
     public func observeWithImage() async throws -> (scene: SceneSnapshot, image: CGImage?) {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let scene = try await observe()
         return (scene, target?.lastSceneImage)
     }
@@ -767,6 +995,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         desiredState: ControlState?,
         isDryRun    : Bool
     ) async throws -> ActOutcome {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let (application, runtime, seat) = try current()
         if case .refuse(let sentence) = try await SeatAdmission.awaited(
             seat.agentSeat(),
@@ -821,6 +1051,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     /// withheld one is delivered with the engine told, so its answer quotes no value of the field and its check keeps
     /// none of the texts.
     public func deliver(_ input: InputRequest.Input, section: String?, dispatch: TextDispatch) async throws -> ActOutcome {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         guard dispatch == .withheld else {
             throw AutomationFailure("This session cannot type only into the field the call recorded, so nothing was typed.")
         }
@@ -845,6 +1077,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     private func deliver(_ input: InputRequest.Input, section: String?, withholdsText: Bool) async throws -> ActOutcome {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let (application, runtime, seat) = try current()
         if case .refuse(let sentence) = try await SeatAdmission.awaited(
             seat.agentSeat(),
@@ -893,6 +1127,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func menu(path: String) async throws -> ActOutcome {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
@@ -1078,6 +1314,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func press(button: String) async throws -> ActOutcome {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let (application, runtime, seat) = try current()
         let agentSeat = try seat.agentSeat()
         if case .refuse(let sentence) = await SeatAdmission.awaited(
@@ -1114,6 +1352,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
         onMenu   : @escaping @MainActor @Sendable (ContextMenu) -> Void = { _ in },
         onCapture: @escaping @MainActor @Sendable (String, CGImage) throws -> Void = { _, _ in }
     ) async throws -> (outcome: ActOutcome, receipt: PopupMenuReceipt?) {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         let (application, runtime, target) = try current()
         // The call's recorder, bound once before the selector runs: the selector reports its perceptions to it, and
         // the receipt it returns is handed to it before the scene is enriched (M05).
@@ -1220,12 +1460,13 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
 
     /// Runs one turn of the worker's agent, and closes afterwards when another entry is waiting in
     /// the queue, which gives the seat back; otherwise it closes once `idleWindow` passes with no
-    /// new turn. Starting a turn cancels that pending close, and nothing is released while `body`
-    /// runs, since the agent may be between an observation and an act.
+    /// new turn. Starting a turn restarts that window; pauses inside `body` release the seat after
+    /// the same window, while a call in flight keeps it until the call ends.
     public func turn(_ body: () async throws -> Void) async throws {
         idleRelease?.cancel()
         idleRelease = nil
         isInTurn = true
+        releaseWhenIdle()
         do {
             try await body()
         } catch {
@@ -1350,6 +1591,8 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     private func endTurn() async {
+        idleRelease?.cancel()
+        idleRelease = nil
         isInTurn = false
         let details = humanDetails
         humanDetails = nil
@@ -1370,32 +1613,45 @@ public final class BrokeredAutomationSession: AutomationSessionOperating {
     }
 
     public func humanStep(_ request: HumanStepRequest) async -> HumanStepResult {
+        let activity = beginActivity()
+        defer { endActivity(activity) }
         guard isInTurn, humanIntervention == nil, closing == nil, let humanDetails else { return .unavailable }
         return humanDetails.result(request)
     }
 
-    /// Closes once an open session has gone `idleWindow` without a turn. The wait is tied to the
+    public var canvasHistory: CanvasHistory? {
+        guard id != nil, closing == nil, humanIntervention == nil,
+              let (_, _, target) = try? current(),
+              target.canvasHistory.window == target.lastCapturedWindow?.id else { return nil }
+        return target.canvasHistory
+    }
+
+    /// Closes once an open session has gone `idleWindow` without a call in flight. The wait is tied to the
     /// lease held now, so one that outlives a close, or returns under a later lease, closes nothing.
     private func releaseWhenIdle() {
-        guard let lease, id != nil, closing == nil, !isInTurn, humanIntervention == nil else { return }
+        guard let lease, id != nil, closing == nil, inFlightCalls.isEmpty, humanIntervention == nil else { return }
         idleRelease?.cancel()
         idleRelease = Task { [weak self, waitIdle, idleWindow] in
+            guard !Task.isCancelled else { return }
             do {
                 try await waitIdle(idleWindow)
             } catch {
-                // The wait ends early only when cancelled: a turn started or the session closed.
+                // A call, a turn boundary, human intervention or close cancels the wait.
                 return
             }
             guard let self, !Task.isCancelled, self.lease === lease,
-                  !isInTurn, humanIntervention == nil, closing == nil else { return }
+                  inFlightCalls.isEmpty, humanIntervention == nil, closing == nil else { return }
             await close()
         }
     }
 
-    /// Closes when an open session is idle between turns and an entry is waiting for the seat.
+    private var isSomeoneWaiting: Bool { broker.queue.entries.contains { $0.state == .waiting } }
+
+    /// Closes when an open session is idle between turns and an entry is waiting for the seat. A call
+    /// in flight keeps the session, and `endActivity` asks again when the last one ends.
     private func releaseIfSomeoneWaits() async {
-        guard !isInTurn, humanIntervention == nil, id != nil, closing == nil,
-              broker.queue.entries.contains(where: { $0.state == .waiting })
+        guard !isInTurn, humanIntervention == nil, id != nil, closing == nil, inFlightCalls.isEmpty,
+              isSomeoneWaiting
         else { return }
         await close()
     }

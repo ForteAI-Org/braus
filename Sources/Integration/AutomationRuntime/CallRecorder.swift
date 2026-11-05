@@ -517,6 +517,11 @@ public actor CallRecorder: ActionObserving {
         projectionCommand = try? BrainApplicationCommand.record(admit(record), eventID: context.eventID, requestedAt: requestedAt)
     }
 
+    /// Records a refusal before application invocation without inventing an uncertain effect.
+    public func notAttempted(_ reason: String) {
+        attempt = .notAttempted(reason: reason)
+    }
+
     /// An input's record: its perceptions as the `before`, `menu` and `after` samples, written with the
     /// call's end. An input teaches the Brain nothing.
     public func record(_ input: InputRecord) async {

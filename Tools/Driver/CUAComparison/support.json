@@ -12,7 +12,7 @@
   "note": "The 6 Oct benchmark ran the binary built at 4f33cd6; the next run uses c1c2b5f."
  },
  "braus": {
-  "worktree": "/Users/mac/Forte_Projects/braus-benchmark-cua",
+  "worktree": "<local CUA comparison checkout>",
   "branch": "elio/benchmark-cua",
   "commit": "3c3398539906573a2a366d8b95164ba911f81353",
   "note": "Paths are repo-relative to the worktree; no public URL."

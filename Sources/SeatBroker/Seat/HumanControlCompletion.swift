@@ -35,7 +35,11 @@ struct HumanControlCompletion {
         step("take-back started")
         let note: String?
         do { note = try await takeBack() }
-        catch { note = "Take-back failed. The lent app or window may no longer be available. Inspect the current state before acting." }
+        catch {
+            // The worker gets the general sentence; the cause stays in the log, where a failed take-back is diagnosed.
+            Self.log.error("human handoff: take-back failed: \(String(describing: error), privacy: .private)")
+            note = "Take-back failed. The lent app or window may no longer be available. Inspect the current state before acting."
+        }
         step("take-back finished")
         let reviewed = await review(note)
         let summary = ending.map { $0 + "\n" + reviewed } ?? reviewed

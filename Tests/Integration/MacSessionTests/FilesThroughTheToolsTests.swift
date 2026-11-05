@@ -404,12 +404,12 @@ struct FilesThroughTheToolsTests {
         }
     }
 
-    @Test("the instructions with the adapters name the files adapter's verbs and no Finder, TextEdit or shell; without them, nothing of it")
+    @Test("base file guidance remains available with and without optional app adapters")
     func instructions() {
         let with = AutomationTools.instructions(for: .adapters), without = AutomationTools.instructions(for: [])
         #expect(with.contains("files adapter's verbs") && with.contains("never through Finder, TextEdit or a shell"))
         #expect(with.contains("Never use a shell, AppleScript, computer-use fallback"))
-        #expect(!without.contains("files adapter"))
+        #expect(without.contains("files adapter's verbs") && without.contains("never through Finder, TextEdit or a shell"))
     }
 
     @Test("a start the memory does not confirm acts nothing; an end it cannot save after the change suspends the call, the answer says so, the change happened once and is not repeated; the next call runs")

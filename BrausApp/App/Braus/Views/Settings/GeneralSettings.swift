@@ -15,13 +15,22 @@ import UniformTypeIdentifiers
 /// Troubleshooting exports the log for a bug report.
 struct GeneralSettings: View {
 
-    @AppStorage(TextSizeCommands.storageKey)
+    @AppStorage(
+        TextSizeCommands.storageKey,
+        store: AppDefaults.current
+    )
     private var bodyPointSize = Double(TranscriptStyle.actualSize.bodyPointSize)
 
-    @AppStorage(AppPreferences.chatFontFamily)
+    @AppStorage(
+        AppPreferences.chatFontFamily,
+        store: AppDefaults.current
+    )
     private var fontFamily = AppPreferences.chatFontFamilyDefault
 
-    @AppStorage(AppPreferences.checksConnectionsAtLaunch)
+    @AppStorage(
+        AppPreferences.checksConnectionsAtLaunch,
+        store: AppDefaults.current
+    )
     private var checksConnectionsAtLaunch = AppPreferences.checksConnectionsAtLaunchDefault
 
     /// The families installed on this Mac, read once for the menu.

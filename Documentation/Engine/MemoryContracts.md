@@ -363,6 +363,26 @@ creation with no returned identity is insufficient. Append, send, deletion and o
 specific proof stay unresolved. Historical reconciliation records are preserved and revalidated before opening a gate.
 This validation judges the recorded evidence; it does not independently query a live service.
 
+The person's worker inspector offers **Actions to Review**. It lists that worker's unresolved calls
+and asks for confirmation for each acknowledgement. `MemoryService.acknowledgeUnresolvedCall` checks
+the producer, unresolved state and executor termination in one store transaction, then appends an
+`acknowledged` fact declared by `person`. Repeated confirmations are idempotent. A known running executor
+prevents acknowledgement of its started calls. When liveness evidence is unavailable, the person's
+explicit confirmation that the action has stopped permits recovery without inventing executor termination.
+No action is replayed, no earlier
+effect or end is rewritten, and an acknowledgement does not claim the action succeeded. Model tools
+continue to accept only supported observed evidence; they expose no person-acknowledgement operation.
+
+An adapter call that fails validation or is cancelled before its invocation is recorded as not sent,
+with its reason. The invocation callback defines this boundary; errors after it remain uncertain.
+A Seat's opening or observation is not proof that the adapter verb was invoked.
+
+For shutdown checks, `service.hasUnfinishedWork` refers to one archive, while
+`MemoryService.hasUnfinishedWork` covers every shared archive in the process. The latter remains true
+when another service has work after the service under test closes. Durability of completed writes and
+deadline accounting for a blocked queue are tested separately, so disk throughput is not mistaken for
+a shutdown guarantee that the bounded-close contract does not make.
+
 A person's refusal blocks all action routes in that context until the same call is consented to. The shared
 `refusals.json` stores a salted argument digest and context key, never the arguments. Salt initialization and
 read/modify/replace updates share a cross-process file lock. Barriers refresh changes from other owners of the same

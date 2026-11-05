@@ -3,7 +3,8 @@ import LocalMCP
 
 /// AppAdapting is one app's (or one family's) API rung: the verbs Braus can run on it through a
 /// public interface (EventKit, CoreAudio, FileManager, a fixed AppleScript), with the app behind or
-/// not running at all, and without a seat.
+/// not running at all, and without a seat; one that scripts its app (`scriptedApplication`) runs while
+/// the caller holds that app on its Seat.
 ///
 /// An adapter never prompts for a permission, never runs a script the agent wrote, and ships a verb
 /// only with the read-back that confirms its effect: `call` reads the effect back before it answers.
@@ -17,6 +18,11 @@ public protocol AppAdapting: Sendable {
 
     /// The bundle identifiers of those apps, for the memory and for routing by bundle id.
     var bundleIDs: Set<String> { get }
+
+    /// The bundle ID of the application a verb scripts to reach its data, which can launch it and show its
+    /// windows: the caller holds it on its Seat while the verb runs (`AppAdapters.call`). Nil for an adapter
+    /// that reaches its data without that application (a store, the file system, a background helper).
+    var scriptedApplication: String? { get }
 
     /// The verbs it offers; fixed at build time, so listing them costs no discovery.
     var verbs: [AdapterVerb] { get }
@@ -43,6 +49,9 @@ public protocol AppAdapting: Sendable {
 }
 
 extension AppAdapting {
+    /// An adapter reaches its data without the application unless it says otherwise.
+    public var scriptedApplication: String? { nil }
+
     public func confirmation(_ verb: AdapterVerb.Name, _ arguments: JSONValue) async -> AdapterConfirmation? {
         nil
     }

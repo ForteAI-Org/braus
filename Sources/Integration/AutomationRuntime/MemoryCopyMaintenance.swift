@@ -6,8 +6,10 @@ import SQLiteMemory
 /// MemoryCopyMaintenance owns closed-copy maintenance and its diagnostics on a dedicated queue.
 /// Filesystem locks, syncs and scans never hold the service actor or the cooperative executor.
 actor MemoryCopyMaintenance {
-    private nonisolated let executor = MemoryMaintenanceExecutor()
-    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+    // The queue itself is the executor: a SerialExecutor conformance of our own would refer to
+    // runtime symbols that macOS 15 lacks (see SQLiteConnectionExecutor).
+    private nonisolated let queue = DispatchSerialQueue(label: "dev.forte.Braus.memory.copies", qos: .utility)
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
     private let directory: URL
     private let configuration: MemoryService.Configuration
     private var retirement = MemoryService.RetirementStatus()
@@ -171,16 +173,5 @@ actor MemoryCopyMaintenance {
                 return (file, date)
             }
             .sorted { $0.1 > $1.1 }
-    }
-}
-
-/// MemoryMaintenanceExecutor keeps blocking filesystem work on one utility queue per service.
-private final class MemoryMaintenanceExecutor: SerialExecutor {
-    private let queue = DispatchSerialQueue(label: "dev.forte.Braus.memory.copies", qos: .utility)
-
-    func enqueue(_ job: consuming ExecutorJob) {
-        let job = UnownedJob(job)
-        let executor = asUnownedSerialExecutor()
-        queue.async { job.runSynchronously(on: executor) }
     }
 }

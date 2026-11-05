@@ -425,6 +425,7 @@ enum WindowSnapshots {
 
             try await writeReply(to: output)
             try await writeSlashCommands(to: output)
+            try await writeCanvasPictures(in: store, to: output)
         } catch {
             FileHandle.standardError.write(Data("snapshots failed: \(error)\n".utf8))
             status = 1
@@ -783,7 +784,7 @@ enum WindowSnapshots {
         NSApp.appearance = NSAppearance(named: .darkAqua)
 
         let hosting = NSHostingView(rootView: content
-            .defaultAppStorage(appStorage ?? .standard))
+            .defaultAppStorage(appStorage ?? AppDefaults.current))
         hosting.sceneBridgingOptions = [.toolbars, .title]
 
         let window = NSWindow(

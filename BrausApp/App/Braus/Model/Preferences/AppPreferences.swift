@@ -95,7 +95,7 @@ enum AppPreferences {
     static func bool(
         _ key           : String,
         default fallback: Bool,
-        in defaults     : UserDefaults = .standard
+        in defaults     : UserDefaults = AppDefaults.current
     ) -> Bool {
         defaults.object(forKey: key) == nil ? fallback : defaults.bool(forKey: key)
     }

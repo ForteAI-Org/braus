@@ -3,11 +3,13 @@ import EngineCore
 import Foundation
 import MacDriver
 import PerceptionCore
+import SeatCore
 
 /// MacScenes fills `SceneProviding` from the accessibility tree: a fresh read of the process's
 /// window at every call, with the app behind. No pixels, no seat.
 ///
-/// The window is the focused one, else the main one, else the first that is not minimized.
+/// The window is the focused one, else the main one, else the first that is not minimized, never the
+/// system's window sharing indicator (`WindowSharingIndicator`).
 public struct MacScenes: SceneProviding {
 
     public let reader: any MacTreeReading
@@ -66,12 +68,19 @@ public struct MacScenes: SceneProviding {
     static func read(
         by reader: any MacTreeReading, _ processID: pid_t, _ limits: MacTreeLimits
     ) async throws -> (MacWindowSummary, MacTreeRead, ContinuousClock.Instant) {
-        let windows = try await reader.windows(of: processID).filter { !$0.isMinimized }
-        guard let window = windows.first(where: \.isFocused) ?? windows.first(where: \.isMain) ?? windows.first else {
-            throw MacTreeFailure.windowNotFound(index: 0)
+        var windows = try await reader.windows(of: processID).filter { !$0.isMinimized }
+        while let window = windows.first(where: \.isFocused) ?? windows.first(where: \.isMain) ?? windows.first {
+            let readAt = ContinuousClock.now
+            let read = try await reader.read(windowAt: window.index, of: processID, limits: limits)
+            // The system's window sharing indicator is no window of the application: the next one is read.
+            guard WindowSharingIndicator.matches(
+                subrole : read.window.subrole,
+                isModal : nil,
+                children: { read.window.children.map { (role: $0.role as String?, title: $0.title) } }
+            ) else { return (window, read, readAt) }
+            windows.removeAll { $0.index == window.index }
         }
-        let readAt = ContinuousClock.now
-        return (window, try await reader.read(windowAt: window.index, of: processID, limits: limits), readAt)
+        throw MacTreeFailure.windowNotFound(index: 0)
     }
 
     /// The live answer: the running application the workspace knows for the process, or nothing.

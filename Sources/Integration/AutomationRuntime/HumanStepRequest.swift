@@ -14,16 +14,30 @@ nonisolated public enum HumanStepRequest: Sendable, Equatable {
     case picture(Int)
 }
 
-/// HumanStepResult carries minimized text and, when safe to disclose, a retained HEIC picture.
+/// HumanStepResult carries minimized text and, when safe to disclose, pictures: the crop of a canvas before and after.
 /// The session refuses requests outside the resumed turn; callers must not persist this history.
 nonisolated public struct HumanStepResult: Sendable {
+    /// One encoded picture and its media type, such as `image/png`.
+    public struct Image: Sendable, Equatable {
+        public let data    : Data
+        public let mimeType: String
+
+        public init(
+            data    : Data,
+            mimeType: String
+        ) {
+            self.data     = data
+            self.mimeType = mimeType
+        }
+    }
+
     public let text: String
-    public let picture: Data?
+    public let images: [Image]
     public let isError: Bool
 
-    public init(text: String, picture: Data? = nil, isError: Bool = false) {
+    public init(text: String, images: [Image] = [], isError: Bool = false) {
         self.text = text
-        self.picture = picture
+        self.images = images
         self.isError = isError
     }
 

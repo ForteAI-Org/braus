@@ -120,6 +120,10 @@ final class TranscriptController: NSObject {
     @ObservationIgnored
     var onReply: ((MessageQuote) -> Void)?
 
+    /// Called to enlarge a tool line's pictures over the window, which the host shows.
+    @ObservationIgnored
+    var onOpenPictures: ((PicturesEnlargement) -> Void)?
+
     var style: TranscriptStyle {
         didSet { if style != oldValue { enqueue { await self.relayout() } } }
     }
@@ -1001,6 +1005,18 @@ final class TranscriptController: NSObject {
     }
 
     /// Runs a row's action, which only ever happens on the reader's request.
+    /// The small pictures of block `index` on the row of `id`, in the view that shows that row now;
+    /// nil while the row is not on screen.
+    private func pictureView(
+        of id      : TranscriptItem.ID,
+        block index: Int
+    ) -> ToolPicturesView? {
+        guard let item = rows.firstIndex(where: { $0.item.id == id }),
+              let cell = collectionView.item(at: IndexPath(item: item, section: 0)) as? TranscriptCell
+        else { return nil }
+        return cell.rowView.pictureView(block: index)
+    }
+
     private func perform(_ action: RowAction, in id: TranscriptItem.ID) {
         guard let row = rows.first(where: { $0.item.id == id }) else { return }
         switch action {
@@ -1020,6 +1036,14 @@ final class TranscriptController: NSObject {
             // The keyboard follows the reader to the quoted message, so this row keeps no action outlined.
             setFocusedAction(nil)
             revealQuoted(quote.messageID)
+        case .openPictures(let index):
+            guard let strip = pictureView(of: id, block: index), let pictures = strip.pictures else { return }
+            onOpenPictures?(PicturesEnlargement(
+                images: strip.shownImages,
+                sizes : pictures.pictures.map { CGSize(width: $0.width, height: $0.height) },
+                label : pictures.label.map { "Pictures of \($0)" } ?? "Pictures",
+                opener: { [weak self] in self?.pictureView(of: id, block: index) }
+            ))
         }
     }
 

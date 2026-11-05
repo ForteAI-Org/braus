@@ -30,9 +30,26 @@ nonisolated protocol HumanSceneReading: Sendable {
     func finalWindows(processID: Int32) async throws -> [InteractionWindow]
     /// A structural read alone of every on-screen window of the process, within `seconds`: no capture, no OCR.
     func structure(processID: Int32, seconds: Double) async -> InteractionStructuralRead
+    /// `scene(window:mode:timing:)` with the picture it was read from, for canvas crops; nil when the reader keeps none.
+    func read(window: InteractionWindow, mode: ProductionPerception.Mode,
+              timing: NativeHumanSceneReader.Timing) async throws -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame?)
+    /// A picture of the window and the scene accessibility alone reads on it, no text recognition: the canvases as
+    /// control passes. Nil when the reader has no pixels.
+    func canvasRead(window: InteractionWindow) async throws -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame)?
+    /// A picture of the window alone, taken while the person is still to learn its canvases' noise; nil without pixels.
+    func frame(of window: InteractionWindow) async throws -> HumanInterventionCanvases.Frame?
 }
 
 extension HumanSceneReading {
+    func read(window: InteractionWindow, mode: ProductionPerception.Mode,
+              timing: NativeHumanSceneReader.Timing) async throws -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame?) {
+        (try await scene(window: window, mode: mode, timing: timing), nil)
+    }
+
+    func canvasRead(window: InteractionWindow) async throws -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame)? { nil }
+
+    func frame(of window: InteractionWindow) async throws -> HumanInterventionCanvases.Frame? { nil }
+
     func finalWindows(processID: Int32) async throws -> [InteractionWindow] {
         try await windows(processID: processID)
     }
@@ -81,19 +98,22 @@ nonisolated struct NativeHumanSceneReader: HumanSceneReading {
     @concurrent
     func scene(window: InteractionWindow, mode: ProductionPerception.Mode,
                timing: Timing) async throws -> SceneSnapshot {
+        try await read(window: window, mode: mode, timing: timing).scene
+    }
+
+    @concurrent
+    func read(window: InteractionWindow, mode: ProductionPerception.Mode,
+              timing: Timing) async throws -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame?) {
         let started = ContinuousClock.now
         timing.beginSurface(processID: window.processID, windowNumber: window.number, mode: mode.rawValue)
-        let image: CGImage
+        let frame: HumanInterventionCanvases.Frame
         do {
             defer { timing.record(.capture, since: started) }
-            image = try await capturer.captureWindow(number: window.number, frame: window.frame,
-                                                     expectedProcessID: window.processID)
+            frame = try await self.frame(window)
         }
+        let image = frame.image
         let metadataStarted = ContinuousClock.now
-        let app = NSRunningApplication(processIdentifier: window.processID)
-        let descriptor = ScenePipeline.Window(
-            bundleID: app?.bundleIdentifier ?? "", appName: app?.localizedName ?? "Application",
-            title: window.title ?? "", processID: window.processID, frame: window.frame, windowNumber: window.number)
+        let descriptor = Self.descriptor(window)
         timing.record(.metadata, since: metadataStarted)
         // One structural read per attempt covers every window of the process; the full read at hand-back takes the
         // long box, so the windows a person left off screen are read whole. It comes before perception: an action read
@@ -117,7 +137,33 @@ nonisolated struct NativeHumanSceneReader: HumanSceneReading {
             isReserved: { SensitivityClassifier().classify($0, in: .init(labels: [$0])).sensitivity == .secret })
             .withholding { ValueMinimization().minimize(text: $0).0 }
         timing.recordSemantics(semantics)
-        return scene
+        return (scene, frame)
+    }
+
+    @concurrent
+    func canvasRead(window: InteractionWindow) async throws -> (scene: SceneSnapshot, frame: HumanInterventionCanvases.Frame)? {
+        let frame = try await self.frame(window)
+        return (try await nativePipeline.perceive(frame.image, of: Self.descriptor(window)), frame)
+    }
+
+    @concurrent
+    func frame(of window: InteractionWindow) async throws -> HumanInterventionCanvases.Frame? {
+        try await frame(window)
+    }
+
+    /// Captures the window. Its time is when the capture began, so input during a capture counts as input after it.
+    private func frame(_ window: InteractionWindow) async throws -> HumanInterventionCanvases.Frame {
+        let capturedAt = DispatchTime.now().uptimeNanoseconds
+        let image = try await capturer.captureWindow(number: window.number, frame: window.frame,
+                                                     expectedProcessID: window.processID)
+        return .init(image: image, capturedAt: capturedAt, completedAt: DispatchTime.now().uptimeNanoseconds)
+    }
+
+    private static func descriptor(_ window: InteractionWindow) -> ScenePipeline.Window {
+        let app = NSRunningApplication(processIdentifier: window.processID)
+        return ScenePipeline.Window(
+            bundleID: app?.bundleIdentifier ?? "", appName: app?.localizedName ?? "Application",
+            title: window.title ?? "", processID: window.processID, frame: window.frame, windowNumber: window.number)
     }
 
     /// The structural read's box after an action, and when control passes or comes back: there no person waits on

@@ -228,6 +228,44 @@ public struct SQLiteOperationFactRepository: OperationFactStoring {
         try await store.db2BWrite { transaction in try SQLiteReconciliationRows.append(transaction, reconciliation) }
     }
 
+    /// Appends a person's acknowledgement after checking ownership and liveness in the same transaction.
+    /// A repeated acknowledgement is idempotent; a call with a known running executor is refused.
+    package func acknowledgeUnresolvedCall(
+        _ eventID: String,
+        source: MemoryEventSource,
+        streamID: String,
+        atMS: Int64,
+        executorIsRunning: @escaping @Sendable (String) -> Bool?
+    ) async throws -> MemoryReceipt {
+        try await store.db2BWrite { transaction in
+            guard let call = try SQLiteAgentCallRows.call(transaction, eventID: eventID),
+                  call.event.source == source, call.event.streamID == streamID else {
+                throw CallRecoveryError.differentProducer
+            }
+            let history = try SQLiteReconciliationRows.reconciliations(transaction, eventID)
+            if history.contains(where: { $0.kind == .acknowledged && $0.declaredBy == .person }) {
+                return .alreadyApplied
+            }
+            guard try SQLiteReconciliationRows.unresolved(transaction, source: source.rawValue,
+                streamID: streamID, excludingExecutor: nil).contains(where: { $0.eventID == eventID }) else {
+                throw CallRecoveryError.notUnresolved
+            }
+            if call.progress.status == .started,
+               !history.contains(where: { $0.kind == .executorTerminated && $0.declaredBy == .braus }),
+               let executor = try SQLiteReconciliationRows.executor(transaction, of: eventID),
+               executorIsRunning(executor) == true {
+                throw CallRecoveryError.stillRunning
+            }
+            let fact = try CallReconciliation(callEventID: eventID, kind: .acknowledged, declaredBy: .person,
+                recordedAtMS: atMS, detail: "The person reviewed the outcome and allowed further actions.")
+            return try SQLiteReconciliationRows.append(transaction, fact)
+        }
+    }
+
+    package func executor(of callEventID: String) async throws -> String? {
+        try await store.read { try SQLiteReconciliationRows.executor($0, of: callEventID) }
+    }
+
     public func reconciliations(of callEventID: String) async throws -> [CallReconciliation] {
         try await store.read { snapshot in try SQLiteReconciliationRows.reconciliations(snapshot, callEventID) }
     }

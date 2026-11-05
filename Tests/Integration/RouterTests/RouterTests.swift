@@ -50,6 +50,18 @@ struct RouterTests {
         #expect(desktop.observed == 1, "later calls stay on the desktop session")
     }
 
+    @Test("activity goes to the desktop session whatever route is current, so a pair never splits")
+    func activityOnTheDesktop() async throws {
+        let native  = SessionStub()
+        let desktop = SessionStub()
+        let routing = RoutingAutomationSession(native: native, desktop: desktop)
+        _ = try await routing.open(application: "Notes", window: nil)
+        let token = routing.beginActivity()
+        #expect(desktop.activity == [token] && native.activity.isEmpty)
+        routing.endActivity(token)
+        #expect(desktop.activity.isEmpty)
+    }
+
     @Test("M05: each call's record keeps the route it was dispatched on, and the MacDriver's reason when it gave the app back; a call that reached no session keeps none")
     func routesRecorded() async throws {
         let directory = Scratch.directory("router-routes")
@@ -150,6 +162,41 @@ struct RouterTests {
         #expect(desktop.opened == ["Finder"])
     }
 
+    @Test("a command borrowing the front gets it from the desktop session, with or without clicks")
+    func frontFromTheDesktop() async throws {
+        let native  = SessionStub()
+        let desktop = SessionStub()
+        let routing = RoutingAutomationSession(native: native, desktop: desktop, web: SessionStub())
+        _ = try await routing.openOnSeat(application: "com.avid.ProTools")
+        let lent = await routing.withFront(of: "com.avid.ProTools", admittingOpenDialog: false, atMost: .seconds(5)) {
+            "moved"
+        }
+        #expect(lent.outcome == .completed)
+        #expect(try lent.result?.get() == "moved")
+        let clicked = await routing.withFront(of: "com.avid.ProTools", admittingOpenDialog: true,
+                                              atMost: .seconds(5)) { (_: FrontClicks) in "moved" }
+        #expect(clicked.outcome == .completed)
+        #expect(desktop.lent == ["com.avid.ProTools"] && desktop.lentWithClicks == ["com.avid.ProTools"])
+        #expect(native.lent.isEmpty && native.lentWithClicks.isEmpty)
+    }
+
+    @Test("no front is lent while the web or native route is current: the command does not run")
+    func noFrontOffTheDesktop() async throws {
+        let desktop = SessionStub()
+        let web     = SessionStub()
+        let routing = RoutingAutomationSession(native: SessionStub(), desktop: desktop, web: web)
+        _ = try await routing.open(application: "file:///tmp/page.html", window: nil)
+        var ran = false
+        let lent = await routing.withFront(of: "com.avid.ProTools", admittingOpenDialog: false, atMost: .seconds(5)) {
+            ran = true
+        }
+        #expect(lent.outcome == .notHeld && lent.result == nil && !ran)
+        let clicked = await routing.withFront(of: "com.avid.ProTools", admittingOpenDialog: false,
+                                              atMost: .seconds(5)) { (_: FrontClicks) in true }
+        #expect(clicked.outcome == .notHeld)
+        #expect(desktop.lent.isEmpty && desktop.lentWithClicks.isEmpty && web.lent.isEmpty)
+    }
+
     @Test("without a native session a native app goes to the desktop")
     func withoutNative() async throws {
         let desktop = SessionStub()
@@ -208,8 +255,39 @@ final class SessionStub: AutomationSessionOperating {
     var acted: [String] = []
     /// Given back at the start of the next call after `open`, as the MacDriver does after a front steal.
     var laterHandoff: HandoffStub?
+    /// The activity tokens begun and not yet ended.
+    var activity: Set<UUID> = []
+
+    /// The applications a lease was asked for, plain and with clicks, in order.
+    var lent: [String] = []
+    var lentWithClicks: [String] = []
 
     init(handoff: HandoffStub? = nil) { self.handoff = handoff }
+
+    /// Lends every front asked of it and runs the body, as a desktop session holding the application does.
+    func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost             : Duration,
+        _ body             : @escaping @MainActor () async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        lent.append(bundleID)
+        do { return (.success(try await body()), .completed) } catch { return (.failure(error), .completed) }
+    }
+
+    /// Records the clicks lease; its body is not run, since a stub has no click route to give it.
+    func withFront<Value: Sendable>(
+        of bundleID        : String,
+        admittingOpenDialog: Bool,
+        atMost             : Duration,
+        _ body             : @escaping @MainActor (FrontClicks) async throws -> Value
+    ) async -> (result: Result<Value, any Error>?, outcome: SessionFrontOutcome) {
+        lentWithClicks.append(bundleID)
+        return (nil, .completed)
+    }
+
+    func beginActivity() -> UUID { activity.insert(UUID()).memberAfterInsert }
+    func endActivity(_ token: UUID) { activity.remove(token) }
 
     static let scene = SceneSnapshot(bundleID: "com.example", appName: "Example", windowTitle: "Example",
                                      viewportPixelSize: ViewportPixelSize(width: 800, height: 600), elements: [])

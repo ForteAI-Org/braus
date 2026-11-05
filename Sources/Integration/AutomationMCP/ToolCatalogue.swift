@@ -47,7 +47,6 @@ enum ToolCatalogue {
     /// With the adapters, the one sentence on files (P12): folders, files and text files go through the `files`
     /// adapter's verbs, never through Finder, TextEdit or a shell.
     static func files(for channels: AutomationChannels) -> String {
-        guard channels.contains(.adapters) else { return "" }
         return ModelText.text(.init(rawValue: "tool_catalogue.files.v1"))
             + ModelText.text(.init(rawValue: "tool_catalogue.files.v1.2"))
             + ModelText.text(.init(rawValue: "tool_catalogue.files.v1.3"))
@@ -97,6 +96,8 @@ enum ToolCatalogue {
             + "\(files(for: channels))"
             + ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1.4"))
             + "\(channels.contains(.adapters) ? ModelText.text(.init(rawValue: "prompt.adapters.v1")) : "")"
+            + ModelText.text(.init(rawValue: "tool_catalogue.sessionRelease.v1"))
+            + (channels.contains(.adapters) ? ModelText.text(.init(rawValue: "tool_catalogue.sessionRelease.v1.2")) : "")
             + ModelText.text(.init(rawValue: "tool_catalogue.baseInstructions.v1.5")))
     }
 
@@ -106,6 +107,9 @@ enum ToolCatalogue {
 
     /// What the lines of a changes answer mean.
     static let changesLegend = ModelText.text(.init(rawValue: "tool_catalogue.changesLegend.v1"))
+
+    /// What an answer over the size limit carries instead of the whole scene.
+    static let budgetLegend = ModelText.text(.init(rawValue: "tool_catalogue.budgetLegend.v1"))
 
     static let webOpening = ModelText.text(.init(rawValue: "tool_catalogue.webOpening.v1"))
         + ModelText.text(.init(rawValue: "tool_catalogue.webOpening.v1.2"))
@@ -199,8 +203,20 @@ enum ToolCatalogue {
                  + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.18"))
                  + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.19"))
                  + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.20"))
-                 + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.21")) + Self.changesLegend,
-                 session.merging(["full": .object(["type": .string("boolean")])], uniquingKeysWith: { $1 }),
+                 + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.21")) + Self.changesLegend
+                 + " " + Self.budgetLegend,
+                 session.merging([
+                    "full"   : .object(["type": .string("boolean")]),
+                    "section": .object([
+                        "type"       : .string("string"),
+                        "description": .string(ModelText.text(.init(rawValue: "tool_catalogue.observeSection.v1")))
+                    ]),
+                    "page"   : .object([
+                        "type"       : .string("integer"),
+                        "minimum"    : .number(1),
+                        "description": .string(ModelText.text(.init(rawValue: "tool_catalogue.observePage.v1")))
+                    ])
+                 ], uniquingKeysWith: { $1 }),
                  ["session"], readOnly: true),
             tool("act", ModelText.text(.init(rawValue: "tool_catalogue.step.v1.22"))
                  + ModelText.text(.init(rawValue: "tool_catalogue.step.v1.23"))
@@ -283,6 +299,7 @@ enum ToolCatalogue {
                                   "seconds": whole(PostCollectionRequest.wholeSeconds)],
                                  uniquingKeysWith: { $1 }),
                  ["session", "target"]),
+            CanvasTool.definition
         ].filter { channels.contains(.adapters) || !Self.adapterTools.contains($0["name"].string ?? "") }
             .filter { channels.contains(.web) || $0["name"].string != "collect_posts" }
     }
@@ -369,6 +386,8 @@ enum ToolCatalogue {
             tool["inputSchema"] = .object(input)
             let description = name == "batch"
                 ? ModelText.text(.init(rawValue: "batch.description.v2"))
+                : name == CanvasTool.name
+                ? ModelText.text(.init(rawValue: "tool.canvas.v1.description"))
                 : ModelText.text(.init(rawValue: "tool.\(name).v2.description"))
             tool["description"] = .string(description + (name == "open_session" && !channels.isDisjoint(with: [.web, .adapters])
                 ? ModelText.text(.init(rawValue: "tool.open_session.v2.routing")) : ""))
@@ -463,7 +482,7 @@ enum ToolCatalogue {
     nonisolated static let policyRegistry: CapabilityRegistry = {
         let names = ["status", "windows", "apps", "open_session", "observe", "act", "select", "type_text",
                      "insert_text", "press_key", "scroll", "drag", "context_menu", "batch", "menu", "press",
-                     "app_capabilities", "app_call", "close_session", "collect_posts", "memory_task", "plan", "end", "ask_person", "find", "call", "triple_click", "reconcile_call"]
+                     "app_capabilities", "app_call", "close_session", "collect_posts", "memory_task", "plan", "end", "ask_person", "find", "call", "triple_click", "reconcile_call", "canvas"]
         do {
             return try CapabilityRegistry(core: names.compactMap {
                 coreContract(name: $0, description: "", inputSchema: .null)
@@ -488,8 +507,9 @@ enum ToolCatalogue {
                 inputSchema: definition["inputSchema"]
             )
         }
-        if channels.contains(.adapters) {
-            for adapter in (adapters ?? AppAdapters.standard()).adapters {
+        let composed = adapters ?? (channels.contains(.adapters) ? AppAdapters.standard() : nil)
+        if let composed {
+            for adapter in composed.adapters {
                 for verb in adapter.verbs {
                     let id = CapabilityID(rawValue: "\(adapter.name).\(verb.name)")
                     guard !contracts.contains(where: { $0.id == id }) else { continue }
@@ -550,6 +570,9 @@ enum ToolCatalogue {
         case "observe":
             (effect, interruption, channel) = (.read, .readOnly, .seat)
             verification = .none(reason: "Scene observation")
+        case "canvas":
+            (effect, interruption, channel) = (.read, .readOnly, .seat)
+            verification = .none(reason: "Read-only result")
         case "app_capabilities":
             (effect, interruption, channel) = (.read, .readOnly, .adapter)
             verification = .none(reason: "Read-only result")

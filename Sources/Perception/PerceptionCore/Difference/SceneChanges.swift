@@ -18,8 +18,8 @@ import Foundation
 /// What the reader neither sees differently nor targets with is no change: a new order, a move within
 /// `nearby`, a learned group tag, panels that moved within `nearby`, or a section renamed or redrawn
 /// around an element that stayed as it was. An element now in another section while its old section
-/// is still there has changed, because a target names its section. The lines are `text()`'s own, so
-/// the reader keeps one vocabulary.
+/// is still there has changed, because a target names its section. A canvas whose pixels changed has
+/// changed even where nothing else did. The lines are `text()`'s own, so the reader keeps one vocabulary.
 ///
 /// Pure and deterministic over two scenes. `SceneDifference` names one event's effect for memory;
 /// this is the reader's update, and it lives beside the renderer whose lines it repeats.

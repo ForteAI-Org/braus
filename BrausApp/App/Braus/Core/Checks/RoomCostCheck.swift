@@ -65,7 +65,7 @@ enum RoomCostCheck {
         }
         do {
             let count = Int(ProcessInfo.processInfo.environment["BRAUS_ROOM_COSTS"] ?? "") ?? 9
-            UserDefaults.standard.set(
+            AppDefaults.current.set(
                 mode == "rows" ? SidebarMode.rows.rawValue : SidebarMode.rooms.rawValue,
                 forKey: AppPreferences.houseSidebarMode
             )
@@ -93,7 +93,7 @@ enum RoomCostCheck {
             status = 1
         }
         for id in busy { team?.stopAnswering(id) }
-        UserDefaults.standard.removeObject(forKey: AppPreferences.houseSidebarMode)
+        AppDefaults.current.removeObject(forKey: AppPreferences.houseSidebarMode)
         do { try FileManager.default.removeItem(at: folder) } catch {}
         exit(status)
     }

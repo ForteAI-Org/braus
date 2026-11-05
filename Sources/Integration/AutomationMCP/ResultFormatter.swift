@@ -73,7 +73,10 @@ final class ResultFormatter {
     func noteScene(_ scene: SceneSnapshot, sessionID: UUID, windowNumber: Int) {
         useSession(sessionID)
         let content = SceneContent(scene: scene)
-        if let prior = contents[windowNumber], prior != content { refusals[windowNumber] = nil }
+        if scene.elements.contains(where: { $0.hasChangedPixels == true })
+            || contents[windowNumber].map({ $0 != content }) == true {
+            refusals[windowNumber] = nil
+        }
         contents[windowNumber] = content
     }
 
@@ -522,9 +525,10 @@ final class ResultFormatter {
     func outcome(
         _ outcome: ActOutcome,
         refusal: RefusalContext? = nil,
-        surface: ToolSurface = ToolCatalogue.currentSurface
+        surface: ToolSurface = ToolCatalogue.currentSurface,
+        aim: (section: String?, target: String?) = (nil, nil)
     ) async -> JSONValue {
-        await renderedOutcome(outcome, refusal: refusal, surface: surface, includesScene: true)
+        await renderedOutcome(outcome, refusal: refusal, surface: surface, includesScene: true, aim: aim)
     }
 
     /// Renders a batch step's outcome without advancing a scene baseline the model has not received.
@@ -532,16 +536,18 @@ final class ResultFormatter {
     func outcomeSummary(
         _ outcome: ActOutcome,
         refusal: RefusalContext? = nil,
-        surface: ToolSurface = ToolCatalogue.currentSurface
+        surface: ToolSurface = ToolCatalogue.currentSurface,
+        aim: (section: String?, target: String?) = (nil, nil)
     ) async -> JSONValue {
-        await renderedOutcome(outcome, refusal: refusal, surface: surface, includesScene: false)
+        await renderedOutcome(outcome, refusal: refusal, surface: surface, includesScene: false, aim: aim)
     }
 
     private func renderedOutcome(
         _ outcome: ActOutcome,
         refusal: RefusalContext?,
         surface: ToolSurface,
-        includesScene: Bool
+        includesScene: Bool,
+        aim: (section: String?, target: String?)
     ) async -> JSONValue {
         if let scene = outcome.scene, let id = session.id, let window = session.observedWindowNumber {
             noteScene(scene, sessionID: id, windowNumber: window)
@@ -551,7 +557,7 @@ final class ResultFormatter {
             "session": session.id.map { .string($0.uuidString) } ?? .null
         ]
         if includesScene, let scene = outcome.scene { values["observation"] = await sceneText.answer(scene, changesOnly: true, nested: true,
-                                                                                          session: session, shown: secrets.shownMinimization).observation(nested: true) }
+                                                                                          session: session, shown: secrets.shownMinimization, aim: aim).observation(nested: true) }
         values.removeValue(forKey: "status")
         var typed = outcome.outcome
         var cause = outcome.cause

@@ -53,7 +53,7 @@ extension SceneSnapshot {
                 let label = element.isUnlabeled ? "(unlabeled icon: target id '\(element.id)')" : Self.inline(element.label)
                 let field = AccessibilityAugmentation.textEntryRoles.contains(element.role ?? "")
                 let reference = field ? "[field] \(label) id:'\(element.id)'" : label
-                out += "    \(reference)\(state)\(details)\(does)\n"
+                out += "    \(reference)\(state)\(Self.pixelsNote(element))\(details)\(does)\n"
             }
             if showable.count > shown.count {
                 out += "    … +\(showable.count - shown.count) more (describe_section)\n"
@@ -132,8 +132,61 @@ extension SceneSnapshot {
         return lines
     }
 
+    /// The full scene text in its parts, each section apart: what `text()` joins.
+    public func textLayout() -> SceneTextLayout {
+        let shared = labelsSharedAcrossOwners
+        var parts: [SceneTextPart] = []
+        if sections.isEmpty {
+            parts.append(SceneTextPart(
+                title       : Self.unsectioned,
+                heading     : "",
+                body        : compactLines(of: elements, sharedLabels: shared),
+                elementCount: elements.count
+            ))
+        } else {
+            for section in sectionsInReadingOrder {
+                let members = elements.filter { $0.section == section.name }
+                parts.append(SceneTextPart(
+                    title       : section.name,
+                    heading     : compactSectionLine(section),
+                    body        : compactLines(
+                        of          : members,
+                        sharedLabels: shared,
+                        keepingOrder: section.name == Self.openMenu
+                    ),
+                    elementCount: members.count
+                ))
+            }
+            let loose = elements.filter { $0.section == nil }
+            if !loose.isEmpty {
+                parts.append(SceneTextPart(
+                    title       : Self.unsectioned,
+                    heading     : Self.compactSectionLine(named: Self.unsectioned),
+                    body        : compactLines(of: loose, sharedLabels: shared),
+                    elementCount: loose.count
+                ))
+            }
+        }
+        return SceneTextLayout(
+            head    : compactHeader(counting: true) + knowledgeText(),
+            sections: parts,
+            commands: commands.isEmpty ? "" : commandsLine(),
+            edge    : outOfViewPart()
+        )
+    }
+
     static var outOfViewHeading: String {
         compactSectionLine(named: "past the window's edge (read only, not visible)")
+    }
+
+    private func outOfViewPart() -> SceneTextPart? {
+        guard !outOfViewFields.isEmpty else { return nil }
+        return SceneTextPart(
+            title       : "past the window's edge (read only, not visible)",
+            heading     : Self.outOfViewHeading,
+            body        : outOfViewFields.map { Self.outOfViewLine($0) + "\n" }.joined(),
+            elementCount: outOfViewFields.count
+        )
     }
 
     private func outOfViewText() -> String {
@@ -298,6 +351,8 @@ extension SceneSnapshot {
     /// The one line of an element: its tag unless it is plain text, label, the id when a target needs
     /// it, state, live details, learned effect and place. `ownerNote` is the `{container}` text to
     /// print, or nil to print the element's own, which is what a line read on its own needs.
+    /// A canvas also prints whether its pixels changed, when known, and its size after its place:
+    /// `[canvas] canvas 1 [changed] @15,23 82x44`.
     static func elementLine(
         _ element: SceneElement,
         ownerNote: String? = nil,
@@ -316,7 +371,19 @@ extension SceneSnapshot {
         let owner    = ownerNote ?? element.container.map { " {\(Self.inline($0))}" } ?? ""
         let recalled = element.isRecalled ? " ~recalled" : ""
         let does     = element.does.map { ": \(Self.inline($0))" } ?? ""
-        return "\(head)\(identity)\(state)\(compactDetails(element, cuts: cuts))\(owner)\(recalled)\(does) \(place(element.bounds))\n"
+        let extent   = element.kind == .canvas ? " " + size(element.bounds) : ""
+        return "\(head)\(identity)\(state)\(pixelsNote(element))\(compactDetails(element, cuts: cuts))\(owner)\(recalled)\(does) "
+            + "\(place(element.bounds))\(extent)\n"
+    }
+
+    /// `wxh`: an element's size in whole percent of the window.
+    static func size(_ bounds: NormalizedRect) -> String {
+        "\(percent(bounds.width))x\(percent(bounds.height))"
+    }
+
+    /// ` [changed]` or ` [unchanged]` for a canvas compared with the previous observation, else nothing.
+    static func pixelsNote(_ element: SceneElement) -> String {
+        element.hasChangedPixels.map { $0 ? " [changed]" : " [unchanged]" } ?? ""
     }
 
     /// The label an element without a name carries; the line leaves it out, the `[icon?]` tag says it.
@@ -422,11 +489,11 @@ extension SceneSnapshot {
         }.joined()
     }
 
-    /// Map order: stateful first, learned affordance second, any labeled control or icon third.
+    /// Map order: stateful first, learned affordance second, any labeled control, icon or canvas third.
     private static func mapRank(_ element: SceneElement) -> Int {
         if element.state != nil { return 0 }
         if element.does != nil { return 1 }
-        if (element.kind == .control || element.kind == .icon), !element.isUnlabeled { return 2 }
+        if [.control, .icon, .canvas].contains(element.kind), !element.isUnlabeled { return 2 }
         return 3
     }
 }
@@ -603,6 +670,7 @@ extension SceneChanges {
             was.append(old.isEnabled == false ? "[disabled]" : "enabled")
         }
         if old.container != new.container { was.append(old.container.map { "{\(SceneSnapshot.inline($0))}" } ?? "no container") }
+        if new.hasChangedPixels == true { was.append("other pixels") }
         if abs(old.bounds.midX - new.bounds.midX) > nearby || abs(old.bounds.midY - new.bounds.midY) > nearby {
             was.append(SceneSnapshot.place(old.bounds))
         }

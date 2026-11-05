@@ -23,7 +23,7 @@ final class AppPreferenceValues {
 
     /// The person's defaults, or in a snapshot run the suite the snapshots draw with.
     static let shared = AppPreferenceValues(
-        defaults: WindowSnapshots.isRequested ? WindowSnapshots.appStorage ?? .standard : .standard
+        defaults: WindowSnapshots.isRequested ? WindowSnapshots.appStorage ?? AppDefaults.current : AppDefaults.current
     )
 
     private(set) var sidebarShowsSearch         = AppPreferences.sidebarShowsSearchDefault
@@ -40,7 +40,7 @@ final class AppPreferenceValues {
 
     @ObservationIgnored private var observer: (any NSObjectProtocol)?
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = AppDefaults.current) {
         self.defaults = defaults
         read()
         // At once for a write on the main thread, so what draws next reads it; later for one from elsewhere.

@@ -83,6 +83,8 @@ struct HouseLiveInspector: View {
                     rowPadding: Self.rowPadding,
                     footerGap : Self.footerGap
                 )
+                InspectorCallRecoverySection(team: team, worker: worker)
+                    .id(worker.id)
                 InspectorModelSection(
                     team      : team,
                     worker    : worker,

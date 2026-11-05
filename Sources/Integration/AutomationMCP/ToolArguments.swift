@@ -159,7 +159,7 @@ public enum ToolArguments {
     static let maximumOffset = 5000.0
 
     /// A whole number within `range`, or `fallback` when the argument is absent.
-    private static func whole(_ object: JSONValue, _ key: String, _ range: ClosedRange<Int>,
+    static func whole(_ object: JSONValue, _ key: String, _ range: ClosedRange<Int>,
                               default fallback: Int) throws -> Int {
         guard object.object?[key] != nil else { return fallback }
         guard case .number(let value) = object[key], value.rounded() == value,
@@ -195,6 +195,23 @@ public enum ToolArguments {
                 case .typeText(let text, _, _)          : [text]
                 case .insertText(let text, let expected): [text] + (expected.map { [$0] } ?? [])
                 default                                 : []
+            }
+        }
+
+        /// The section and the target the step names, which a budgeted scene after it keeps first.
+        var aim: (section: String?, target: String?) {
+            switch self {
+                case .act(let target, _, let section, _): (section, target)
+                case .select(let control, _)            : (nil, control)
+                case .menu                              : (nil, nil)
+                case .input(let input, let section):
+                    switch input {
+                        case .typeText(_, let target, _)  : (section, target)
+                        case .scroll(_, let target)       : (section, target)
+                        case .drag(let target, _)         : (section, target)
+                        case .contextMenu(let target, _)  : (section, target)
+                        case .insertText, .pressKey       : (section, nil)
+                    }
             }
         }
 
