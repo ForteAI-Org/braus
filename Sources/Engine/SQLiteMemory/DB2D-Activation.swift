@@ -2,8 +2,13 @@ import Foundation
 import Memory
 
 extension SQLiteMemoryStore {
-    /// Distinguishes inspection contention from a refusal of exclusive migration admission.
+    /// Distinguishes shared-presence contention from a refusal of exclusive migration admission.
     struct ActivationPresenceBusy: Error {}
+
+    /// Carries contention only from the read-only probe, before migration can begin.
+    struct ActivationInspectionBusy: Error {
+        let failure: SQLiteConnection.Failure
+    }
 
     /// Overrides only capacity reporting in synthetic tests; production always queries the volume.
     @TaskLocal
@@ -79,6 +84,8 @@ extension SQLiteMemoryStore {
             let found = try inspect(source, expected: Expected())
             try source.execute("COMMIT")
             return found
+        } catch let failure as SQLiteConnection.Failure where failure.isBusy {
+            throw ActivationInspectionBusy(failure: failure)
         } catch {
             throw classified(error, phase: .bootstrap)
         }

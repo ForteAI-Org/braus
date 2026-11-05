@@ -138,4 +138,34 @@ struct DB2DActivationTests {
         #expect(try Data(contentsOf: url) == before)
     }
 
+    @Test("read-only activation inspection waits within the lock budget, then leaves the store retryable")
+    func busyInspectionUsesTheOpeningBudget() async throws {
+        let url = try temporaryDatabase("activation-busy")
+        try SQLiteMigration22File.create(at: url) { _ in } verify: { _ in }
+        let holder = try SQLiteConnection(path: url.path, mayCreate: false)
+        defer { holder.close() }
+        try holder.execute("PRAGMA journal_mode=DELETE")
+        let before = try Data(contentsOf: url)
+        try holder.execute("BEGIN EXCLUSIVE")
+        let store = SQLiteMemoryStore(url: url, configuration: .init(
+            lockBudget: .seconds(1), retryPause: .milliseconds(5), maximumRetryPause: .milliseconds(20)
+        ))
+        let error = await storeError { try await store.open() }
+        guard case .contention(let fault, let attempts, let waited)? = error else {
+            Issue.record("Expected bounded inspection contention, got \(String(describing: error))")
+            await store.close()
+            return
+        }
+        #expect(fault.phase == .bootstrap)
+        #expect(attempts > 1)
+        #expect(waited > .zero)
+        #expect(await store.liveHandles == 0)
+        #expect(try Data(contentsOf: url) == before)
+        try holder.execute("ROLLBACK")
+        try await store.open()
+        #expect(try await store.diagnostics().schemaVersion == 22)
+        #expect(try await store.diagnostics().bootstrappedNow == false)
+        await store.close()
+    }
+
 }

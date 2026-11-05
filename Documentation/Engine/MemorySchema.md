@@ -430,6 +430,11 @@ module binds only valid UTF-8, so such a row can only come from another writer o
 
 ## Waiting for a busy lock
 
+The read-only schema-activation inspection uses the opening lock budget too. A busy inspection closes
+its connection and releases shared presence before waiting; only that inspection is restarted, before
+any migration begins. Exhausting the budget reports bootstrap contention and leaves the store retryable
+(`DB2DActivationTests.busyInspectionUsesTheOpeningBudget`). Migration failures are not retried by this path.
+
 The lock budget is one cycle of waiting: pauses of 5 ms doubling to 100 ms, until another pause
 would take the cycle's pauses past the budget. The budget bounds the pauses, not the wall clock, so
 a cycle always holds at least its first pause. `attemptWrite` runs one cycle and answers

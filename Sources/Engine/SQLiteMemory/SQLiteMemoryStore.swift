@@ -1334,6 +1334,8 @@ public actor SQLiteMemoryStore {
                     primary: SQLITE_BUSY, extended: SQLITE_BUSY,
                     message: "a recovery of \(url.path) holds its presence lock"
                 ), at: .open)
+            } catch let busy as ActivationInspectionBusy {
+                try await pauseBeforeRetry(&cycle, after: busy.failure, at: .bootstrap)
             }
         }
     }
