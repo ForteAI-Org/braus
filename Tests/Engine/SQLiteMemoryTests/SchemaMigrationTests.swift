@@ -150,8 +150,13 @@ struct SchemaMigrationTests {
         #expect(try await a.read { try SchemaShape($0) } == SchemaShape.current)
         await a.close()
         await b.close()
-        let active = try strayFiles(beside: url).filter { $0.contains(".schema-1-") && !$0.hasSuffix(".lock") }
-        #expect(active.count <= 1)
+        // Deferred retirement can leave journals of an unpublished partial copy.
+        // They are not active schema-copy archives, nor are a named archive's journals or lock.
+        let prefix = url.lastPathComponent + ".schema-1-"
+        let active = try strayFiles(beside: url).filter { name in
+            name.hasPrefix(prefix) && !["-wal", "-shm", "-journal", ".lock"].contains(where: name.hasSuffix)
+        }
+        #expect(active.count <= 1, Comment(rawValue: "Active schema-copy entries: " + active.joined(separator: ", ")))
         for migration in migrations {
             let copy = url.deletingLastPathComponent().appendingPathComponent(migration.copyName)
             let retired = url.deletingLastPathComponent().appendingPathComponent(".retired")

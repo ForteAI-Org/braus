@@ -147,7 +147,7 @@ nonisolated struct TranscriptItem: Sendable, Hashable, Identifiable {
     }
 
     /// The text a copy of the whole row gives. A tool line gives what it
-    /// shows, and in a Debug build its records, compacted.
+    /// shows, and in a Debug build its saved textual evidence.
     var copyText: String {
         switch kind {
         case .personMessage(let text, _, _), .workerReply(let text, _): text
@@ -169,6 +169,13 @@ nonisolated struct TranscriptItem: Sendable, Hashable, Identifiable {
         case .activityNotShown:                                       TranscriptWording.activityNotShown
         case .thinking:                                               ""
         }
+    }
+
+    /// Full minimized text evidence, explicitly requested from the activity menu in any build.
+    /// Image payloads remain in their picture viewer and are not copied as encoded text.
+    var diagnosticText: String? {
+        guard case .toolRun(let lines, let expanded, let ending) = kind else { return nil }
+        return ToolStep.copyText(of: lines, isExpanded: expanded, ending: ending, detailed: true)
     }
 
     /// True when a copied tool line gives its records rather than its words.

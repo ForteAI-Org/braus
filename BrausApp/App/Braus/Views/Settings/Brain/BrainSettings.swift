@@ -21,11 +21,16 @@ struct BrainSettings: View {
     @State private var apps: [BrainAppSummary] = []
     @State private var unavailable: String?
     @State private var memory: MemoryService.Status?
+    @State private var refreshRevision = 0
+    @State private var isLoading = true
+    @State private var showDiagnostics = false
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let unavailable {
+            Form {
+                if isLoading, apps.isEmpty {
+                    ProgressView()
+                } else if let unavailable {
                     ContentUnavailableView(
                         String(localized: "Brain Unavailable"),
                         systemImage: "exclamationmark.triangle",
@@ -38,47 +43,58 @@ struct BrainSettings: View {
                         description: Text(String(localized: "The Brain learns how an app works when a worker first uses it."))
                     )
                 } else {
-                    Form {
-                        Section {
-                            ForEach(apps) { app in
-                                NavigationLink(value: app.bundleID) { BrainAppRow(app: app) }
-                            }
-                        } header: {
-                            Text(String(localized: "Applications"))
-                        } footer: {
-                            Text(String(localized: "Workers and the Braus command-line tool share what the Brain learns."))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    Section {
+                        ForEach(apps) { app in
+                            NavigationLink(value: app.bundleID) { BrainAppRow(app: app) }
                         }
+                    } header: {
+                        Text(String(localized: "Applications"))
+                    } footer: {
+                        Text(String(localized: "Workers and the Braus command-line tool share what the Brain learns."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .formStyle(.grouped)
                 }
-            }
-            .scrollContentBackground(.hidden)
-            .background { Color.houseSidebar.ignoresSafeArea() }
-            .safeAreaInset(edge: .bottom) {
                 if let memory {
-                    Text(Self.summary(of: memory))
+                    Section {
+                        DisclosureGroup(String(localized: "Memory diagnostics"), isExpanded: $showDiagnostics) {
+                            Text(Self.summary(of: memory))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
-                        .padding(.bottom, 8)
+                    } footer: {
+                        Text(String(localized: "These write counters restart with Braus. They do not count all saved knowledge."))
+                    }
                 }
             }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background { Color.houseSidebar.ignoresSafeArea() }
             .navigationTitle(String(localized: "Brain"))
+            .toolbar {
+                ToolbarItem {
+                    Button { refreshRevision += 1 } label: {
+                        Label(String(localized: "Refresh knowledge"), systemImage: "arrow.clockwise")
+                    }
+                }
+            }
             .navigationDestination(for: String.self) { bundleID in
                 if let app = apps.first(where: { $0.bundleID == bundleID }) { BrainAppView(app: app, directory: directory) }
             }
         }
-        .task {
-            // This process's own view of its memory: read without opening, creating or copying anything.
-            memory = await MemoryService.shared(for: directory).status()
-            switch await BrainLibrary.apps(in: directory) {
+        .task(id: refreshRevision) {
+            isLoading = true
+            let loaded = await BrainLibrary.apps(in: directory)
+            guard !Task.isCancelled else { return }
+            switch loaded {
                 case .loaded(let loaded)    : apps = loaded; unavailable = nil
                 case .unavailable(let why)  : apps = []; unavailable = why
             }
+            memory = await MemoryService.shared(for: directory).status()
+            isLoading = false
         }
     }
 

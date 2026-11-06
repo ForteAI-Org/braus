@@ -45,7 +45,9 @@ struct LocalizationTests {
                 let range = try #require(Range(match.range(at: 1), in: source))
                 let literal = String(source[range])
                 var key = literal.replacingOccurrences(of: #"\\\((?:[^()]|\([^()]*\))*\)"#, with: "%@", options: .regularExpression)
-                if literal.contains("\\(value)") || literal.contains("simulation.physics") {
+                if literal.contains("index + 1") || literal.contains("observationCount") || literal.contains("relation.supports") || literal.contains("summary.scenes") {
+                    key = key.replacingOccurrences(of: "%@", with: "%lld")
+                } else if literal.contains("\\(value)") || literal.contains("simulation.physics") {
                     key = key.replacingOccurrences(of: "%@", with: "%lld", range: key.range(of: "%@"))
                 } else if literal.contains("status.") && !literal.contains("status.path") {
                     key = key.replacingOccurrences(of: "%@", with: "%lld")

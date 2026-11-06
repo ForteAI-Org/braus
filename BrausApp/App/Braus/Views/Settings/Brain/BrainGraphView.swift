@@ -25,8 +25,10 @@ struct BrainGraphView: View {
 
     /// Nil until the graph is moved, when the view frames the settled graph whatever its size.
     @State private var camera : BrainCamera?
+    @State private var automaticBounds: CGRect?
     @State private var pinched: BrainCamera?
     @State private var size   = CGSize.zero
+    @State private var selected: Int?
     @State private var hovered: Int?
     @State private var drag   : Drag?
 
@@ -40,12 +42,21 @@ struct BrainGraphView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            legend
+            drawing
+        }
+    }
+
+    private var drawing: some View {
         BrainCanvas(
             simulation: simulation,
             camera    : shownCamera,
-            hovered   : hovered
+            hovered   : selected ?? hovered
         )
+        .clipped()
         .contentShape(Rectangle())
+        .onTapGesture { point in selected = node(at: point) }
         .gesture(dragging)
         .simultaneousGesture(pinching)
         .onContinuousHover { phase in
@@ -57,6 +68,34 @@ struct BrainGraphView: View {
         .accessibilityElement()
         .accessibilityLabel(String(localized: "Brain Graph"))
         .accessibilityValue(String(localized: "\(simulation.physics.isPresent.count { $0 }) nodes"))
+        .accessibilityChildren {
+            ForEach(simulation.graph.nodes.indices, id: \.self) { index in
+                if simulation.physics.isPresent[index] {
+                    Button(simulation.graph.nodes[index].label) { selected = index }
+                        .accessibilityHint(simulation.graph.nodes[index].detail ?? "")
+                }
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            if let selected, simulation.physics.isPresent[selected] {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(simulation.graph.nodes[selected].label).font(.headline)
+                        Spacer()
+                        Button { self.selected = nil } label: {
+                            Label(String(localized: "Close details"), systemImage: "xmark")
+                        }.labelStyle(.iconOnly)
+                    }
+                    if let detail = simulation.graph.nodes[selected].detail {
+                        ScrollView { Text(detail).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                            .frame(maxHeight: 180)
+                    }
+                }
+                .font(.caption).padding(12).frame(width: 270)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .padding(12).padding(.bottom, 85)
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
             BrainZoomControls(
                 zoomIn : { zoom(by: 1.5) },
@@ -79,14 +118,46 @@ struct BrainGraphView: View {
             }
         }
         .task(id: isPlaying) { await play() }
-        .onAppear { simulation.beginEntrance() }
-        .onChange(of: progress) { simulation.reveal(upTo: moment) }
+        .onAppear {
+            simulation.reveal(upTo: moment)
+            simulation.beginEntrance()
+            updateAutomaticFit()
+        }
+        .onChange(of: progress) {
+            simulation.reveal(upTo: moment)
+            if let selected, !simulation.physics.isPresent[selected] { self.selected = nil }
+            if let hovered, !simulation.physics.isPresent[hovered] { self.hovered = nil }
+            if !isPlaying { updateAutomaticFit() }
+        }
+        .onChange(of: simulation.isAwake) {
+            if !simulation.isAwake { updateAutomaticFit() }
+        }
+        .onChange(of: isPlaying) {
+            if !isPlaying { updateAutomaticFit() }
+        }
         .onChange(
             of     : reducesMotion,
             initial: true
         ) {
             simulation.animates = !reducesMotion
         }
+    }
+
+    /// The explanation occupies layout space so it never hides nodes on a narrow window.
+    private var legend: some View {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(simulation.graph.isInspection
+                     ? String(localized: "Saved observations") : String(localized: "Historical naming projection"))
+                    .font(.headline)
+                Text(String(localized: "Follow the arrows from a screen through an action to the observed result. Select a node for details."))
+                if simulation.graph.isInspection {
+                    Text(String(localized: "Actions: orange = awaiting confirmation · green = available for reuse · red = limited reuse"))
+                    Text(String(localized: "Playback shows when observations were first saved. It does not replay actions or their later checks."))
+                }
+            }
+            .font(.caption).padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .padding(12)
     }
 
     // MARK: Time
@@ -115,9 +186,14 @@ struct BrainGraphView: View {
 
     private var shownCamera: BrainCamera {
         camera ?? BrainCamera(
-            fitting: simulation.restingBounds,
+            fitting: automaticBounds ?? simulation.restingBounds,
             in     : size
         )
+    }
+
+    private func updateAutomaticFit() {
+        guard camera == nil else { return }
+        automaticBounds = simulation.physics.presentBounds
     }
 
     private var motion: Animation? { reducesMotion ? nil : .smooth(duration: 0.35) }

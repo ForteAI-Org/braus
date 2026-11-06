@@ -6,6 +6,7 @@
 //
 
 import PerceptionCore
+import Memory
 import SwiftUI
 
 /// BrainPalette is the colour each kind of node is drawn in, the same in the
@@ -15,7 +16,16 @@ enum BrainPalette {
 
     static func colour(of kind: BrainGraph.Kind) -> Color {
         switch kind {
-        case .window                                   : .accentColor
+        case .window, .scene: .accentColor
+        case .container: .gray
+        case .collection, .itemTemplate: .purple
+        case .unknownState: .gray
+        case .relation(let standing):
+            switch standing {
+            case .candidate: .orange
+            case .exposed: .green
+            case .limited: .red
+            }
         case .group(let element), .control(let element): colour(of: element)
         }
     }

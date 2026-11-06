@@ -1560,6 +1560,11 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
 
     // MARK: Reading
 
+    /// Lists encountered applications and the saved observation counts, without loading their contents.
+    public func storedBrainSummaries() async throws -> [StoredBrainSummary] {
+        try await ready().graph.storedBrainSummaries()
+    }
+
     /// Lists the applications with a stored Brain without reading their contents or counts.
     public func brainApplications() async throws -> [String] {
         let repositories = try await ready()
@@ -1628,6 +1633,12 @@ public actor MemoryService: BrainReading, BrainApplicationStoring, BrainRelation
     /// The archive's applications and counts.
     public func overview() async throws -> MemoryOverview {
         try await ready().graph.overview()
+    }
+
+    /// Reads the current observations and relations for an inspection view in one store snapshot.
+    /// It does not generate naming anchors or qualify observations for reuse.
+    public func storedBrain(of bundleID: String) async throws -> StoredBrain? {
+        try await ready().graph.storedBrain(of: bundleID)
     }
 
     /// A stored call, for readers and tests.

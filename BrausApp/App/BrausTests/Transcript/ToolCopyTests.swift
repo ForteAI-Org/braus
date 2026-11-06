@@ -11,7 +11,7 @@ import Testing
 
 /// Copying a whole tool line: a release build gives the words the line shows,
 /// a Debug build the records, compact enough to paste into a report.
-@Suite("Tool copy: shown words in release, compacted records in debug")
+@Suite("Tool copy: readable activity and complete text diagnostics")
 struct ToolCopyTests {
 
     /// A scene as a JSON string, as the host renders it: a header line, then 35 elements.
@@ -67,55 +67,32 @@ struct ToolCopyTests {
     @Test("A collapsed line copies its summary alone, an opened one the summary then its steps")
     func releaseCopy() {
         #expect(Self.copy(Self.calculator, isExpanded: false, detailed: false)
-            == "Opened com.apple.calculator · pressed 7")
+            == "Opened com.apple.calculator (Calcolatrice) · pressed 7")
         #expect(Self.copy(Self.calculator, detailed: false) == """
-            Opened com.apple.calculator · pressed 7
+            Opened com.apple.calculator (Calcolatrice) · pressed 7
             Checked open apps
             Checked Calcolatrice’s open windows
-            Opened com.apple.calculator
+            Opened com.apple.calculator (Calcolatrice)
             Pressed 7
-            Tried to press Nonexistent
+            Could not press Nonexistent: no element 'Nonexistent' in Calcolatrice
             """)
     }
 
-    @Test("A debug copy drops sessions and timing, shortens scenes and trims the batch's end")
-    func debugCopy() {
-        let expected: [String] = [
-            #"→ status {}"#,
-            #"← status {"permissions":{"accessibility":true,"postEvent":true,"screenRecording":true}}"#,
-            #"→ windows {"app":"Calcolatrice"}"#,
-            #"← windows {"applications":[{"bundleID":"com.apple.calculator","name":"Calcolatrice","pid":13776,"#
-                + #""windows":[{"id":27741,"title":"Calcolatrice"}]}]}"#,
-            #"→ open_session {"app":"com.apple.calculator","window":"Calcolatrice"}"#,
-            #"← open_session {"scene":"# + Self.shortScene + "}",
-            #"→ batch {"steps":[{"operation":"act","target":"7","verb":"click"},"#
-                + #"{"operation":"act","target":"Nonexistent","verb":"click"},"#
-                + #"{"operation":"act","target":"8","verb":"click"}]}"#,
-            #"← batch step 1 {"message":"clicked '7': reveals elements","status":"found_acted"}"#,
-            #"← batch step 2 {"message":"no element 'Nonexistent' in Calcolatrice","status":"honest_miss"}"#,
-            #"← batch {"attemptedSteps":2,"requested":3,"status":"stopped","verifiedSteps":1}"#,
-        ]
-        #expect(Self.copy(Self.calculator, isExpanded: false, detailed: true) == expected.joined(separator: "\n"))
+    @Test("A diagnostic copy preserves the saved evidence, including long scenes and protected omissions")
+    func completeDiagnosticCopy() {
+        let long = #"← act {"gesture":"uncertain","effect":"confirmed","message":""#
+            + String(repeating: "a", count: 400)
+            + #"","observation":{"scene":"First line\nLast line"},"text":"[withheld]"}"#
+        #expect(Self.copy(Self.calculator + [long], isExpanded: false, detailed: true)
+            == (Self.calculator + [long]).joined(separator: "\n"))
+        #expect(Self.copy([long], detailed: true).contains("[withheld]"))
+        #expect(Self.copy([long], detailed: true).contains("Last line"))
     }
 
-    @Test("A debug copy keeps errors, notes and records that are not JSON, and cuts a long record at 300")
-    func debugCopyKeepsAndCuts() {
-        let error = "← batch step 2 error: the session ended. Observe before any retry."
-        let note  = "» Pressing 7 now."
-        let plain = "list_branches"
-        let long  = #"→ type_text {"session":"s1","target":"Notes","text":""#
-            + String(repeating: "a", count: 400) + #""}"#
-        let lines = Self.copy([error, note, plain, long], detailed: true).components(separatedBy: "\n")
-
-        #expect(Array(lines.prefix(3)) == [error, note, plain])
-        #expect(lines[3].count == ToolStep.copiedRecordLimit)
-        #expect(lines[3].hasPrefix(#"→ type_text {"target":"Notes","text":"aaa"#))
-        #expect(lines[3].hasSuffix("a…"))
-    }
-
-    @Test("A scene with no element count keeps only its first line")
-    func sceneWithoutCount() {
-        let line = #"← observe {"scene":"app: Notes\nnothing to list\n"}"#
-        #expect(Self.copy([line], detailed: true) == #"← observe {"scene":"app: Notes"}"#)
+    @Test func diagnosticCopyDoesNotIncludeEncodedPictures() {
+        let line = ToolPictures.mark + #"canvas {"data":"encoded-private-pixels"}"#
+        let copied = Self.copy([line], detailed: true)
+        #expect(!copied.contains("encoded-private-pixels"))
+        #expect(copied.contains("image data omitted"))
     }
 }

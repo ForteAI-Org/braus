@@ -24,6 +24,24 @@ struct DB2CSceneTests {
         let elements = try await SQLiteBrainGraphRepository(store: store).elements(ofScene: "scene")
         #expect(elements.count == 1)
         #expect(elements.first?.label == "Compose")
+        let inspected = try #require(try await SQLiteBrainGraphRepository(store: store)
+            .storedBrain(of: SceneFixtures.app.bundleID))
+        #expect(inspected.scenes.map(\.id) == ["scene"])
+        #expect(inspected.elements.map(\.label) == ["Compose"])
+        #expect(inspected.projection.objects.isEmpty)
+        #expect(!inspected.isEmpty)
+        #expect(try await store.read {
+            try $0.query("SELECT count(*) FROM brain_anchors") { $0.integer(0) }.first ?? nil
+        } == 0)
+        #expect(try await SQLiteBrainGraphRepository(store: store).storedBrain(of: "missing.app") == nil)
+        _ = try await store.write { transaction in
+            try SQLiteIdentityRows.ensureApp(transaction, bundleID: "com.example.Encountered")
+        }
+        let summaries = try await SQLiteBrainGraphRepository(store: store).storedBrainSummaries()
+        let savedSummary = try #require(summaries.first { $0.bundleID == SceneFixtures.app.bundleID })
+        #expect(savedSummary.scenes == 1 && savedSummary.elements == 1 && savedSummary.relations == 0)
+        let emptySummary = try #require(summaries.first { $0.bundleID == "com.example.Encountered" })
+        #expect(emptySummary.scenes == 0 && emptySummary.elements == 0 && !emptySummary.hasHistoricalProjection)
         #expect(try await store.read { try SchemaCoherence.check($0) }.isEmpty)
         await store.close()
     }

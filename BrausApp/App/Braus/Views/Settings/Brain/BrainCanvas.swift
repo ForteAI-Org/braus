@@ -58,6 +58,7 @@ struct BrainCanvas: View, Animatable {
     var body: some View {
         // Read in the body itself, not in a closure under it, so waking and sleeping start and stop the frames.
         let isAwake = simulation.isAwake
+        let _ = simulation.revealRevision
 
         // Every frame while it moves; while it is still, often enough for the lights to breathe.
         TimelineView(.animation(
@@ -123,6 +124,7 @@ struct BrainCanvas: View, Animatable {
         var strands: [BrainGraph.Kind: Path] = [:]
         var lighted = Path()
         var effects = Path()
+        var arrows = Path()
         for (index, link) in physics.links.enumerated() where physics.isLinked[index] {
             let line = strand(
                 simulation.strands[index],
@@ -131,6 +133,16 @@ struct BrainCanvas: View, Animatable {
             )
             if link.kind == .effect {
                 effects.addPath(line)
+                let start = points[link.from], end = points[link.to]
+                let distance = hypot(end.x - start.x, end.y - start.y)
+                if distance > 1 {
+                    let dx = (end.x - start.x) / distance, dy = (end.y - start.y) / distance
+                    let inset = camera.radius(nodes[link.to].radius) + 5
+                    let tip = CGPoint(x: end.x - dx * inset, y: end.y - dy * inset)
+                    arrows.move(to: CGPoint(x: tip.x - dx * 9 - dy * 4, y: tip.y - dy * 9 + dx * 4))
+                    arrows.addLine(to: tip)
+                    arrows.addLine(to: CGPoint(x: tip.x - dx * 9 + dy * 4, y: tip.y - dy * 9 - dx * 4))
+                }
             } else if link.from == hovered || link.to == hovered {
                 lighted.addPath(line)
             } else {
@@ -163,6 +175,8 @@ struct BrainCanvas: View, Animatable {
             in   : context
         )
 
+        stroke(arrows, with: .accentColor.opacity(0.9 * dimming), width: 1.5, in: context)
+
         // The nodes from the back: controls, then groups, then windows.
         for layer in 0..<3 {
             for index in nodes.indices where present[index] && depth(of: nodes[index].kind) == layer {
@@ -179,10 +193,15 @@ struct BrainCanvas: View, Animatable {
 
         // Windows and groups carry their names under them; a control's shows under the pointer.
         for index in nodes.indices where present[index] && depth(of: nodes[index].kind) > 0 {
-            let node  = nodes[index]
+            let node = nodes[index]
+            switch node.kind {
+            case .container, .collection, .itemTemplate:
+                guard hovered == index else { continue }
+            default: break
+            }
             let title = NSAttributedString(
-                string    : node.label,
-                attributes: node.kind == .window
+                string    : node.label.count > 45 ? String(node.label.prefix(44)) + "…" : node.label,
+                attributes: node.kind == .window || node.kind == .scene
                     ? [
                         .font           : Self.windowFont,
                         .foregroundColor: NSColor.labelColor,
@@ -417,9 +436,9 @@ struct BrainCanvas: View, Animatable {
 
     private func depth(of kind: BrainGraph.Kind) -> Int {
         switch kind {
-        case .control: 0
-        case .group  : 1
-        case .window : 2
+        case .control, .itemTemplate: 0
+        case .group, .container, .collection, .relation, .unknownState: 1
+        case .window, .scene: 2
         }
     }
 

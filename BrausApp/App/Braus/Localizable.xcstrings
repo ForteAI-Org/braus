@@ -18,6 +18,23 @@
         }
       }
     },
+    "%@ records": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ records"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ registrazioni"
+          }
+        }
+      }
+    },
     "%@, %@": {
       "extractionState": "manual",
       "generatesSymbol": false,
@@ -89,6 +106,70 @@
         }
       }
     },
+    "%lld observed states · %lld relationships": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld observed states · %lld relationships"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld stati osservati · %lld relazioni"
+          }
+        }
+      }
+    },
+    "%lld steps not executed separately": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld steps not executed separately"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld passaggi non eseguiti separatamente"
+          }
+        }
+      }
+    },
+    "%lld supporting observations; %lld contradictions": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld supporting observations; %lld contradictions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld osservazioni a supporto; %lld contraddizioni"
+          }
+        }
+      }
+    },
+    "A check failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A check failed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un controllo non è stato superato"
+          }
+        }
+      }
+    },
     "A control": {
       "extractionState": "manual",
       "localizations": {
@@ -102,6 +183,56 @@
           "stringUnit": {
             "state": "translated",
             "value": "Un controllo"
+          }
+        }
+      }
+    },
+    "A control can be counted in more than one state. Element records also include containers and collections. Observations do not count successful tasks.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A control can be counted in more than one state. Element records also include containers and collections. Observations do not count successful tasks."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno stesso controllo può essere contato in più stati. Gli elementi includono anche contenitori e collezioni. Le osservazioni non contano i compiti riusciti."
+          }
+        }
+      }
+    },
+    "A relationship links an action to an observed result. Matching and conflicting results count distinct tool calls, not completed tasks.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A relationship links an action to an observed result. Matching and conflicting results count distinct tool calls, not completed tasks."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una relazione collega un’azione al risultato osservato. Gli esiti coerenti o in contrasto contano chiamate distinte allo strumento, non compiti completati."
+          }
+        }
+      }
+    },
+    "A saved interface state. Its number identifies it in this view; it is not a procedure step.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A saved interface state. Its number identifies it in this view; it is not a procedure step."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno stato dell’interfaccia salvato. Il numero lo identifica in questa vista; non è un passo di una procedura."
           }
         }
       }
@@ -174,6 +305,89 @@
         }
       }
     },
+    "Actions with an unidentified starting screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions with an unidentified starting screen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azioni con schermata iniziale non identificata"
+          }
+        }
+      }
+    },
+    "Actions: orange = awaiting confirmation · green = available for reuse · red = limited reuse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions: orange = awaiting confirmation · green = available for reuse · red = limited reuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azioni: arancione = da confermare · verde = riuso disponibile · rosso = riuso limitato"
+          }
+        }
+      }
+    },
+    "Added": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiunto"
+          }
+        }
+      }
+    },
+    "Adding": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adding"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiunta di"
+          }
+        }
+      }
+    },
+    "After the action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After the action"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo l’azione"
+          }
+        }
+      }
+    },
     "Allow Further Actions": {
       "extractionState": "manual",
       "localizations": {
@@ -191,6 +405,22 @@
         }
       }
     },
+    "Already in the requested state": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already in the requested state"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Già nello stato richiesto"
+          }
+        }
+      }
+    },
     "Applications": {
       "extractionState": "manual",
       "localizations": {
@@ -204,6 +434,107 @@
           "stringUnit": {
             "state": "translated",
             "value": "Applicazioni"
+          }
+        }
+      }
+    },
+    "Arrows show action and outcome. Select a node for details.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrows show action and outcome. Select a node for details."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le frecce mostrano azione ed esito. Seleziona un nodo per i dettagli."
+          }
+        }
+      }
+    },
+    "Available for reuse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Available for reuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disponibili per il riuso"
+          }
+        }
+      }
+    },
+    "Available for reuse means the action-result relationship has enough matching evidence. It does not certify a complete procedure or guarantee the next result.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Available for reuse means the action-result relationship has enough matching evidence. It does not certify a complete procedure or guarantee the next result."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Disponibile per il riuso” significa che il legame fra azione e risultato ha abbastanza riscontri coerenti. Non certifica una procedura completa e non garantisce il risultato successivo."
+          }
+        }
+      }
+    },
+    "Awaiting confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Awaiting confirmation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da confermare"
+          }
+        }
+      }
+    },
+    "Awaiting confirmation; not available for reuse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Awaiting confirmation; not available for reuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da confermare; riuso non disponibile"
+          }
+        }
+      }
+    },
+    "Before the action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before the action"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima dell’azione"
           }
         }
       }
@@ -276,6 +607,54 @@
         }
       }
     },
+    "Candidate relationship; not offered for reuse": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate relationship; not offered for reuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazione candidata; non proposta per il riuso"
+          }
+        }
+      }
+    },
+    "Candidate relationships": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate relationships"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazioni candidate"
+          }
+        }
+      }
+    },
+    "Candidate; not offered for reuse": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidate; not offered for reuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Candidata; non proposta per il riuso"
+          }
+        }
+      }
+    },
     "Check the application's current state before allowing this worker to continue.": {
       "extractionState": "manual",
       "localizations": {
@@ -289,6 +668,102 @@
           "stringUnit": {
             "state": "translated",
             "value": "Controlla lo stato attuale dell’applicazione prima di consentire a questo worker di proseguire."
+          }
+        }
+      }
+    },
+    "Checked": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checked"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificato"
+          }
+        }
+      }
+    },
+    "Checking": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifica di"
+          }
+        }
+      }
+    },
+    "Choose context-menu command": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose context-menu command"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli comando dal menu contestuale"
+          }
+        }
+      }
+    },
+    "Choose menu command": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose menu command"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli comando dal menu"
+          }
+        }
+      }
+    },
+    "Choosing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choosing"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scelta di"
+          }
+        }
+      }
+    },
+    "Chose": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chose"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scelto"
           }
         }
       }
@@ -310,6 +785,70 @@
         }
       }
     },
+    "Close details": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close details"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi dettagli"
+          }
+        }
+      }
+    },
+    "Closed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiuso"
+          }
+        }
+      }
+    },
+    "Closing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiusura di"
+          }
+        }
+      }
+    },
+    "Collection": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collection"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collezione"
+          }
+        }
+      }
+    },
     "Confirm that this action has stopped and you have reviewed its outcome. The worker can send new actions afterward. This does not repeat the action or mark it successful.": {
       "extractionState": "manual",
       "localizations": {
@@ -323,6 +862,317 @@
           "stringUnit": {
             "state": "translated",
             "value": "Conferma che questa azione è terminata e che ne hai verificato l’esito. Il worker potrà quindi inviare nuove azioni. L’azione non viene ripetuta né dichiarata riuscita."
+          }
+        }
+      }
+    },
+    "Confirmed observations": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmed observations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osservazioni confermate"
+          }
+        }
+      }
+    },
+    "Conflicting results": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conflicting results"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esiti in contrasto"
+          }
+        }
+      }
+    },
+    "Conflicting results; reuse is limited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conflicting results; reuse is limited"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esiti in contrasto; riuso limitato"
+          }
+        }
+      }
+    },
+    "Container": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Container"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contenitore"
+          }
+        }
+      }
+    },
+    "Containers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Containers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contenitori"
+          }
+        }
+      }
+    },
+    "Content omitted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Content omitted"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contenuto omesso"
+          }
+        }
+      }
+    },
+    "Contradicting calls": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contradicting calls"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiamate contrarie"
+          }
+        }
+      }
+    },
+    "Contradictory evidence; possible outcome only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contradictory evidence; possible outcome only"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prove contrastanti; solo un esito possibile"
+          }
+        }
+      }
+    },
+    "Control identity retained in diagnostics": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control identity retained in diagnostics"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identità del controllo conservata nella diagnostica"
+          }
+        }
+      }
+    },
+    "Control not identified in this snapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control not identified in this snapshot"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo non identificato nei dati mostrati"
+          }
+        }
+      }
+    },
+    "Control state changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control state changed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È cambiato lo stato di un controllo"
+          }
+        }
+      }
+    },
+    "Control state set": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control state set"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stato del controllo impostato"
+          }
+        }
+      }
+    },
+    "Controls and structure in this screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls and structure in this screen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlli e struttura della schermata"
+          }
+        }
+      }
+    },
+    "Controls seen only in this screen: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls seen only in this screen: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlli presenti solo in questa schermata: %@"
+          }
+        }
+      }
+    },
+    "Copy Activity Details": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Activity Details"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia dettagli attività"
+          }
+        }
+      }
+    },
+    "Could not": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile"
+          }
+        }
+      }
+    },
+    "Dialog": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialog"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialogo"
+          }
+        }
+      }
+    },
+    "Distinct observed controls: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distinct observed controls: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlli distintivi osservati: %@"
+          }
+        }
+      }
+    },
+    "Document control": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Document control"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo del documento"
           }
         }
       }
@@ -344,6 +1194,317 @@
         }
       }
     },
+    "Double-click": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-click"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppio clic"
+          }
+        }
+      }
+    },
+    "Double-clicked": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-clicked"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppio clic su"
+          }
+        }
+      }
+    },
+    "Double-clicking": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-clicking"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppio clic su"
+          }
+        }
+      }
+    },
+    "Drag": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina"
+          }
+        }
+      }
+    },
+    "Dragged": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dragged"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascinato"
+          }
+        }
+      }
+    },
+    "Dragging": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dragging"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascinamento di"
+          }
+        }
+      }
+    },
+    "Each numbered screen is a saved interface state. Its number identifies it in this view, not a step of a procedure.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each numbered screen is a saved interface state. Its number identifies it in this view, not a step of a procedure."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni schermata numerata è uno stato dell’interfaccia salvato. Il numero serve a riconoscerla in questa vista: non indica un passo di una procedura."
+          }
+        }
+      }
+    },
+    "Element records across screens": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element records across screens"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elementi registrati nelle schermate"
+          }
+        }
+      }
+    },
+    "Element records across states": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element records across states"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elementi registrati nei vari stati"
+          }
+        }
+      }
+    },
+    "Element records include controls, containers and lists. The same control may have a record in several screens.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Element records include controls, containers and lists. The same control may have a record in several screens."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli elementi registrati comprendono controlli, contenitori ed elenchi. Lo stesso controllo può avere una registrazione in più schermate."
+          }
+        }
+      }
+    },
+    "Elements appeared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elements appeared"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sono comparsi elementi nell’interfaccia"
+          }
+        }
+      }
+    },
+    "Elements disappeared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elements disappeared"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sono scomparsi elementi dall’interfaccia"
+          }
+        }
+      }
+    },
+    "Encountered app; no saved observations yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encountered app; no saved observations yet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App incontrata; nessuna osservazione ancora salvata"
+          }
+        }
+      }
+    },
+    "Enough matching results; available for reuse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enough matching results; available for reuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riscontri sufficienti; disponibile per il riuso"
+          }
+        }
+      }
+    },
+    "Enter text": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter text"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci testo"
+          }
+        }
+      }
+    },
+    "Entered text": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entered text"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Testo inserito"
+          }
+        }
+      }
+    },
+    "Entering text": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entering text"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserimento di testo"
+          }
+        }
+      }
+    },
+    "Focused field": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focused field"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo attivo"
+          }
+        }
+      }
+    },
+    "Follow the arrows from a screen through an action to the observed result. Select a node for details.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow the arrows from a screen through an action to the observed result. Select a node for details."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segui le frecce: schermata iniziale, azione, risultato osservato. Seleziona un nodo per i dettagli."
+          }
+        }
+      }
+    },
     "Graph": {
       "extractionState": "manual",
       "localizations": {
@@ -361,6 +1522,38 @@
         }
       }
     },
+    "Growth shows first observations, not qualification history.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Growth shows first observations, not qualification history."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La crescita mostra le prime osservazioni, non la storia delle qualifiche."
+          }
+        }
+      }
+    },
+    "Historical naming projection": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historical naming projection"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proiezione storica dei nomi"
+          }
+        }
+      }
+    },
     "Hover": {
       "extractionState": "manual",
       "localizations": {
@@ -374,6 +1567,104 @@
           "stringUnit": {
             "state": "translated",
             "value": "Passaggio del puntatore"
+          }
+        }
+      }
+    },
+    "How many saved observations were matched to this screen. This is not a count of successful actions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How many saved observations were matched to this screen. This is not a count of successful actions."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quante osservazioni salvate sono state associate a questa schermata. Non è il numero di azioni riuscite."
+          }
+        }
+      }
+    },
+    "How to read these numbers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How to read these numbers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come leggere questi numeri"
+          }
+        }
+      }
+    },
+    "In progress": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In progress"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In corso"
+          }
+        }
+      }
+    },
+    "Inserted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserted"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserito"
+          }
+        }
+      }
+    },
+    "Inserting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserting"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserimento di"
+          }
+        }
+      }
+    },
+    "Item chosen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Item chosen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento selezionato"
           }
         }
       }
@@ -412,6 +1703,39 @@
         }
       }
     },
+    "Limited relationships": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limited relationships"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazioni limitate"
+          }
+        }
+      }
+    },
+    "Limited reuse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limited reuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con riuso limitato"
+          }
+        }
+      }
+    },
     "List": {
       "extractionState": "manual",
       "localizations": {
@@ -425,6 +1749,104 @@
           "stringUnit": {
             "state": "translated",
             "value": "Elenco"
+          }
+        }
+      }
+    },
+    "Lists and collections": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lists and collections"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elenchi e collezioni"
+          }
+        }
+      }
+    },
+    "Looked at": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looked at"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osservato"
+          }
+        }
+      }
+    },
+    "Looked up": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looked up"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cercato"
+          }
+        }
+      }
+    },
+    "Looking at": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looking at"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osservazione di"
+          }
+        }
+      }
+    },
+    "Looking up": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looking up"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricerca di"
+          }
+        }
+      }
+    },
+    "Matching results": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matching results"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esiti coerenti"
           }
         }
       }
@@ -446,6 +1868,54 @@
         }
       }
     },
+    "Memory diagnostics": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory diagnostics"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostica della memoria"
+          }
+        }
+      }
+    },
+    "Menu": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu"
+          }
+        }
+      }
+    },
+    "Menu opened": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu opened"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu aperto"
+          }
+        }
+      }
+    },
     "No App Knowledge Yet": {
       "extractionState": "manual",
       "localizations": {
@@ -463,6 +1933,72 @@
         }
       }
     },
+    "No individual control recorded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No individual control recorded"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun controllo specifico registrato"
+          }
+        }
+      }
+    },
+    "No observable change": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No observable change"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun cambiamento osservato"
+          }
+        }
+      }
+    },
+    "No observed layouts yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No observed layouts yet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna disposizione osservata"
+          }
+        }
+      }
+    },
+    "No saved observations for this app": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No saved observations for this app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna osservazione salvata per questa app"
+          }
+        }
+      }
+    },
     "No unresolved actions": {
       "extractionState": "manual",
       "localizations": {
@@ -476,6 +2012,330 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nessuna azione irrisolta"
+          }
+        }
+      }
+    },
+    "Not performed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not performed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non eseguito"
+          }
+        }
+      }
+    },
+    "Not started": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not started"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non iniziato"
+          }
+        }
+      }
+    },
+    "Observed control": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed control"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo osservato"
+          }
+        }
+      }
+    },
+    "Observed controls": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed controls"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlli osservati"
+          }
+        }
+      }
+    },
+    "Observed element": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed element"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento osservato"
+          }
+        }
+      }
+    },
+    "Observed elements": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed elements"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elementi osservati"
+          }
+        }
+      }
+    },
+    "Observed relationships": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed relationships"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazioni osservate"
+          }
+        }
+      }
+    },
+    "Observed result": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed result"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risultato osservato"
+          }
+        }
+      }
+    },
+    "Observed scene %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed scene %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scena osservata %lld"
+          }
+        }
+      }
+    },
+    "Observed scenes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed scenes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scene osservate"
+          }
+        }
+      }
+    },
+    "Observed screen %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed screen %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schermata osservata %lld"
+          }
+        }
+      }
+    },
+    "Observed screens": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed screens"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schermate osservate"
+          }
+        }
+      }
+    },
+    "Observed state; not a stable screen type or a qualified procedure.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed state; not a stable screen type or a qualified procedure."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stato osservato; non è un tipo stabile di schermata né una procedura qualificata."
+          }
+        }
+      }
+    },
+    "Observed states": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed states"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stati osservati"
+          }
+        }
+      }
+    },
+    "Observed structural change": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed structural change"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È cambiata la struttura dell’interfaccia"
+          }
+        }
+      }
+    },
+    "Observed surface": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed surface"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie osservata"
+          }
+        }
+      }
+    },
+    "Opened": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opened"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aperto"
+          }
+        }
+      }
+    },
+    "Opening": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apertura di"
+          }
+        }
+      }
+    },
+    "Orange: candidate · Green: supported · Red: contradictory": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orange: candidate · Green: supported · Red: contradictory"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arancione: candidata · Verde: supportata · Rosso: prove contrastanti"
+          }
+        }
+      }
+    },
+    "Overall goal not independently assessed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overall goal not independently assessed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obiettivo complessivo non valutato indipendentemente"
           }
         }
       }
@@ -531,6 +2391,87 @@
         }
       }
     },
+    "Playback shows when observations were first saved. It does not replay actions or their later checks.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback shows when observations were first saved. It does not replay actions or their later checks."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La riproduzione mostra quando le osservazioni sono state salvate per la prima volta. Non riesegue le azioni e non mostra le verifiche successive."
+          }
+        }
+      }
+    },
+    "Press button": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press button"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi pulsante"
+          }
+        }
+      }
+    },
+    "Press key": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press key"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi tasto"
+          }
+        }
+      }
+    },
+    "Pressed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premuto"
+          }
+        }
+      }
+    },
+    "Pressing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressing"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressione di"
+          }
+        }
+      }
+    },
     "Reading actions…": {
       "extractionState": "manual",
       "localizations": {
@@ -548,6 +2489,40 @@
         }
       }
     },
+    "Recorded arguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded arguments"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parametri registrati"
+          }
+        }
+      }
+    },
+    "Recorded target": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded target"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinatario registrato dell’azione"
+          }
+        }
+      }
+    },
     "Refresh": {
       "extractionState": "manual",
       "localizations": {
@@ -561,6 +2536,217 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aggiorna"
+          }
+        }
+      }
+    },
+    "Refresh knowledge": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh knowledge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna conoscenza"
+          }
+        }
+      }
+    },
+    "Relations without a displayed source state": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relations without a displayed source state"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazioni prive di uno stato di origine visualizzato"
+          }
+        }
+      }
+    },
+    "Relationship available for reuse": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relationship available for reuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazione disponibile per il riuso"
+          }
+        }
+      }
+    },
+    "Relationship evidence": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relationship evidence"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evidenze delle relazioni"
+          }
+        }
+      }
+    },
+    "Relationship identifier": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relationship identifier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identificativo della relazione"
+          }
+        }
+      }
+    },
+    "Relationship with contradictory evidence": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relationship with contradictory evidence"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazione con evidenze contraddittorie"
+          }
+        }
+      }
+    },
+    "Relationships available for reuse": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relationships available for reuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazioni disponibili per il riuso"
+          }
+        }
+      }
+    },
+    "Repeated item": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repeated item"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elemento ripetuto"
+          }
+        }
+      }
+    },
+    "Repeated names are grouped for readability. Their records remain separate in memory. Structural elements organize the interface; they are not additional learned actions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repeated names are grouped for readability. Their records remain separate in memory. Structural elements organize the interface; they are not additional learned actions."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I nomi ripetuti sono raggruppati per rendere leggibile l’elenco. Le registrazioni in memoria restano separate. Gli elementi strutturali organizzano l’interfaccia: non sono altre azioni apprese."
+          }
+        }
+      }
+    },
+    "Repeated-item structures": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repeated-item structures"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strutture di elementi ripetuti"
+          }
+        }
+      }
+    },
+    "Result unverified": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Result unverified"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esito non verificato"
+          }
+        }
+      }
+    },
+    "Resulting state not identified": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resulting state not identified"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stato risultante non identificato"
+          }
+        }
+      }
+    },
+    "Return key": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return key"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invio"
           }
         }
       }
@@ -599,6 +2785,201 @@
         }
       }
     },
+    "Right-clicked": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right-clicked"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clic destro su"
+          }
+        }
+      }
+    },
+    "Right-clicking": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right-clicking"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clic destro su"
+          }
+        }
+      }
+    },
+    "Saved action relationships": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved action relationships"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazioni azione–risultato salvate"
+          }
+        }
+      }
+    },
+    "Saved observations": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved observations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osservazioni salvate"
+          }
+        }
+      }
+    },
+    "Saved observations are evidence of what was seen. They do not by themselves establish a reusable procedure.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved observations are evidence of what was seen. They do not by themselves establish a reusable procedure."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le osservazioni salvate documentano ciò che è stato visto. Da sole non dimostrano una procedura riutilizzabile."
+          }
+        }
+      }
+    },
+    "Saved readings of this screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved readings of this screen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rilevazioni associate a questa schermata"
+          }
+        }
+      }
+    },
+    "Saved relation details": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved relation details"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dettagli della relazione salvata"
+          }
+        }
+      }
+    },
+    "Saved relationships": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved relationships"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazioni salvate"
+          }
+        }
+      }
+    },
+    "Screen not identified": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen not identified"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schermata non identificata"
+          }
+        }
+      }
+    },
+    "Scroll": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorri"
+          }
+        }
+      }
+    },
+    "Scrolled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrolled"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorrimento di"
+          }
+        }
+      }
+    },
+    "Scrolling": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrolling"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorrimento di"
+          }
+        }
+      }
+    },
     "Seen %lld times": {
       "extractionState": "manual",
       "localizations": {
@@ -629,6 +3010,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "Visto una volta"
+          }
+        }
+      }
+    },
+    "Select item": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select item"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona elemento"
+          }
+        }
+      }
+    },
+    "Selected": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selezionato"
+          }
+        }
+      }
+    },
+    "Selecting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecting"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selezione di"
+          }
+        }
+      }
+    },
+    "Set control state": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set control state"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imposta stato del controllo"
+          }
+        }
+      }
+    },
+    "Sheet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sheet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foglio"
           }
         }
       }
@@ -667,6 +3128,38 @@
         }
       }
     },
+    "Some checks remain unverified": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some checks remain unverified"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alcuni controlli restano non verificati"
+          }
+        }
+      }
+    },
+    "State %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "State %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stato %lld"
+          }
+        }
+      }
+    },
     "Stop the worker's response before acknowledging an action.": {
       "extractionState": "manual",
       "localizations": {
@@ -680,6 +3173,151 @@
           "stringUnit": {
             "state": "translated",
             "value": "Interrompi la risposta del worker prima di confermare un’azione."
+          }
+        }
+      }
+    },
+    "Supplied checks passed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supplied checks passed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlli indicati dall’assistente: superati"
+          }
+        }
+      }
+    },
+    "Supported relationship; available for reuse": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supported relationship; available for reuse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relazione supportata; disponibile per il riuso"
+          }
+        }
+      }
+    },
+    "Supporting calls": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supporting calls"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiamate a favore"
+          }
+        }
+      }
+    },
+    "Task declared complete": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task declared complete"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task dichiarato completato"
+          }
+        }
+      }
+    },
+    "Task ended": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task ended"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task terminato"
+          }
+        }
+      }
+    },
+    "Task not completed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task not completed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task non completato"
+          }
+        }
+      }
+    },
+    "Task plan": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Piano del task"
+          }
+        }
+      }
+    },
+    "Task step": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task step"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passaggio del task"
+          }
+        }
+      }
+    },
+    "Technical details": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Technical details"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dettagli tecnici"
           }
         }
       }
@@ -735,6 +3373,103 @@
         }
       }
     },
+    "The app has been encountered, but no observed states or relationships are saved here yet.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app has been encountered, but no observed states or relationships are saved here yet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’app è stata incontrata, ma qui non sono ancora salvati stati osservati o relazioni."
+          }
+        }
+      }
+    },
+    "The result could not be read.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The result could not be read."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile leggere il risultato."
+          }
+        }
+      }
+    },
+    "The result was not verified.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The result was not verified."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il risultato non è stato verificato."
+          }
+        }
+      }
+    },
+    "These counts describe supporting calls, not successful procedures or later reuse.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These counts describe supporting calls, not successful procedures or later reuse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questi conteggi descrivono chiamate di supporto, non procedure riuscite o riusi successivi."
+          }
+        }
+      }
+    },
+    "These numbers describe saved observations, not successful tasks or complete procedures.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These numbers describe saved observations, not successful tasks or complete procedures."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questi numeri descrivono osservazioni salvate, non compiti riusciti o procedure complete."
+          }
+        }
+      }
+    },
+    "These write counters restart with Braus. They do not count all saved knowledge.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These write counters restart with Braus. They do not count all saved knowledge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questi contatori delle scritture ripartono con Braus. Non contano tutta la conoscenza salvata."
+          }
+        }
+      }
+    },
     "This action has no confirmed end yet. Stop the worker and refresh the list.": {
       "extractionState": "manual",
       "localizations": {
@@ -786,6 +3521,150 @@
         }
       }
     },
+    "Triple-click": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Triple-click"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Triplo clic"
+          }
+        }
+      }
+    },
+    "Triple-clicked": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Triple-clicked"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Triplo clic su"
+          }
+        }
+      }
+    },
+    "Triple-clicking": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Triple-clicking"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Triplo clic su"
+          }
+        }
+      }
+    },
+    "Turned off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turned off"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato"
+          }
+        }
+      }
+    },
+    "Turned on": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turned on"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivato"
+          }
+        }
+      }
+    },
+    "Turning off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning off"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivazione di"
+          }
+        }
+      }
+    },
+    "Turning on": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning on"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivazione di"
+          }
+        }
+      }
+    },
+    "Typed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digitato"
+          }
+        }
+      }
+    },
+    "Typing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typing"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digitazione di"
+          }
+        }
+      }
+    },
     "Unlabelled %@": {
       "extractionState": "manual",
       "localizations": {
@@ -820,6 +3699,102 @@
         }
       }
     },
+    "Unnamed control": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unnamed control"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo senza nome"
+          }
+        }
+      }
+    },
+    "Unnamed controls": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unnamed controls"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlli senza nome"
+          }
+        }
+      }
+    },
+    "Use the list to inspect the saved relationship evidence.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the list to inspect the saved relationship evidence."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa l’elenco per consultare le evidenze delle relazioni salvate."
+          }
+        }
+      }
+    },
+    "Used": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usato"
+          }
+        }
+      }
+    },
+    "Using": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso di"
+          }
+        }
+      }
+    },
+    "Value set": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Value set"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valore impostato"
+          }
+        }
+      }
+    },
     "View": {
       "extractionState": "manual",
       "localizations": {
@@ -837,6 +3812,38 @@
         }
       }
     },
+    "Viewed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osservato"
+          }
+        }
+      }
+    },
+    "Viewing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewing"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osservazione di"
+          }
+        }
+      }
+    },
     "Window": {
       "extractionState": "manual",
       "localizations": {
@@ -850,6 +3857,56 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finestra"
+          }
+        }
+      }
+    },
+    "Window or focused control": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window or focused control"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finestra o controllo attivo"
+          }
+        }
+      }
+    },
+    "Window set changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window set changed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È cambiato l’insieme delle finestre aperte"
+          }
+        }
+      }
+    },
+    "Window title changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window title changed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È cambiato il titolo della finestra"
           }
         }
       }
@@ -922,6 +3979,102 @@
         }
       }
     },
+    "add": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "add"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aggiungere"
+          }
+        }
+      }
+    },
+    "canvas": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "area grafica"
+          }
+        }
+      }
+    },
+    "canvases": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvases"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aree grafiche"
+          }
+        }
+      }
+    },
+    "check": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "check"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "verificare"
+          }
+        }
+      }
+    },
+    "choose": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "choose"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scegliere"
+          }
+        }
+      }
+    },
+    "close": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chiudere"
+          }
+        }
+      }
+    },
     "closed": {
       "extractionState": "manual",
       "localizations": {
@@ -986,6 +4139,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "controlli"
+          }
+        }
+      }
+    },
+    "double-click": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "double-click"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fare doppio clic su"
+          }
+        }
+      }
+    },
+    "drag": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "drag"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "trascinare"
+          }
+        }
+      }
+    },
+    "enter text": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "enter text"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inserire testo"
           }
         }
       }
@@ -1058,6 +4259,54 @@
         }
       }
     },
+    "insert": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "insert"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inserire"
+          }
+        }
+      }
+    },
+    "look at": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "look at"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "osservare"
+          }
+        }
+      }
+    },
+    "look up": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "look up"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cercare"
+          }
+        }
+      }
+    },
     "not opened yet": {
       "extractionState": "manual",
       "localizations": {
@@ -1126,6 +4375,38 @@
         }
       }
     },
+    "press": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "press"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "premere"
+          }
+        }
+      }
+    },
+    "right-click": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-click"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fare clic destro su"
+          }
+        }
+      }
+    },
     "row": {
       "extractionState": "manual",
       "localizations": {
@@ -1139,6 +4420,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "riga"
+          }
+        }
+      }
+    },
+    "scroll": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scroll"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scorrere"
+          }
+        }
+      }
+    },
+    "select": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "select"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "selezionare"
           }
         }
       }
@@ -1177,6 +4490,70 @@
         }
       }
     },
+    "triple-click": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "triple-click"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fare triplo clic su"
+          }
+        }
+      }
+    },
+    "turn off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "turn off"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disattivare"
+          }
+        }
+      }
+    },
+    "turn on": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "turn on"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "attivare"
+          }
+        }
+      }
+    },
+    "type": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "digitare"
+          }
+        }
+      }
+    },
     "unavailable: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -1207,6 +4584,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "sconosciuta"
+          }
+        }
+      }
+    },
+    "use": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "use"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "usare"
+          }
+        }
+      }
+    },
+    "view": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "osservare"
           }
         }
       }

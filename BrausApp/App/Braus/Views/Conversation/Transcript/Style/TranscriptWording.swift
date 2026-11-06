@@ -116,11 +116,16 @@ nonisolated enum TranscriptWording {
     /// done, and the worker's notes never.
     static func toolSummary(_ steps: [ToolStep], ending: TranscriptItem.TurnEnding?) -> String {
         let groups = collapsed(steps.filter { !$0.isNote })
+        if let finish = groups.last(where: { if case .finish = $0.step.action { true } else { false } }) {
+            let result = toolStep(finish.step, count: finish.count, ending: ending, includeReason: false)
+            let uncertain = groups.last { if case .uncertain = $0.step.state { true } else { false } }
+            return result + (uncertain.map { " · " + toolStep($0.step, count: $0.count, ending: ending, includeReason: false) } ?? "")
+        }
         let kept   = groups.filter { !isFailed($0.step) }
         var shown  = kept.filter { $0.step.isEffectful || $0.step.state == .pending }
         if shown.isEmpty { shown = groups.filter { $0.step.isEffectful } }
         if shown.isEmpty { shown = kept + groups.filter { isFailed($0.step) } }
-        var parts = shown.prefix(summaryLimit).map { toolStep($0.step, count: $0.count, ending: ending) }
+        var parts = shown.prefix(summaryLimit).map { toolStep($0.step, count: $0.count, ending: ending, includeReason: false) }
         if shown.count > summaryLimit { parts.append("\(shown.count - summaryLimit) more") }
         guard !parts.isEmpty else { return "Performed actions" }
         return parts.enumerated().map { $0 == 0 ? $1 : lowercasedFirst($1) }.joined(separator: " · ")
@@ -144,7 +149,8 @@ nonisolated enum TranscriptWording {
     static func toolStep(
         _ step: ToolStep,
         count : Int = 1,
-        ending: TranscriptItem.TurnEnding?
+        ending: TranscriptItem.TurnEnding?,
+        includeReason: Bool = true
     ) -> String {
         let phrase = phrase(step.action)
         let times  = count == 1 ? "" : count == 2 ? " twice" : " \(count) times"
@@ -153,7 +159,17 @@ nonisolated enum TranscriptWording {
             if count > 1, case .observe = step.action { return "Looked" + times }
             return phrase.past + times
         case .failed:
-            return "Tried to \(phrase.base)" + times
+            if case .failed(let reason) = step.state {
+                return String(localized: "Could not") + " \(phrase.base)" + times
+                    + (includeReason ? ": " + visible(reason) : "")
+            }
+            return phrase.base
+        case .uncertain(let reason):
+            return phrase.past + times + " · " + String(localized: "Result unverified")
+                + (includeReason ? ": " + visible(reason) : "")
+        case .unchanged(let reason):
+            return phrase.past + times + " · " + String(localized: "No observable change")
+                + (includeReason ? ": " + visible(reason) : "")
         case .pending:
             switch ending {
             case nil:                   return phrase.progressive + times + "…"
@@ -173,7 +189,11 @@ nonisolated enum TranscriptWording {
             _ progressive: String,
             _ object     : String
         ) -> (String, String, String) {
-            ("\(past) \(object)", "\(base) \(object)", "\(progressive) \(object)")
+            (
+                "\(String(localized: String.LocalizationValue(stringLiteral: past))) \(object)",
+                "\(String(localized: String.LocalizationValue(stringLiteral: base))) \(object)",
+                "\(String(localized: String.LocalizationValue(stringLiteral: progressive))) \(object)"
+            )
         }
         switch action {
         case .status:
@@ -182,8 +202,25 @@ nonisolated enum TranscriptWording {
             return forms("Checked", "check", "Checking", app.map { "\(label($0))’s open windows" } ?? "open windows")
         case .apps(let query):
             return forms("Looked up", "look up", "Looking up", query.map { "“\(label($0))”" } ?? "apps")
-        case .open(let app):
-            return forms("Opened", "open", "Opening", label(app))
+        case .open(let app, let window):
+            return forms("Opened", "open", "Opening", label(app) + (window.map { " (\(label($0)))" } ?? ""))
+        case .plan(let rows):
+            let shown = rows.isEmpty ? String(localized: "Task plan") : rows.map(visible).joined(separator: "; ")
+            return (shown, shown, shown)
+        case .finish(let outcome, let checks, let goal, let unexecuted):
+            var shown: String = switch outcome {
+            case "completed": String(localized: "Task declared complete")
+            case "failed": String(localized: "Task not completed")
+            default: String(localized: "Task ended")
+            }
+            if checks == "passed" { shown += " · " + String(localized: "Supplied checks passed") }
+            if checks == "unknown" { shown += " · " + String(localized: "Some checks remain unverified") }
+            if checks == "failed" { shown += " · " + String(localized: "A check failed") }
+            if goal == "not_assessed" { shown += " · " + String(localized: "Overall goal not independently assessed") }
+            if !unexecuted.isEmpty {
+                shown += " · " + String(localized: "\(unexecuted.count) steps not executed separately")
+            }
+            return (shown, shown, shown)
         case .observe:
             return forms("Viewed", "view", "Viewing", "the window")
         case .select(let control, let item):
@@ -203,10 +240,18 @@ nonisolated enum TranscriptWording {
             default:                    return forms("Used", "use", "Using", object)
             }
         case .typeText(let text, let field, let replace):
+            if text.contains("[withheld]") {
+                return forms("Entered text", "enter text", "Entering text",
+                             String(localized: "Content omitted") + " · " + label(field))
+            }
             return replace
                 ? forms("Typed", "type", "Typing", "“\(label(text))” into \(label(field))")
                 : forms("Added", "add", "Adding", "“\(label(text))” to \(label(field))")
         case .insertText(let text):
+            if text.contains("[withheld]") {
+                return forms("Entered text", "enter text", "Entering text",
+                             String(localized: "Content omitted") + " · " + String(localized: "Focused field"))
+            }
             return forms("Inserted", "insert", "Inserting", "“\(label(text))” into the focused field")
         case .key(let name, let modifiers, let count):
             let key   = keyName(
@@ -252,8 +297,15 @@ nonisolated enum TranscriptWording {
 
     /// `text` cut to `labelLimit` characters at most, the last an ellipsis.
     private static func label(_ text: String) -> String {
+        if text.contains("[withheld]") { return String(localized: "Content omitted") }
+        let text = visible(text)
         guard text.count > labelLimit else { return text }
         return text.prefix(labelLimit - 1).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    /// Changes only the presentation of the already-minimized marker, never the stored evidence.
+    private static func visible(_ text: String) -> String {
+        text.replacingOccurrences(of: "[withheld]", with: String(localized: "Content omitted"))
     }
 
     private static func isFailed(_ step: ToolStep) -> Bool {

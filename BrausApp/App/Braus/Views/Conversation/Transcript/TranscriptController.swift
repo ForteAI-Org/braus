@@ -1308,6 +1308,9 @@ final class TranscriptController: NSObject {
             item.representedObject = MenuAction(run: run)
             menu.addItem(item)
         }
+        if let diagnostics = row.item.diagnosticText {
+            add(String(localized: "Copy Activity Details")) { [weak self] in self?.put(diagnostics) }
+        }
         if textSelection?.isEmpty == false {
             add("Copy") { [weak self] in self?.copySelection() }
         }

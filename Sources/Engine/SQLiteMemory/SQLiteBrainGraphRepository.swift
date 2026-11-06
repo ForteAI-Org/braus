@@ -30,6 +30,46 @@ public struct SQLiteBrainGraphRepository: BrainGraphStoring {
         try await store.read { snapshot in try SQLiteGraphRows.elements(snapshot, sceneID: sceneID) }
     }
 
+    /// Reads a lightweight display catalogue without loading scene contents, events or procedures.
+    public func storedBrainSummaries() async throws -> [StoredBrainSummary] {
+        try await store.read(priority: .interactive) { snapshot in
+            try snapshot.query("""
+                SELECT a.bundle_id,
+                    (SELECT count(*) FROM brain_scenes s WHERE s.app_id=a.app_id AND s.scene_kind<>'app'),
+                    (SELECT count(*) FROM brain_scene_elements e WHERE e.app_id=a.app_id),
+                    (SELECT count(*) FROM brain_relations r WHERE r.app_id=a.app_id),
+                    EXISTS(SELECT 1 FROM brain_anchors h WHERE h.app_id=a.app_id)
+                        OR EXISTS(SELECT 1 FROM brain_transitions t WHERE t.app_id=a.app_id)
+                FROM brain_apps a ORDER BY a.bundle_id
+                """) { row in
+                StoredBrainSummary(bundleID: try row.text(0) ?? "", scenes: Int(row.integer(1) ?? 0),
+                                   elements: Int(row.integer(2) ?? 0), relations: Int(row.integer(3) ?? 0),
+                                   hasHistoricalProjection: row.integer(4) == 1)
+            }
+        }
+    }
+
+    /// Reads all display inputs in one snapshot, outside the action path, without populating the
+    /// frozen naming projection or interpreting observations as qualified reusable procedures.
+    public func storedBrain(of bundleID: String) async throws -> StoredBrain? {
+        try await store.read(priority: .interactive) { snapshot in
+            guard let appID = try SQLiteIdentityRows.appID(snapshot, bundleID: bundleID) else { return nil }
+            let scenes = try SQLiteSceneRows.scenes(snapshot, appID: appID, bundleID: bundleID)
+            let elements = try scenes.flatMap { try SQLiteGraphRows.elements(snapshot, sceneID: $0.id) }
+            let relations = try SQLiteBrainRelationRows.relations(
+                try DB2CReadRows(snapshot), appID: appID, bundleID: bundleID,
+                from: nil, elementKeys: [], includingContext: true
+            )
+            return StoredBrain(
+                bundleID: bundleID,
+                projection: try SQLiteBrainRows.load(snapshot, appID: appID).brain,
+                scenes: scenes,
+                elements: elements,
+                relations: relations
+            )
+        }
+    }
+
     public func link(element sceneElementID: String, toAnchor anchorID: String) async throws -> MemoryReceipt {
         try await store.write { transaction in
             guard let row = try transaction.query(

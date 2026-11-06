@@ -31,6 +31,7 @@ final class BrainSimulation {
 
     /// Whether anything still moves; the view draws a frame at a time only while it does.
     private(set) var isAwake = false
+    private(set) var revealRevision = 0
 
     /// Whether the graph moves on its own; off when the person asks for reduced motion.
     @ObservationIgnored var animates = true {
@@ -78,12 +79,14 @@ final class BrainSimulation {
     }
 
     /// A simulation of `graph` settled away from the main thread.
-    static func settled(_ graph: BrainGraph) async -> BrainSimulation {
-        let physics = await Task.detached(priority: .userInitiated) {
+    static func settled(_ graph: BrainGraph) async throws -> BrainSimulation {
+        let job = Task.detached(priority: .userInitiated) {
             var physics = BrainPhysics(graph: graph)
             physics.settle(from: 1)
             return physics
-        }.value
+        }
+        let physics = await withTaskCancellationHandler { await job.value } onCancel: { job.cancel() }
+        try Task.checkCancellation()
         return BrainSimulation(
             graph  : graph,
             physics: physics
@@ -98,7 +101,7 @@ final class BrainSimulation {
             upTo   : moment,
             placing: animates
         )
-        if changed { wake() }
+        if changed { revealRevision += 1; wake() }
     }
 
     /// Plays the graph coming in: every node from the graph's middle out to where it stands, the
@@ -121,9 +124,9 @@ final class BrainSimulation {
         guard let start = entranceStart else { return 0 }
 
         let rank: Double = switch graph.nodes[node].kind {
-            case .window : 0
-            case .group  : 1
-            case .control: 2
+            case .window, .scene: 0
+            case .group, .container, .collection, .relation: 1
+            case .control, .itemTemplate, .unknownState: 2
         }
         let delay = rank * Self.arrivalSpread / 3 + Self.jitter(of: node) * Self.arrivalSpread / 3
         let t     = min(max((date.timeIntervalSince(start) - delay) / Self.arrivalDuration, 0), 1)

@@ -19,9 +19,9 @@ import Foundation
 /// A result is matched to the oldest call of the same tool still waiting, so
 /// calls that overlap still pair. A result with no call, as after a capped
 /// read or a call rejected before it ran, is a step of its own. An outcome
-/// whose status is not a success (`honest_miss`, `ambiguous`, `refused`,
-/// `acted_unverified`) failed, with its message as the reason. A record this
-/// build cannot read keeps its tool's name. The pictures a result showed the
+/// keeps gesture delivery, effect verification and recovery distinct. Unverified input is not
+/// relabelled as failure or success. A record this build cannot read keeps its tool's name.
+/// The pictures a result showed the
 /// model (`ToolPictures`) go on the latest step of their tool, or on a step of
 /// their own when no call of it was recorded, as `human_step` has none.
 nonisolated struct ToolStep: Sendable, Hashable {
@@ -33,8 +33,10 @@ nonisolated struct ToolStep: Sendable, Hashable {
         /// Looked up the applications it can open, matching `query` when there is one.
         case apps(query: String?)
 
-        case open(app: String)
+        case open(app: String, window: String? = nil)
         case observe
+        case plan(rows: [String])
+        case finish(outcome: String?, checks: String?, goal: String?, unexecuted: [String] = [])
         case act(verb: String, target: String, section: String?, value: String?)
         case select(control: String, item: String)
 
@@ -89,9 +91,11 @@ nonisolated struct ToolStep: Sendable, Hashable {
         case pending
         case done
         case failed(reason: String)
+        case uncertain(reason: String)
+        case unchanged(reason: String)
     }
 
-    let action: Action
+    var action: Action
     var state: State
 
     /// What the step's result showed the model as pictures, nil when it showed none.
@@ -100,7 +104,8 @@ nonisolated struct ToolStep: Sendable, Hashable {
     /// True for a step that changes the app, rather than one that only looks.
     var isEffectful: Bool {
         switch action {
-        case .status, .windows, .apps, .observe, .webSearch, .webRead, .note, .canvas, .humanStep: false
+        case .status, .windows, .apps, .observe, .webSearch, .webRead, .note, .canvas, .humanStep,
+             .plan, .finish: false
         default:                                                                                 true
         }
     }
@@ -140,8 +145,10 @@ nonisolated struct ToolStep: Sendable, Hashable {
         var dropped: Set<Int> = []
         var lastApp: String?
         var latest : [String: Int] = [:]
+        var planTitles: [String: String] = [:]
 
         for line in lines {
+            if line.hasPrefix("Plan: ") || line.hasPrefix("Plan updated: ") { continue }
             if line.hasPrefix(ToolPictures.mark) {
                 // A record this build cannot read shows nothing, never its encoded pictures.
                 guard let read = ToolPictures.read(line) else { continue }
@@ -182,7 +189,7 @@ nonisolated struct ToolStep: Sendable, Hashable {
                     continue
                 }
                 let made = action(name, arguments, lastApp: lastApp)
-                if case .open(let app) = made { lastApp = app }
+                if case .open(let app, _) = made { lastApp = app }
                 waiting[name, default: []].append(steps.count)
                 latest[name] = steps.count
                 steps.append(ToolStep(action: made, state: .pending))
@@ -219,6 +226,27 @@ nonisolated struct ToolStep: Sendable, Hashable {
             if let index = waiting[name]?.first {
                 waiting[name]?.removeFirst()
                 steps[index].state = answer
+                if let fields = object(rest) {
+                    if name == "plan" {
+                        steps[index].action = .plan(rows: planRows(fields))
+                        for row in fields["rows"] as? [[String: Any]] ?? [] {
+                            if let id = row["id"] as? String, let title = row["title"] as? String {
+                                planTitles[id] = title
+                            }
+                        }
+                    }
+                    if name == "end" {
+                        let evidence = fields["completion_evidence"] as? [String: Any]
+                        steps[index].action = .finish(
+                            outcome: fields["outcome"] as? String,
+                            checks: evidence?["checks"] as? String,
+                            goal: evidence?["goal_match"] as? String,
+                            unexecuted: (fields["unexecuted_rows"] as? [String] ?? []).map {
+                                planTitles[$0] ?? String(localized: "Task step")
+                            }
+                        )
+                    }
+                }
             } else {
                 latest[name] = steps.count
                 steps.append(ToolStep(action: action(name, [:], lastApp: lastApp), state: answer))
@@ -230,84 +258,29 @@ nonisolated struct ToolStep: Sendable, Hashable {
 
     // MARK: Copying
 
-    /// The longest a record runs in a detailed copy, before it is cut.
-    static let copiedRecordLimit = 300
-
     /// The text a copy of a whole tool line gives. Plain, it is what the line
     /// shows: the summary and, opened, its steps. Detailed, it is the records
-    /// in order, one per line, each made compact by `compacted(_:)`.
+    /// in order, including their observations, verification limits and protected-content omissions.
     static func copyText(
         of lines  : [String],
         isExpanded: Bool,
         ending    : TranscriptItem.TurnEnding?,
         detailed  : Bool
     ) -> String {
-        guard !detailed else { return lines.map(compacted).joined(separator: "\n") }
+        // These are the producer's minimized text records. Pictures remain separately viewable.
+        guard !detailed else {
+            return lines.map { line in
+                guard line.hasPrefix(ToolPictures.mark) else { return line }
+                guard let picture = ToolPictures.read(line) else {
+                    return ToolPictures.mark + "image record unavailable; image data omitted"
+                }
+                return ToolPictures.mark + picture.tool + " \(picture.pictures.pictures.count) pictures; image data omitted"
+            }.joined(separator: "\n")
+        }
         let read  = steps(from: lines)
         let shown = [TranscriptWording.toolSummary(read, ending: ending)]
             + (isExpanded ? TranscriptWording.toolSteps(read, ending: ending) : [])
         return shown.joined(separator: "\n")
-    }
-
-    /// One record as a detailed copy gives it. A call loses its session, a
-    /// result its session, timing and observation, a scene all but its first
-    /// line and element count, and a batch's end the steps already recorded on
-    /// their own lines. A note, an error or a record that is not JSON stays as
-    /// it is, and every record is cut at `copiedRecordLimit` characters.
-    private static func compacted(_ line: String) -> String {
-        if line.hasPrefix(ToolPictures.mark) {
-            let count = ToolPictures.read(line)?.pictures.pictures.count ?? 0
-            return line.prefix { $0 != "{" }.trimmingCharacters(in: .whitespaces) + " \(count) pictures"
-        }
-        return shortened(compactedJSON(line) ?? line, limit: copiedRecordLimit)
-    }
-
-    /// The record with its JSON compacted, or nil when it carries none.
-    private static func compactedJSON(_ line: String) -> String? {
-        let isCall = line.hasPrefix("→ ")
-        guard isCall || line.hasPrefix("← ") else { return nil }
-        let body = line.dropFirst(2)
-        let name = body.prefix { $0 != " " }
-        var rest = body.dropFirst(name.count).drop { $0 == " " }
-        let isBatchStep = !isCall && name == "batch" && rest.hasPrefix("step ")
-        if isBatchStep { rest = rest.dropFirst(5).drop { $0.isNumber }.drop { $0 == " " } }
-        guard var fields = object(rest) else { return nil }
-
-        if !isCall, name == "batch", !isBatchStep { fields["steps"] = nil }
-        let dropped: Set<String> = isCall ? ["session"] : ["session", "observedAt", "revision", "observation"]
-        do {
-            let data = try JSONSerialization.data(
-                withJSONObject: trimmed(fields, dropping: dropped),
-                options       : [.sortedKeys, .withoutEscapingSlashes]
-            )
-            return String(line[..<rest.startIndex]) + String(decoding: data, as: UTF8.self)
-        } catch {
-            return nil
-        }
-    }
-
-    /// `value` without `keys` at any depth, and with every scene shortened.
-    private static func trimmed(_ value: Any, dropping keys: Set<String>) -> Any {
-        if let list = value as? [Any] { return list.map { trimmed($0, dropping: keys) } }
-        guard let fields = value as? [String: Any] else { return value }
-        var kept: [String: Any] = [:]
-        for (key, field) in fields where !keys.contains(key) {
-            if key == "scene", let scene = field as? String {
-                kept[key] = sceneLine(scene)
-            } else {
-                kept[key] = trimmed(field, dropping: keys)
-            }
-        }
-        return kept
-    }
-
-    /// A scene's first line, followed by its element count when its text gives one.
-    private static func sceneLine(_ scene: String) -> String {
-        let first = String(scene.prefix { $0 != "\n" })
-        guard let mark  = scene.range(of: "elements ("),
-              let count = Int(scene[mark.upperBound...].prefix { $0.isNumber })
-        else { return first }
-        return "\(first) · \(count) elements"
     }
 
     // MARK: Reading records
@@ -320,7 +293,9 @@ nonisolated struct ToolStep: Sendable, Hashable {
         case "status":        return .status
         case "windows":       return .windows(app: text("app"))
         case "apps":          return .apps(query: text("query"))
-        case "open_session":  return text("app").map(Action.open) ?? .other(name: name)
+        case "open_session":  return text("app").map { .open(app: $0, window: text("window")) } ?? .other(name: name)
+        case "plan": return .plan(rows: planRows(arguments))
+        case "end": return .finish(outcome: text("outcome"), checks: nil, goal: nil)
         case "observe":       return .observe
         case "close_session": return .close(app: lastApp)
         case "select":
@@ -392,16 +367,39 @@ nonisolated struct ToolStep: Sendable, Hashable {
             if reason.hasSuffix(" Observe before any retry.") { reason.removeLast(26) }
             return .failed(reason: shortened(reason, limit: 120))
         }
-        if checksOutcome, let outcome = object(answer), outcome["gesture"] is String,
-           let effect = outcome["effect"] as? String, let recovery = outcome["recovery"] as? String {
-            let failed = effect != "confirmed" && recovery != "continue"
-            return failed ? .failed(reason: shortened(outcome["message"] as? String ?? effect, limit: 120)) : .done
+        guard checksOutcome else { return .done }
+        guard let outcome = object(answer) else {
+            return .uncertain(reason: String(localized: "The result could not be read."))
         }
-        guard checksOutcome, let outcome = object(answer), let status = outcome["status"] as? String,
-              !successes.contains(status)
-        else { return .done }
-        let message = outcome["message"] as? String ?? status
-        return .failed(reason: shortened(message, limit: 120))
+        let message = outcome["message"] as? String ?? String(localized: "The result was not verified.")
+        if let gesture = outcome["gesture"] as? String, let effect = outcome["effect"] as? String {
+            if gesture == "uncertain" { return .uncertain(reason: message) }
+            if gesture == "not_sent" { return .failed(reason: message) }
+            if gesture == "sent", effect == "absent" { return .unchanged(reason: message) }
+            if effect == "absent" { return .failed(reason: message) }
+            if gesture == "sent", effect == "confirmed" { return .done }
+            return .uncertain(reason: message)
+        }
+        if let status = outcome["status"] as? String {
+            if status == "acted_unverified" { return .uncertain(reason: message) }
+            if !successes.contains(status) { return .failed(reason: message) }
+        }
+        return .done
+    }
+
+    /// Keeps human plan titles and row progress without treating bookkeeping as application actions.
+    private static func planRows(_ fields: [String: Any]) -> [String] {
+        (fields["rows"] as? [[String: Any]] ?? []).map { row in
+            let title = row["title"] as? String ?? String(localized: "Task step")
+            let status: String? = switch row["status"] as? String {
+            case "pending": String(localized: "Not started")
+            case "in_progress": String(localized: "In progress")
+            case "done": String(localized: "Done")
+            case "abandoned": String(localized: "Not performed")
+            default: nil
+            }
+            return title + (status.map { ": " + $0 } ?? "")
+        }
     }
 
     /// The JSON object a record carries, or nil when it carries none: a

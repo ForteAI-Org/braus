@@ -165,7 +165,9 @@ nonisolated struct BrainPhysics: Sendable {
             }
         }
         for (index, link) in links.enumerated() {
-            isLinked[index] = isPresent[link.from] && isPresent[link.to] && link.cameIn <= moment
+            let linked = isPresent[link.from] && isPresent[link.to] && link.cameIn <= moment
+            if linked != isLinked[index] { changed = true }
+            isLinked[index] = linked
         }
         order = arrivals.indices.filter { isPresent[$0] }
         if changed, placing { alpha = max(alpha, Self.warmth) }
@@ -195,7 +197,7 @@ nonisolated struct BrainPhysics: Sendable {
     mutating func settle(from heat: CGFloat? = nil) {
         alpha       = heat ?? alpha
         alphaTarget = 0
-        while !isCool { step() }
+        while !isCool, !Task.isCancelled { step() }
     }
 
     // MARK: Step
@@ -323,9 +325,9 @@ nonisolated struct BrainPhysics: Sendable {
     /// How hard a node pushes the nodes near it: a window most, a control least.
     private static func charge(of kind: BrainGraph.Kind) -> CGFloat {
         switch kind {
-        case .window : 520
-        case .group  : 180
-        case .control: 45
+        case .window, .scene: 520
+        case .group, .container, .collection, .relation: 180
+        case .control, .itemTemplate, .unknownState: 45
         }
     }
 }

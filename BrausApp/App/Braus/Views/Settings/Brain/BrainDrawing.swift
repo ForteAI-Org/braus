@@ -38,10 +38,13 @@ struct BrainDrawing: NSViewRepresentable {
         override func draw(_ dirtyRect: NSRect) {
             guard let context = NSGraphicsContext.current?.cgContext else { return }
 
+            context.saveGState()
+            context.clip(to: bounds)
             draw?(
                 context,
                 bounds.size
             )
+            context.restoreGState()
         }
     }
 }

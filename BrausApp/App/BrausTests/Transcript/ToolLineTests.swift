@@ -114,7 +114,7 @@ struct ToolLineTests {
         ])
     }
 
-    @Test("Every input tool changes the app, and its unverified outcome reads as what was tried, without the reason")
+    @Test("Every input tool changes the app, and its unverified outcome reads as what was tried, with the reason and delivery uncertainty")
     func inputToolOutcomes() {
         let lines = [
             "→ press_key {\"session\":\"s\",\"key\":\"tab\"}",
@@ -128,9 +128,9 @@ struct ToolLineTests {
         let steps = ToolStep.steps(from: lines)
         #expect(steps.allSatisfy { $0.isEffectful })
         #expect(TranscriptWording.toolSteps(steps, ending: .completed) == [
-            "Tried to press Tab",
-            "Tried to type “Demo” into Name",
-            "Tried to insert “Demo” into the focused field",
+            "Pressed Tab · Result unverified: the window did NOT change",
+            "Could not type “Demo” into Name: no field",
+            "Inserted “Demo” into the focused field · Result unverified: value unreadable",
             "Selecting Copy from Row’s menu, did not finish",
         ])
         let drag = ToolStep.steps(from: ["→ drag {\"session\":\"s\",\"from\":\"Clip\",\"dx\":40}"])
@@ -147,7 +147,7 @@ struct ToolLineTests {
             "← batch step 2 {\"status\":\"honest_miss\",\"message\":\"No control named Size.\"}",
             "← batch {\"status\":\"stopped\"}",
         ]
-        #expect(Self.done(lines) == ["Pressed 8", "Tried to select Large in Size"])
+        #expect(Self.done(lines) == ["Pressed 8", "Could not select Large in Size: No control named Size."])
     }
 
     @Test("Repeats collapse, the summary names what changed, and read-only steps only when nothing else was done")
@@ -183,7 +183,7 @@ struct ToolLineTests {
         #expect(!summary.contains("Issue") && !summary.contains("Tried") && !summary.contains("push"))
 
         let slack = TranscriptWording.toolSummary(ToolStep.steps(from: Self.slack), ending: .completed)
-        #expect(slack == "Opened Slack · pressed Annulla · 1 more")
+        #expect(slack == "Opened Slack · typed “Ci vediamo alle 15?” into Messaggio a India • (Li… · Result unverified · 2 more")
         #expect(!slack.contains("Issue") && !slack.contains("Tried"))
     }
 
@@ -195,13 +195,13 @@ struct ToolLineTests {
             "← push error: remote refused",
         ]
         #expect(TranscriptWording.toolSummary(ToolStep.steps(from: tried), ending: .failed)
-            == "Tried to press 8 · tried to push")
+            == "Could not press 8 · could not push")
         let looked = [
             "→ observe {\"session\":\"s\"}", "← observe error: the window closed",
             "→ status {}", "← status {}",
         ]
         #expect(TranscriptWording.toolSummary(ToolStep.steps(from: looked), ending: .completed)
-            == "Checked open apps · tried to view the window")
+            == "Checked open apps · could not view the window")
     }
 
     @Test("A label a model chose is cut to 24 characters, in the summary and on the card")
@@ -223,26 +223,28 @@ struct ToolLineTests {
         #expect("India • (Lista delle ch…".count == TranscriptWording.labelLimit)
     }
 
-    @Test("The card has one line per step: no reason, no note, a failed step reads as tried")
+    @Test("The card has one line per step: reasons and uncertain effects, without private model notes")
     func cardIsSteps() {
         let card = TranscriptWording.toolSteps(ToolStep.steps(from: Self.slack), ending: .completed)
         #expect(card == [
             "Checked open apps",
             "Checked open windows",
             "Opened Slack",
-            "Tried to type “Ci vediamo alle 15?” into Messaggio a India • (Li…",
-            "Tried to press Annulla",
+            "Typed “Ci vediamo alle 15?” into Messaggio a India • (Li… · Result unverified: the field did NOT change",
+            "Could not press Annulla: No control named Annulla on this screen.",
             "Pressed Annulla",
             "Typed “Ci vediamo alle 15?” into Messaggio a India • (Li…",
         ])
-        let hidden = ["NOT change", "No control", "Typing the message"]
-        #expect(!card.contains { line in hidden.contains { line.contains($0) } }, "no reason and no note")
+        #expect(card.contains { $0.contains("NOT change") })
+        #expect(card.contains { $0.contains("No control") })
+        #expect(!card.contains { $0.contains("Typing the message now") })
 
         let item = TranscriptItem(id: .toolRun(UUID()),
                                   kind: .toolRun(lines: Self.slack, isExpanded: true, ending: .completed),
                                   date: TranscriptFixture.origin, authorWorkerID: UUID(), continuesGroup: false)
+        #expect(item.diagnosticText == Self.slack.joined(separator: "\n"))
         let spoken = TranscriptWording.accessibilityLabel(for: item, workerName: "Atlas")
-        #expect(spoken.hasSuffix("Opened Slack · pressed Annulla · 1 more: " + card.joined(separator: "; ")))
+        #expect(spoken.hasSuffix("Opened Slack · typed “Ci vediamo alle 15?” into Messaggio a India • (Li… · Result unverified · 2 more: " + card.joined(separator: "; ")))
     }
 
     @Test("No tool line text uses an alert role or colour, and the summary stays on one line with room for its chevron")
@@ -411,11 +413,11 @@ struct ToolLineTests {
             "← web_fetch error: The web tool reported a failure.",
         ]
         #expect(Self.done(failed) == [
-            "Tried to search the web for “swift 7 release date”",
-            "Tried to read swift.org",
+            "Could not search the web for “swift 7 release date”: The web tool reported a failure.",
+            "Could not read swift.org: The web tool reported a failure.",
         ])
         #expect(TranscriptWording.toolSummary(ToolStep.steps(from: failed), ending: .completed)
-                == "Tried to search the web for “swift 7 release date” · tried to read swift.org")
+                == "Could not search the web for “swift 7 release date” · could not read swift.org")
 
         let acted = Self.web + [
             "→ act {\"session\":\"s\",\"target\":\"Send\"}",

@@ -8,12 +8,14 @@
 import AppKit
 import AutomationRuntime
 import Foundation
+import Memory
 
 /// BrainAppSummary identifies an application without loading its stored Brain.
 struct BrainAppSummary: Identifiable {
     let bundleID: String
     let name: String
     let icon: NSImage?
+    var observationSummary: StoredBrainSummary? = nil
 
     var id: String { bundleID }
 }
@@ -35,7 +37,16 @@ enum BrainLibrary {
     static func apps(in directory: URL) async -> BrainLibraryState {
         let memory = MemoryService.shared(for: directory)
         guard memory.archiveExists else { return .loaded([]) }
-        return await apps { try await memory.brainApplications() }
+        do {
+            let summaries = try await memory.storedBrainSummaries()
+            return .loaded(summaries.map { summary in
+                var item = app(bundleID: summary.bundleID)
+                item.observationSummary = summary
+                return item
+            }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
+        } catch {
+            return .unavailable(MemoryService.describe(error))
+        }
     }
 
     static func apps(applications: () async throws -> [String]) async -> BrainLibraryState {
