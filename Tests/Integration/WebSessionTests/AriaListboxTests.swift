@@ -18,7 +18,8 @@ import WebDriver
 @MainActor
 struct AriaListboxTests {
 
-    private static func choose(_ item: String, on page: ScriptedAriaPage, control: String = "Colore") async throws -> ActOutcome {
+    private static func choose(_ item: String, on page: ScriptedAriaPage, control: String = "Colore",
+                               beforeOptionClick: (() -> Void)? = nil) async throws -> ActOutcome {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("braus-w05-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let connection = await CDPConnection(transport: page)
@@ -27,9 +28,12 @@ struct AriaListboxTests {
         let runtime = WebEngineRuntime(knowledgeDirectory: directory, tabs: tabs)
         defer { Task { await runtime.service.close() } }
         let recorder = runtime.recorder(ActionContext(source: .app, streamID: "w05", traceID: "w05", sessionID: "s1"))
+        var clicks = 0
         let outcome = try await WebAutomationSession.select(control: control, item: item, processID: processID,
                                                             runtime: runtime) { target in
-            await runtime.engine(recorder: recorder, allowsDestructive: false)
+            clicks += 1
+            if clicks == 2 { beforeOptionClick?() }
+            return await runtime.engine(recorder: recorder, allowsDestructive: false)
                 .act(ActionRequest(processID: processID, bundleID: "web:fixture.test", appName: "fixture.test",
                                    target: target, verb: .click))
         }
@@ -83,8 +87,11 @@ struct AriaListboxTests {
 
     @Test("the list re-rendered in the same document between the session's read and the engine's own, a new Blu in the old one's place: the click is refused unsent")
     func rerenderedBeforeTheEnginesRead() async throws {
-        let page = ScriptedAriaPage(turn: (.rerender(ScriptedAriaPage.renewed), method: "Accessibility.getFullAXTree", count: 2))
-        let outcome = try await Self.choose("Blu", on: page)
+        let page = ScriptedAriaPage()
+        // Change after the session resolved its node, before any of the engine's parallel reads.
+        let outcome = try await Self.choose("Blu", on: page) {
+            page.rerender(options: ScriptedAriaPage.renewed)
+        }
         #expect(outcome.kind == .refused, Comment(rawValue: outcome.message))
         #expect(outcome.message.contains("nothing was sent"), Comment(rawValue: outcome.message))
         #expect(page.pressCount == 1, "only the opening click")

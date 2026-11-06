@@ -40,6 +40,7 @@ struct RemoteContentActuationTests {
         var answers  = true
         var frame    : CGRect?
         var title    : String?
+        var identifier: String?
         var performed: [String] = []
         var writes   : [RemoteContentActuator<Element>.Write] = []
         var children : [Element] = []
@@ -178,6 +179,16 @@ struct RemoteContentActuationTests {
             windowNode         : windowNode,
             frame              : { $0.frame },
             label              : { $0.title },
+            labels             : { node in
+                RemoteContentActuator<Element>.matchingLabels { attribute in
+                    switch attribute {
+                        case kAXTitleAttribute: node.title
+                        case kAXValueAttribute: node.value
+                        case kAXIdentifierAttribute: node.identifier
+                        default: nil
+                    }
+                }
+            },
             toggleValue        : { $0.toggle },
             settle             : settle,
             note               : note
@@ -367,6 +378,43 @@ struct RemoteContentActuationTests {
         #expect(panel.routing.sender.sent.isEmpty)
         try panel.routing.seat.confirm(opened, .unknown)
         try panel.routing.seat.release(turn)
+    }
+
+    @Test("a named row must match before selection or opening, including a hit on another column",
+          arguments: [true, false], [1, 2])
+    func aFileRowChecksItsNameBeforeWriting(matches: Bool, count: Int) throws {
+        let surface = FakeGeometry.identity(windowNumber: 878)
+        let endpoint = try Self.remoteEndpoint(surface: surface)
+        let sheet = Element(kAXSheetRole, window: .window(878), processID: surface.processID)
+        let content = Element(kAXGroupRole, window: .window(879), processID: surface.processID, parent: sheet)
+        let row = Element(kAXRowRole, window: .window(879), processID: surface.processID, parent: content,
+                          actions: [RemoteContentActuator<Element>.openAction])
+        let cell = Element(kAXCellRole, window: .windowless, processID: surface.processID, parent: row)
+        _ = Element(kAXStaticTextRole, window: .windowless, processID: surface.processID, parent: cell,
+                    value: matches ? "continuita-b.rtf" : "continuita-a.rtf")
+        let size = Element(kAXStaticTextRole, window: .windowless, processID: surface.processID, parent: row,
+                           value: "427 bytes")
+        let button = Element(kAXButtonRole, window: .window(879), processID: surface.processID, parent: content,
+                             actions: [kAXPressAction])
+        sheet.defaultButton = button
+
+        let result = Self.actuator { size }.actuate(
+            Self.click(count: count), endpoint: endpoint, expecting: "continuita-b.rtf"
+        )
+        if matches {
+            _ = try result.get()
+            #expect(row.writes == [.selected])
+            #expect(button.performed == (count == 2 ? [kAXPressAction] : []))
+        } else {
+            #expect(throws: RemoteContentActuationRefusal.wrongElement(
+                requested: "continuita-b.rtf", foundRole: kAXRowRole
+            )) { try result.get() }
+            #expect(row.writes.isEmpty)
+            #expect(button.performed.isEmpty)
+            #expect(row.performed.isEmpty)
+        }
+        #expect(cell.writes.isEmpty)
+        #expect(size.writes.isEmpty)
     }
 
     @Test("a double click on a remote panel's row presses its default button, and opens the row only where none is named",
@@ -1248,6 +1296,42 @@ struct RemoteContentActuationTests {
         }
         #expect(field.writes.isEmpty)
         #expect(field.value == "original")
+    }
+
+    @Test("an editor named by its accessibility identifier accepts only that identifier",
+          arguments: [true, false])
+    func editorIsNamedByItsIdentifier(matches: Bool) async throws {
+        let finder = try await Self.finder(clicksThroughAccessibility: true, marker: 3_443)
+        let field = Self.control(kAXTextAreaRole, in: finder, actions: [], value: "Prova Braus T2\nDocumento B")
+        field.identifier = matches ? "First Text View" : "Other Text View"
+        field.selectionSettable = true
+        let actuator = Self.actuator(hitting: { field }, window: finder.element)
+        let identity = try #require(finder.window.reference.identity)
+        let geometry = try #require(WindowGeometryObservation(
+            window: finder.window.reference, scaleFactor: 1,
+            version: GeometryObservationVersion(observerGeneration: 1, sequence: 1)
+        ))
+        let endpoint = try GestureEndpointRoutingTests.endpoint(
+            geometry, relation: .logicalSurface, logicalSurface: identity,
+            generation: 1, hostProcessID: identity.processID
+        )
+        let result = actuator.actuate(
+            .click(Self.point(in: finder.window), count: 3), endpoint: endpoint, expecting: "First Text View"
+        )
+        if matches {
+            let editor = try #require(try result.get().textField)
+            let replacement = "Prova Braus T2\nDocumento B\nVerifica continuita completata"
+            #expect(try editor.replaceSelection(replacement).get() == replacement)
+            #expect(field.value == replacement)
+        } else {
+            #expect(throws: RemoteContentActuationRefusal.wrongElement(
+                requested: "First Text View", foundRole: kAXTextAreaRole
+            )) { try result.get() }
+            #expect(field.writes.isEmpty)
+            #expect(field.value == "Prova Braus T2\nDocumento B")
+        }
+        #expect(field.performed.isEmpty)
+        #expect(finder.sender.sent.isEmpty, "identifier matching never posts a fallback click")
     }
 
     @Test("a field is named by the form label just before it, as the scene names it", arguments: [true, false])

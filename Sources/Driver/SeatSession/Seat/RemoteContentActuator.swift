@@ -118,8 +118,15 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
     let frame     : (Node) -> CGRect?
     let label     : (Node) -> String?
 
-    /// Every name an element answers to: its title, description and value, as the scene may name it.
+    /// Every name an element answers to: its title, description, value and accessibility identifier.
     let labels    : (Node) -> [String]
+
+    /// Names the scene may use for the same native control, including an otherwise untitled editor.
+    /// Reading the identifier keeps the name guard intact rather than treating its text value as its name.
+    package static func matchingLabels(read: (String) -> String?) -> [String] {
+        [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute, kAXIdentifierAttribute]
+            .compactMap(read).filter { !$0.isEmpty }
+    }
 
     /// A checkbox's, switch's or radio button's own 0 or 1 `AXValue`, nil when it is neither.
     let toggleValue: (Node) -> Bool?
@@ -251,6 +258,10 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
             }
             if count == 1, let control { return pressTarget(nodes[control]) }
             guard count <= 2 else { return .failure(.unsupportedRole(kAXRowRole)) }
+            if let wanted = requestedLabel, !rowMatches(wanted, row: nodes[row], under: nodes[...row]) {
+                note("the row at that point does not match the requested control: nothing was selected or opened")
+                return .failure(.wrongElement(requested: wanted, foundRole: kAXRowRole))
+            }
             var selected: String
             switch selectRow(at: row, of: nodes) {
                 case .success(let attribute): selected = attribute
@@ -351,6 +362,22 @@ nonisolated package struct RemoteContentActuator<Node: Equatable> {
         var above = Array(ancestors)
         if let top = nodes.last, let surface = parent(top) { above.append(surface) }
         return above.lazy.compactMap(defaultButton).first
+    }
+
+    /// Checks the requested name within the hit row before any selection is written. A hit on a
+    /// size or kind column may name the file through a sibling cell, never through another row.
+    /// The bounded descent mirrors opening's three levels and retains unnamed-row behavior.
+    private func rowMatches(_ wanted: String, row: Node, under path: ArraySlice<Node>) -> Bool {
+        var names = path.flatMap(labels)
+        if names.contains(where: { Self.sameLabel($0, wanted) }) { return true }
+        var level = Array(children(row).prefix(64))
+        for _ in 0..<3 where !level.isEmpty {
+            level.removeAll { role($0) == kAXRowRole }
+            names += level.flatMap(labels)
+            if names.contains(where: { Self.sameLabel($0, wanted) }) { return true }
+            level = Array(level.flatMap(children).prefix(64))
+        }
+        return names.isEmpty
     }
 
     /// Selects the row at `row` of the path and answers the attribute that did it, only once a
@@ -773,8 +800,7 @@ nonisolated extension RemoteContentActuator where Node == AXUIElement {
                     .lazy.compactMap { attribute(node, $0) as String? }.first { !$0.isEmpty }
             },
             labels          : { node in
-                [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute]
-                    .compactMap { attribute(node, $0) as String? }.filter { !$0.isEmpty }
+                matchingLabels { attribute(node, $0) as String? }
             },
             toggleValue     : { node in
                 guard let number: NSNumber = attribute(node, kAXValueAttribute), [0, 1].contains(number.intValue)

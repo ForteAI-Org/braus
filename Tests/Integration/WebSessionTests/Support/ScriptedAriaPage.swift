@@ -184,6 +184,13 @@ final class ScriptedAriaPage: CDPTransporting, @unchecked Sendable {
         return top.id == id ? ["kind": "target"] : ["kind": "covered", "cover": .string("'\(top.name)'")]
     }
 
+    /// Changes the list at a caller-controlled boundary without racing one scene's parallel reads.
+    func rerender(options: [Option]) {
+        lock.lock()
+        defer { lock.unlock() }
+        take(.rerender(options))
+    }
+
     private func take(_ turn: Turn) {
         switch turn {
             case .navigate(let next):

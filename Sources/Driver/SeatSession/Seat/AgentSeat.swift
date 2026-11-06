@@ -4385,6 +4385,9 @@ public final class AgentSeat {
                                 the operating target \(windowNumber, privacy: .public) is missing and the \
                                 window server names no row for it: it is let go as destroyed, not recovered
                                 """)
+                            // This reader owns the one-shot proof. Retire the selection before its
+                            // held record; a later inventory may report only an uncertain absence.
+                            noteSurfaceGone(windowNumber, evidence: .windowServerConfirmedDestruction)
                             dropDestroyedRecord(windowNumber)
                             continue
                         }

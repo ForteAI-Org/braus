@@ -387,6 +387,46 @@ struct AppWindowFollowTests {
         #expect(seat.adoptedWindows.isEmpty)
     }
 
+    @Test("a panel proved destroyed by the follower cannot strand selection on an unowned surface",
+          arguments: [true, false])
+    func followerClosureKeepsSelectionAndOwnershipTogether(destroyed: Bool) async throws {
+        let sensing = FakeSensing()
+        let placing = FakePlacing()
+        let reader = ControlledSurfaceReader(sensing: sensing)
+        let (seat, panel) = try await Self.followingSeat(
+            sensing: sensing, placing: placing, marker: 7_072, reader: reader
+        )
+        defer { seat.stopWindowFollowing() }
+        let identity = try #require(panel.reference.identity)
+        #expect(seat.selectionKit.selected?.surface == identity)
+
+        // Only the follower's named WindowServer probe proves destruction here; the inventory
+        // reader supplies absence alone. Forgetting the held record cannot discard that proof.
+        sensing.geometry = nil
+        sensing.surfaces = []
+        if destroyed { sensing.destroyed.insert(panel.id) }
+        await Self.pass(seat)
+
+        guard destroyed else {
+            #expect(seat.adoptedWindows.map(\.id) == [panel.id])
+            #expect(seat.selectionKit.selected?.surface == identity)
+            #expect(seat.state == .recovering)
+            return
+        }
+        #expect(seat.adoptedWindows.isEmpty)
+        #expect(seat.selectionKit.selected?.surface != identity)
+        let document = Self.offer(
+            Self.secondWindowNumber, to: sensing, placing,
+            frame: CGRect(x: FakeGeometry.virtual.minX + 300, y: FakeGeometry.virtual.minY + 200,
+                          width: 627, height: 877)
+        )
+        await Self.pass(seat)
+        #expect(seat.adoptedWindows.map(\.id) == [document.windowNumber])
+        #expect(seat.currentTarget?.id == document.windowNumber)
+        #expect(seat.selectionKit.selected?.surface == document.identity)
+        #expect(seat.seatGuard?.target.hasSameIdentity(as: document) == true)
+    }
+
     @Test("a born-in-seat modal can settle at a new AX-attested size without a resize request")
     func resizedBornModalIsTakenAtItsSettledSize() async throws {
         let sensing = FakeSensing()
