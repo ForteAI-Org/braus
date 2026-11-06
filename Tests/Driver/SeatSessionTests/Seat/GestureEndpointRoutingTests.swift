@@ -118,6 +118,7 @@ struct GestureEndpointRoutingTests {
         var modalClicksThroughAccessibility = false
         /// Whether a click accessibility declined before acting may be posted instead.
         var postsDeclinedClicks        = true
+        var isProToolsWindow = false
 
         var discovery: EndpointDiscovery {
             EndpointDiscovery(
@@ -168,6 +169,7 @@ struct GestureEndpointRoutingTests {
                     return ownWindowAnswer ?? answer
                 },
                 postsDeclinedClicks: { [self] _ in postsDeclinedClicks },
+                isProToolsWindow: { [self] _ in isProToolsWindow },
                 remoteActuation: { [self] _, command, endpoint, prefersHost, label in
                     actuatedOnMainThread.append(pthread_main_np() != 0)
                     actuated.append((command, endpoint))

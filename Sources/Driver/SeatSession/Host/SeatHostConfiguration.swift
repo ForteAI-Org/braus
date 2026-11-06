@@ -123,6 +123,10 @@ nonisolated public struct SeatHostConfiguration: Sendable {
     /// activates during a turn. All its visible windows must be virtual.
     public let restoresUserFocus: Bool
 
+    /// Permit one unprepared left click on an attested Pro Tools control that accessibility
+    /// cannot actuate. Requires installed focus recovery; uncertain AX actions never fall back.
+    public let allowsProToolsBackgroundClicks: Bool
+
     /// Per-facility research opt-in; never bypasses symbol or permission checks.
     public let allowUnvalidatedFocusRecovery: Bool
 
@@ -184,6 +188,7 @@ nonisolated public struct SeatHostConfiguration: Sendable {
         eventLoopPump: (@MainActor (Duration) -> Void)? = nil,
         followsNewWindows: Bool = false,
         restoresUserFocus: Bool = false,
+        allowsProToolsBackgroundClicks: Bool = false,
         allowUnvalidatedFocusRecovery: Bool = false,
         transfersFullScreenWindows: Bool = false,
         restoresFullScreenOnRelease: Bool = false,
@@ -196,6 +201,7 @@ nonisolated public struct SeatHostConfiguration: Sendable {
         self.eventLoopPump = eventLoopPump
         self.followsNewWindows = followsNewWindows
         self.restoresUserFocus = restoresUserFocus
+        self.allowsProToolsBackgroundClicks = allowsProToolsBackgroundClicks
         self.allowUnvalidatedFocusRecovery = allowUnvalidatedFocusRecovery
         self.transfersFullScreenWindows  = transfersFullScreenWindows
         self.restoresFullScreenOnRelease = restoresFullScreenOnRelease

@@ -64,6 +64,7 @@ final class SeatDriver {
             ),
             followsNewWindows         : true,
             restoresUserFocus         : true,
+            allowsProToolsBackgroundClicks: true,
             transfersFullScreenWindows: true
         ))
     }

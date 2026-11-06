@@ -367,6 +367,9 @@ public final class AgentSeat {
     package var transfersFullScreenWindows  = false
     package var restoresFullScreenOnRelease = false
 
+    /// Opt-in for unsupported Pro Tools controls, used only with installed focus recovery.
+    package var allowsProToolsBackgroundClicks = false
+
     private var windowWatch    : AppWindowWatch?
     private let windowElements: WindowElementCache?
     private var windowInventory = AppWindowInventory()
@@ -2901,6 +2904,13 @@ public final class AgentSeat {
                 throw retired
             }
             traceContext.beginQueue(at: DispatchTime.now().uptimeNanoseconds)
+            let mayPostProToolsClick = if case .click(_, .left, 1) = routed,
+                allowsProToolsBackgroundClicks, focusRecovery != nil, label == nil,
+                resolved.preparation(for: routed) == .none,
+                let ownContent, ownContent.relation == .logicalSurface,
+                endpoints.isProToolsWindow(ownContent.logicalSurface) {
+                true
+            } else { false }
             // A click an ordinary window's accessibility declined before doing anything is posted.
             let actuated = try await byAccessibility ? actuateRemoteContent(
                 routed,
@@ -2911,6 +2921,7 @@ public final class AgentSeat {
                 recipient   : recipient,
                 traceContext: traceContext,
                 mayPost     : ownContent.map { endpoints.postsDeclinedClicks($0.logicalSurface) } ?? false,
+                mayPostUnsupportedClick: mayPostProToolsClick,
                 mayEnterField: isModalSurface && ownContent.map {
                     endpoints.modalClicksThroughAccessibility($0.logicalSurface)
                 } == true,
@@ -2996,6 +3007,8 @@ public final class AgentSeat {
     /// that proved ignored, `hostRecipe` is the host window and recipe one click is posted with,
     /// never into the extension's own window. `mayEnterField` permits only a qualified own-window
     /// dialog field's click when text is not writable yet and no AX write has been attempted.
+    /// `mayPostUnsupportedClick` admits only a qualified Pro Tools control without an AX action;
+    /// unreadable or foreign paths, menu openers and uncertain effects keep their refusal.
     ///
     /// The accessibility calls wait on the application's answers, 330 to 430 ms for a Pro Tools
     /// dialog button, so they run on `actuationQueue` while this actor awaits them, as a posted
@@ -3009,6 +3022,7 @@ public final class AgentSeat {
         recipient    : WindowReference,
         traceContext : InputTraceContext,
         mayPost      : Bool = false,
+        mayPostUnsupportedClick: Bool = false,
         mayEnterField: Bool = false,
         prefersHost  : Bool = false,
         expecting    label: String? = nil,
@@ -3054,7 +3068,9 @@ public final class AgentSeat {
             }
             trace.recordSendSystemCall(from: started, through: DispatchTime.now().uptimeNanoseconds)
         } catch let refusal as RemoteContentActuationRefusal
-            where (mayPost && refusal.wasDeclinedBeforeActing) || (mayEnterField && refusal == .fieldRequiresClick) {
+            where (mayPost && refusal.wasDeclinedBeforeActing)
+                || (mayPostUnsupportedClick && refusal.isUnsupportedControl)
+                || (mayEnterField && refusal == .fieldRequiresClick) {
             Self.log.notice("""
                 accessibility declined the click on window \(recipient.windowNumber, privacy: .public) \
                 before acting, so it is posted: \(String(describing: refusal), privacy: .public)

@@ -944,6 +944,8 @@ nonisolated package struct DialogEndpointResolver<Node> {
             guard let above = parent(node) else { return .failure(.outsideRemoteContent) }
             node = above
         }
+        // A canvas may expose no child; this descent already verified the window and the point in it.
+        if path.isEmpty, searchWindowTree { return .success([window]) }
         return path.isEmpty ? .failure(.noElementAtPoint) : .success(path)
     }
 

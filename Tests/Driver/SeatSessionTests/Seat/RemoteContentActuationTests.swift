@@ -52,6 +52,7 @@ struct RemoteContentActuationTests {
         var toggle               : Bool?
         var writeAnswer          = AXError.success
         var ignoresSelectedWrite = false
+        var selectionWriteAnswer = AXError.success
 
         // A list of items: whether its selected children can be written, what they are, every
         // write, and what a write really does in the application.
@@ -168,7 +169,7 @@ struct RemoteContentActuationTests {
                     container.selectionWrites.append(nodes)
                     container.onSelectChildren?(nodes)
                 }
-                return .success
+                return container.selectionWriteAnswer
             },
             isSelected         : { $0.selectedFlag },
             isFocused          : { $0.focused },
@@ -918,6 +919,7 @@ struct RemoteContentActuationTests {
     /// window element's value stands for the folder the window shows.
     struct Finder {
         let seat     : AgentSeat
+        let sensing  : FakeSensing
         let sender   : FakeSender
         let discovery: GestureEndpointRoutingTests.Discovery
         let window   : AdoptedWindow
@@ -967,7 +969,7 @@ struct RemoteContentActuationTests {
         hit.element  = text
         let actuator = Self.actuator(hitting: { hit.element }, window: windowEl, searchWindowTree: searchWindowTree)
         discovery.actuation = { actuator.actuate($0, endpoint: $1) }
-        return Finder(seat: seat, sender: sender, discovery: discovery, window: window, element: windowEl,
+        return Finder(seat: seat, sensing: sensing, sender: sender, discovery: discovery, window: window, element: windowEl,
                       outline: outline, row: row, text: text, hit: hit)
     }
 
@@ -1543,6 +1545,99 @@ struct RemoteContentActuationTests {
         }
         #expect(button.performed == [kAXPressAction], "an uncertain reply never replays the press")
         try target.seat.confirm(receipt, .unknown)
+        try target.seat.release(turn)
+    }
+
+    @Test("Pro Tools posts only an opted-in unsupported single left click with focus recovery",
+          arguments: ["enabled", "canvas", "disabled", "noRecovery", "otherApplication", "double", "right",
+                      "press", "timeout", "foreignWindow", "foreignProcess", "ambiguous", "named", "prepared", "actionUnsupported"])
+    func proToolsUnsupportedClickFallback(variant: String) async throws {
+        let target = try await Self.finder(clicksThroughAccessibility: true, marker: 3_450, searchWindowTree: true)
+        target.discovery.isProToolsWindow = variant != "otherApplication"
+        target.seat.allowsProToolsBackgroundClicks = variant != "disabled"
+        if variant != "noRecovery" {
+            target.seat.focusRecovery = UserFocusRecovery(
+                sensing: target.sensing, gate: target.sender.gate,
+                adopted: { [target.window.reference] }, restore: { _ in 0 }, changed: { _ in }
+            )
+        }
+        defer { target.seat.focusRecovery?.stop() }
+        target.element.frame = target.window.reference.frame
+        target.element.children = []
+        let offersPress = ["press", "timeout", "actionUnsupported"].contains(variant)
+        let control = Self.control(
+            offersPress ? kAXButtonRole : kAXGroupRole, in: target,
+            actions: offersPress ? [kAXPressAction] : []
+        )
+        control.frame = target.window.reference.frame.insetBy(dx: 20, dy: 20)
+        if variant == "canvas" { control.frame = nil }
+        if variant == "timeout" { control.performAnswer = .cannotComplete }
+        if variant == "actionUnsupported" { control.performAnswer = .actionUnsupported }
+        if variant == "foreignWindow" { control.window = .window(target.window.id + 1) }
+        if variant == "foreignProcess" { control.processID += 1 }
+        if variant == "ambiguous" {
+            let peer = Element(kAXGroupRole, window: target.element.window,
+                               processID: control.processID, parent: target.element)
+            peer.frame = control.frame
+        }
+        let command = InputCommand.click(
+            Self.point(in: target.window), button: variant == "right" ? .right : .left,
+            count: variant == "double" ? 2 : 1
+        )
+        let turn = try await target.seat.acquire()
+        let observation = try await observedReference(target.seat)
+        switch variant {
+            case "enabled", "canvas", "actionUnsupported":
+                let receipt = try await target.seat.send(command, observation: observation, turn: turn, platform: QtPlatform())
+                #expect(receipt.route.poster == .publicProcess)
+                #expect(target.sender.sent.map(\.command) == [command])
+                #expect(target.sender.sent.first?.correlationID == turn.correlationID)
+                #expect(target.sender.addressed.first?.window == target.window.reference)
+                #expect(target.sender.addressed.first?.platform.preparation(for: command) == Preparation.none)
+                try target.seat.confirm(receipt, .unknown)
+            case "press", "timeout":
+                let receipt = try await target.seat.send(command, observation: observation, turn: turn, platform: QtPlatform())
+                #expect(receipt.route.poster == .accessibilityAction)
+                #expect(control.performed == [kAXPressAction])
+                #expect(target.sender.sent.isEmpty)
+                try target.seat.confirm(receipt, .unknown)
+            default:
+                await #expect(throws: RemoteContentActuationRefusal.self) {
+                    let platform: any InputPlatform = variant == "prepared" ? ChromiumPlatform() : QtPlatform()
+                    try await target.seat.send(command, observation: observation, turn: turn,
+                                               platform: platform, expecting: variant == "named" ? "Waveform" : nil)
+                }
+                #expect(target.sender.sent.isEmpty)
+        }
+        if !offersPress { #expect(control.performed.isEmpty) }
+        try target.seat.release(turn)
+    }
+
+    @Test("Pro Tools never posts after a row selection write with an uncertain or unverified effect",
+          arguments: [AXError.success, .cannotComplete])
+    func proToolsUnverifiedRowDoesNotPost(listAnswer: AXError) async throws {
+        let target = try await Self.finder(clicksThroughAccessibility: true, marker: 3_451)
+        target.discovery.postsDeclinedClicks = false
+        target.discovery.isProToolsWindow = true
+        target.seat.allowsProToolsBackgroundClicks = true
+        target.seat.focusRecovery = UserFocusRecovery(
+            sensing: target.sensing, gate: target.sender.gate,
+            adopted: { [target.window.reference] }, restore: { _ in 0 }, changed: { _ in }
+        )
+        defer { target.seat.focusRecovery?.stop() }
+        target.outline.selectionWriteAnswer = listAnswer
+        target.outline.onSelectRows = { _ in }
+        target.row.writeAnswer = .actionUnsupported
+        let turn = try await target.seat.acquire()
+        await #expect(throws: RemoteContentActuationRefusal.self) {
+            try await target.seat.send(
+                .click(Self.point(in: target.window)), observation: try await observedReference(target.seat),
+                turn: turn, platform: QtPlatform()
+            )
+        }
+        #expect(target.outline.rowWrites.count == 1)
+        #expect(target.row.writes == [.selected])
+        #expect(target.sender.sent.isEmpty)
         try target.seat.release(turn)
     }
 

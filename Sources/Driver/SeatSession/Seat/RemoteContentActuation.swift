@@ -224,3 +224,17 @@ nonisolated struct RemoteContentActuation: Sendable {
     /// state did not change after the press and its child's or parent's: one click is posted.
     var needsPostedClick = false
 }
+
+nonisolated extension RemoteContentActuationRefusal {
+
+    /// A custom control without a mapped action, or one AXPress explicitly reported unsupported.
+    /// Row selection can write before refusing, so it never qualifies for this pointer fallback.
+    var isUnsupportedControl: Bool {
+        switch self {
+            case .unsupportedRole(let role): role != kAXRowRole
+            case .actionRefused(let action, let code):
+                action == kAXPressAction && code == AXError.actionUnsupported.rawValue
+            default: false
+        }
+    }
+}

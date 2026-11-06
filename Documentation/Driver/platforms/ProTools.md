@@ -32,9 +32,20 @@ the parent chain, PID and window number. Equal smallest frames, cycles, foreign 
 an unreadable path or exhausted budgets refuse before acting. The descent is limited
 to 64 levels, 512 examined children and the existing 300 ms path budget.
 
-Supported roles use the existing accessibility action mapping. An unsupported control
-refuses; it does not fall back to a click that might activate PT. A field without writable
-`AXSelectedText` enters its editor through its own AXPress, after its window path and requested
+Supported roles use the existing accessibility action mapping. With
+`SeatHostConfiguration.allowsProToolsBackgroundClicks` enabled and focus recovery installed,
+an unsupported control in an attested own window may instead receive one single left click
+when its resolved platform requires no Preparation.
+Braus enables this option; the kit default remains off. Only an unsupported non-row role or an explicit
+`AXError.actionUnsupported` from AXPress qualifies. Row selection never grants this fallback.
+Unreadable, ambiguous or foreign window paths, menu
+openers, mismatched labels and actions with uncertain effects never grant this fallback.
+Double clicks and right clicks retain their existing AX behavior and do not gain a posted fallback.
+The fallback is for coordinate clicks without an `expecting` label. A named control keeps its AX
+contract: an unsupported or redirected action never authorizes a click at the original point.
+For a canvas with no AX child, the bounded descent must prove the point lies inside the current
+window's own frame with matching process and window identity; that window is the unsupported role.
+A field without writable `AXSelectedText` enters its editor through its own AXPress, after its window path and requested
 label match, and only a read-back focus counts; the keys that follow replace the selection. This
 covers the rename dialog's name field and the Edit window's selection counters, where a posted
 click was measured to activate PT. A field that offers no press, or does not take the focus, keeps
@@ -42,6 +53,42 @@ the older exception in a qualified dialog: one pointer click that enters its edi
 selection is written before either. An uncertain AX write never grants a posted retry. Each action consumes
 its observation. `AXError.cannotComplete` is an attempted action with an uncertain
 effect, never permission to press again. The consumer reads the effect and confirms it.
+
+## Optional pointer clicks and focus recovery
+
+The optional fallback reuses `QtPlatform`'s unprepared click and `InputEngine`'s
+identity-checked, window-routed `CGEventPostToPid`. It posts no global events and
+does not move the physical cursor. Remote panel content remains outside this option.
+An AX timeout or any other possibly effective action is never followed by a posted click.
+
+The 5 November 2026 handoff reported that Edit/Mix custom views activate PT on mouse-down,
+while plugin GUIs accepted routed clicks without activation. That report used macOS 26.7
+and PT Ultimate 2026.4.1; its 1.5 to 6 ms foreground intervals are external measurements,
+not a latency guarantee of this implementation. The existing focus recovery policy is unchanged:
+one request per activation episode, a verified return before reopening input, and no repeated
+request after an unverified handback. This option introduces no fast polling detector.
+
+The qualification scope is single left clicks. Edit/Mix drags, clip moves and numeric automation
+editing are not qualified by this option. The handoff's plugin drags, modified clicks, first-click
+double activation and simultaneous user typing need separate live qualification. Derive points
+from a current observation and AX geometry, including track headers, rather than fixed coordinates.
+
+## Live pointer check, 5 November 2026
+
+A local probe linked the driver from `elio/pt-bg-click`, based on `elio/seat-and-canvas`
+at `a30400a2`, on arm64 macOS 27.0.1 (26A434) with PT 26.4.1.179. The existing Edit
+window was adopted onto the Virtual Display. The Selector tool was already selected.
+The point came from the current visible audio-track header and right gutter AX frames.
+
+One coordinate click on the timeline returned `publicProcess`, two events and `Preparation.none`.
+The Edit selection changed from a range to an insertion at bar 48. The existing recovery
+reported `restored`, the original user application was frontmost afterwards, and the
+cursor's start/end displacement was zero. `Edit > Restore Last Selection` restored all
+three original selection counters. The window returned to its exact original frame,
+and teardown confirmed removal of the display and release of the fence. No session was saved.
+
+This is one observed timeline click, not a foreground latency measurement. Plugin controls,
+simultaneous user typing and the broader handoff matrix remain unqualified by this check.
 
 ## Text fields in dialogs
 

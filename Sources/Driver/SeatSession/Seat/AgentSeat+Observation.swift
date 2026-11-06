@@ -242,11 +242,16 @@ struct EndpointDiscovery {
     /// The applications outside Apple's whose ordinary windows also take their clicks through
     /// accessibility, from the observed window down: Pro Tools repeats control labels across
     /// tracks and its Mix hit test can omit the track strips. Add a bundle identifier to widen it.
-    nonisolated static let windowTreeClickedApplications: Set<String> = ["com.avid.ProTools"]
+    nonisolated static let windowTreeClickedApplications: Set<String> = [proToolsBundleIdentifier]
+
+    nonisolated static let proToolsBundleIdentifier = "com.avid.ProTools"
 
     /// Whether a click accessibility declined before acting on `window` may be posted instead.
     /// `windowTreeClickedApplications` refuse: a posted click there could reach another track.
     var postsDeclinedClicks: (WindowIdentity) -> Bool = { _ in true }
+
+    /// The attested application whose custom controls qualify for the host's optional pointer fallback.
+    var isProToolsWindow: (WindowIdentity) -> Bool = { _ in false }
 
     /// A click on a qualified remote panel's content, acted on through the
     /// assigned application's accessibility instead of posted (ADR 0031).
@@ -393,6 +398,9 @@ struct EndpointDiscovery {
         postsDeclinedClicks: { window in
             NSRunningApplication(processIdentifier: pid_t(window.processID))?.bundleIdentifier
                 .map(windowTreeClickedApplications.contains) != true
+        },
+        isProToolsWindow: { window in
+            NSRunningApplication(processIdentifier: window.processID)?.bundleIdentifier == proToolsBundleIdentifier
         },
         remoteActuation: { processID, command, endpoint, prefersHost, label in
             let searchesWindow = NSRunningApplication(processIdentifier: processID)?.bundleIdentifier

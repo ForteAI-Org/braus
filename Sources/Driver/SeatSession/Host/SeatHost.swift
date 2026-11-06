@@ -293,6 +293,7 @@ public final class SeatHost {
         created.hiddenReturns               = .shared
         created.transfersFullScreenWindows  = configuration.transfersFullScreenWindows
         created.restoresFullScreenOnRelease = configuration.restoresFullScreenOnRelease
+        created.allowsProToolsBackgroundClicks = configuration.allowsProToolsBackgroundClicks
         created.reportMonitorHealth(currentMonitorHealth)
 
         if configuration.followsNewWindows { created.enableWindowFollowing() }
