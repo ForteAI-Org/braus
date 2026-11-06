@@ -457,7 +457,7 @@ struct HumanInterventionLiveTests {
         let lines = digest.text.split(separator: "\n").filter { $0.hasPrefix("Canvas changed: ") }
         print("LIVE canvas drag\n\(digest.text)")
         try #require(lines.count == 1)
-        let stepText = try #require(lines.first?.components(separatedBy: "human_step picture ").last)
+        let stepText = try #require(lines.first?.components(separatedBy: "recorded handoff step ").last)
         let step = try #require(Int(stepText.prefix { $0.isNumber }))
         let details = HumanInterventionDetails(
             review      : review,
@@ -479,7 +479,7 @@ struct HumanInterventionLiveTests {
         let canvases = review.findings.flatMap { $0.canvases ?? [] }
         #expect(canvases.count == 1)
         let canvas = try #require(canvases.first)
-        #expect(lines == ["Canvas changed: \(canvas.name) (human_step picture \(step))."])
+        #expect(lines == ["Canvas changed: \(canvas.name) (recorded handoff step \(step))."])
         #expect(picture.text.contains(canvas.caption))
         #expect(blocks.first?["text"].string?.contains(canvas.caption) == true)
         #expect(blocks.dropFirst().compactMap { block in

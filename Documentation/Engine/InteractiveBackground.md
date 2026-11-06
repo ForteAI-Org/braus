@@ -78,9 +78,11 @@ anything into persistent Memory.
 
 ## Canvas changes in the report
 
-A safe canvas change adds `Canvas changed: <name> (human_step picture N).` to the digest.
-`human_step` with `{"picture":N}` returns the caption and PNG pair before and after. Idle
-frames teach noise, and the person's input prevents learning an action as noise. See
+A safe canvas change adds `Canvas changed: <name> (recorded handoff step N).` to the digest.
+The step number identifies retained evidence; it is not a tool invocation. The model catalogue
+excludes `human_step`, so the digest tells the worker to observe current state when needed.
+The internal details reader retains the caption and PNG pair before and after. Idle frames
+teach noise, and the person's input prevents learning an action as noise. See
 [canvas perception](../Perception/Canvases.md) for retention, privacy and the fixture live check.
 
 ## Temporary Perception reconstruction
@@ -365,7 +367,8 @@ leaves the lent application in the strip, and a black screen reads as strange.
    their 150 ms deadline. Explicit read links rank first, with at most 64 inline candidates per window.
    Changes have one window heading, list additions share one line, and unlinked effects appear only
    as a count. `start:` and `end:` survive the 1,000-byte UTF-8 budget. Repeated strings are interned
-   after filtering, with consecutive IDs; `human_step` retains access to the episode's details.
+   after filtering, with consecutive IDs. The episode's details remain internal; no model tool
+   exposes them in the current public composition.
 4. `WorkerAgentHost.waitForHumanInterventionCleanup()` joins the old provider run and admitted tool.
    `TeamModel` also joins the old turn's recorder and terminal writes, without waiting for the control
    UI to close. The matching host token ends suspension only after this drain.

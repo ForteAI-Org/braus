@@ -48,8 +48,10 @@ struct HumanInterventionCanvasTests {
         let canvases = episode.review.findings.flatMap { $0.canvases ?? [] }
         #expect(canvases.map(\.id) == ["canvas|canvas1"])
         let lines = episode.text.split(separator: "\n").filter { $0.hasPrefix("Canvas changed: ") }
-        #expect(lines == ["Canvas changed: canvas 1 (human_step picture 1)."])
+        #expect(lines == ["Canvas changed: canvas 1 (recorded handoff step 1)."])
         #expect(episode.text.contains("(1 action, 0 without an observed change)"))
+        #expect(!episode.text.contains("human_step"))
+        #expect(episode.text.contains("Details are not exposed as tools; observe the current state if needed."))
         let picture = episode.details.result(.picture(1))
         #expect(!picture.isError)
         #expect(picture.images.map(\.mimeType) == ["image/png", "image/png"])
@@ -68,7 +70,7 @@ struct HumanInterventionCanvasTests {
             actions  : [(Self.drag(), "clip-moved")],
             actsEarly: true
         )
-        #expect(episode.text.contains("Canvas changed: canvas 1 (human_step picture 1)."))
+        #expect(episode.text.contains("Canvas changed: canvas 1 (recorded handoff step 1)."))
         let picture = episode.details.result(.picture(1))
         #expect(picture.images.count == 2)
     }

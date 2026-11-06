@@ -12,8 +12,8 @@ import InteractionListener
 import os
 
 /// HumanInterventionSummary renders the net effects within 1,000 UTF-8 bytes: one line per fact type, then what
-/// changed with no known cause, one line per canvas whose pixels changed (its picture is in details) and what could
-/// not be observed. Causes and intermediate states stay in details.
+/// changed with no known cause, one line per canvas whose pixels changed and what could not be observed.
+/// Causes, pictures and intermediate states stay in internal details, not exposed as model tools.
 nonisolated enum HumanInterventionSummary {
     static let maximumBytes = 1000
 
@@ -74,15 +74,16 @@ nonisolated enum HumanInterventionSummary {
         let unobserved = unobservedEntries(evidence)
         let details = detailLine(evidence)
         let notes = (note.map { [safe($0)] } ?? []) + (details.map { [$0] } ?? [])
-        // One line per canvas a read saw change, pointing at its picture; no line when no canvas changed.
+        // Step numbers preserve provenance without directing the worker to an excluded tool.
         let canvases: [[Token]] = evidence.canvases.map { canvas in
             [.literal("Canvas changed: "), .operand(canvas.name),
-             .literal(" (human_step picture " + canvas.steps.map(String.init).joined(separator: ", ") + ").")]
+             .literal(" (recorded handoff " + (canvas.steps.count == 1 ? "step " : "steps ")
+                + canvas.steps.map(String.init).joined(separator: ", ") + ").")]
         }
         guard !body.isEmpty || !unobserved.isEmpty || !canvases.isEmpty else {
             let lines = ["No changes made."] + notes
             let bounded = lines.joined(separator: "\n").utf8.count <= maximumBytes
-                ? lines : ["No changes made.", "Handoff note available in details."] + (details.map { [$0] } ?? [])
+                ? lines : ["No changes made.", "Handoff note omitted from this summary."] + (details.map { [$0] } ?? [])
             return Digest(text: bounded.joined(separator: "\n"), evidence: evidence,
                 strings: HumanInterventionStrings(tokens: []), attribution: attribution)
         }
@@ -112,7 +113,7 @@ nonisolated enum HumanInterventionSummary {
                 lines.append(line + [.literal(".")])
             }
             lines += canvases
-            if more > 0 { lines.append([.literal("+\(more) more change\(more == 1 ? "" : "s") in details.")]) }
+            if more > 0 { lines.append([.literal("+\(more) more recorded change\(more == 1 ? "" : "s").")]) }
             if !unobserved.isEmpty {
                 var line: [Token] = [.literal("Unobserved: ")]
                 for (index, entry) in unobserved.enumerated() { line += (index > 0 ? [.literal("; ")] : []) + entry }
@@ -149,16 +150,17 @@ nonisolated enum HumanInterventionSummary {
 
     private static let log = Logger(subsystem: "dev.forte.AgentSeatKit", category: "Preview")
 
-    /// The pointer to details: every step, how many actions, and how many caused no observed change.
+    /// Counts recorded steps and actions without implying model access to internal details.
     private static func detailLine(_ evidence: HumanInterventionEvidence) -> String? {
         guard let span = detailReference(Array(1...max(1, evidence.steps.count))), !evidence.steps.isEmpty else { return nil }
         let causes = evidence.attribution.deterministicCauses
         let actions = evidence.threads.owners.count
         let idle = evidence.threads.owners.filter { !causes.contains($0) && !evidence.canvasThreads.contains($0) }.count
-        return "Details: \(span) (\(actions) action\(actions == 1 ? "" : "s"), \(idle) without an observed change)."
+        return "Recorded: \(span) (\(actions) action\(actions == 1 ? "" : "s"), \(idle) without an observed change). "
+            + "Details are not exposed as tools; observe the current state if needed."
     }
 
-    /// One span over the steps: each line already names its fact, so the worker needs only where to page.
+    /// One span over recorded steps, used only as provenance within the summary.
     private static func detailReference(_ indexes: [Int]) -> String? {
         guard let first = indexes.min(), let last = indexes.max() else { return nil }
         return first == last ? "handoff step \(first)" : "handoff steps \(first)-\(last)"

@@ -149,11 +149,12 @@ changed region. Safe changed crops join the findings; refused or failed crops ar
 The digest adds a line such as:
 
 ```text
-Canvas changed: Timeline (human_step picture 3).
+Canvas changed: Timeline (recorded handoff step 3).
 ```
 
-The shorthand names `human_step` with `{"picture":3}`. For a step with canvas changes it
-returns the caption and PNG before/after pair; it is available during the resumed turn.
+The step number identifies retained evidence, not a callable tool. The model catalogue excludes
+`human_step`; the resumed worker observes current state when needed. The internal details reader
+can still return the caption and PNG before/after pair during the retained episode.
 Steps can contain more than one canvas pair. There is no canvas line or crop when only
 masked noise changes. The consumer takes up to four idle frames 200 ms apart after reads
 to teach noise, stopping on input, a pressed button, failed capture or cancellation.

@@ -6,6 +6,11 @@ reader in `Sources/InteractionObservation/`. Section 1 explains why the earlier,
 was replaced; its numbers come from the loss audit (section 10) run on the earlier engine's replay
 archives.
 
+The `human_step` examples below preserve the redesign's historical interface. The current public
+model catalogue excludes that tool. Retained details remain internal; the current digest identifies
+recorded handoff steps without suggesting a callable tool and directs the worker to observe current
+state when needed. See [the current handoff contract](InteractiveBackground.md#canvas-changes-in-the-report).
+
 ## 1. Why a redesign
 
 The earlier report was built action-first: actions were partitioned into threads, a rule decided
